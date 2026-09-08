@@ -7,6 +7,7 @@ import type { LogLine } from '../game/describe';
 import type { ChatMessage, SeatInfo } from '../net/protocol';
 import { Avatar, Empty, Modal, Money, fmt } from './bits';
 import type { CashFloat } from '../store/store';
+import { STICKERS, parseSticker, stickerLabel, stickerToken, stickerUrl } from '../art/art';
 
 /* ============================ player rail ============================ */
 
@@ -164,6 +165,7 @@ export function LogFeed({
 }) {
   const [tab, setTab] = useState<'log' | 'chat'>('log');
   const [draft, setDraft] = useState('');
+  const [stickersOpen, setStickersOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
 
@@ -212,29 +214,67 @@ export function LogFeed({
         ) : (
           chat.length === 0
             ? <Empty>Say something to the table.</Empty>
-            : chat.map((m) => (
-              <p key={m.id} className="chatLine">
-                <strong style={{ color: m.color }}>{m.name}</strong> {m.text}
-              </p>
-            ))
+            : chat.map((m) => {
+              const sticker = parseSticker(m.text);
+              return (
+                <p key={m.id} className="chatLine" data-sticker={sticker ? '' : undefined}>
+                  <strong style={{ color: m.color }}>{m.name}</strong>{' '}
+                  {sticker
+                    ? <img className="chatSticker" src={stickerUrl(sticker)} alt={stickerLabel(sticker)} />
+                    : m.text}
+                </p>
+              );
+            })
         )}
       </div>
 
       {tab === 'chat' && (
-        <form
-          className="feed__compose"
-          onSubmit={(e) => { e.preventDefault(); onSend(draft); setDraft(''); }}
-        >
-          <input
-            className="field"
-            value={draft}
-            maxLength={220}
-            placeholder="Message the table"
-            onChange={(e) => setDraft(e.target.value)}
-            aria-label="Chat message"
-          />
-          <button type="submit" className="btn btn--sm" disabled={!draft.trim()}>Send</button>
-        </form>
+        <>
+          {stickersOpen && (
+            <div className="stickerTray" role="group" aria-label="Stickers">
+              {STICKERS.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  className="stickerTray__item"
+                  title={s.label}
+                  onClick={() => { onSend(stickerToken(s.id)); setStickersOpen(false); }}
+                >
+                  <img src={stickerUrl(s.id)} alt={s.label} loading="lazy" decoding="async" />
+                </button>
+              ))}
+            </div>
+          )}
+          <form
+            className="feed__compose"
+            onSubmit={(e) => { e.preventDefault(); onSend(draft); setDraft(''); }}
+          >
+            <button
+              type="button"
+              className="btn btn--sm btn--icon"
+              aria-expanded={stickersOpen}
+              aria-label={stickersOpen ? 'Hide stickers' : 'Show stickers'}
+              title="Stickers"
+              onClick={() => setStickersOpen((v) => !v)}
+            >
+              {/* The tray's own handle, drawn rather than lettered so it
+                  matches the rest of the iconography. */}
+              <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="currentColor">
+                <path d="M2 3.2A1.2 1.2 0 0 1 3.2 2h9.6A1.2 1.2 0 0 1 14 3.2V9h-3.1A1.9 1.9 0 0 0 9 10.9V14H3.2A1.2 1.2 0 0 1 2 12.8z" />
+                <path d="M10.2 13.7V11a.8.8 0 0 1 .8-.8h2.7z" opacity="0.55" />
+              </svg>
+            </button>
+            <input
+              className="field"
+              value={draft}
+              maxLength={220}
+              placeholder="Message the table"
+              onChange={(e) => setDraft(e.target.value)}
+              aria-label="Chat message"
+            />
+            <button type="submit" className="btn btn--sm" disabled={!draft.trim()}>Send</button>
+          </form>
+        </>
       )}
     </div>
   );

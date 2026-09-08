@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { BOARD } from '../game/board';
 import { maxRaisable } from '../game/rules';
@@ -11,6 +11,8 @@ import {
 } from './Panels';
 import { Modal, fmt } from './bits';
 import { BoardIcon } from './Pieces';
+import { FxLayer, useFx } from './Fx';
+import { cardArt, deckBack } from '../art/art';
 
 export function Game() {
   const room = useStore((s) => s.room);
@@ -43,6 +45,29 @@ export function Game() {
 
   const state = room?.game ?? null;
   const myId = me.playerId;
+
+  /* Table effects. These watch the state everyone already has rather than
+   * needing new events across the wire, so a guest sees its own windfall
+   * the moment the snapshot lands. Only ever fired for the local player -
+   * a table of six should not strobe every time somebody collects rent. */
+  const [fx, fire] = useFx();
+  const myCash = state?.players[myId]?.cash ?? null;
+  const iAmOut = state?.players[myId]?.bankrupt ?? false;
+  const iWon = state?.phase === 'game_over' && state.winnerId === myId;
+  const prevCash = useRef<number | null>(null);
+  const fired = useRef({ out: false, won: false });
+
+  useEffect(() => {
+    if (myCash == null) return;
+    const before = prevCash.current;
+    prevCash.current = myCash;
+    if (before != null && myCash > before) fire('coins');
+  }, [myCash, fire]);
+
+  useEffect(() => {
+    if (iAmOut && !fired.current.out) { fired.current.out = true; fire('ash'); }
+    if (iWon && !fired.current.won) { fired.current.won = true; fire('victory'); }
+  }, [iAmOut, iWon, fire]);
 
   if (!room || !state) return null;
 
@@ -161,6 +186,7 @@ export function Game() {
       {state.phase === 'auction' && <AuctionPanel state={state} myId={myId} dispatch={dispatch} />}
       <CardModal state={state} myId={myId} isMyTurn={isMyTurn} dispatch={dispatch} />
       {state.phase === 'game_over' && <GameOver state={state} onLeave={leave} />}
+      <FxLayer request={fx} />
     </div>
   );
 }
@@ -399,28 +425,53 @@ function CardModal({
     <AnimatePresence>
       {card && (
         <Modal open onClose={dismiss} dismissable={isMyTurn}>
+          {/* The card turns over rather than tilting into view, which is
+              what the printed deck back is for: it is what you see for the
+              first half of the rotation. The scene owns the perspective;
+              without it the rotation flattens into a horizontal squash. */}
+          <div className="cardFlip__scene">
           <motion.div
-            className={`drawnCard drawnCard--${card.deck}`}
-            initial={{ rotateX: -70, opacity: 0, y: -20 }}
-            animate={{ rotateX: 0, opacity: 1, y: 0 }}
-            transition={{ type: 'spring', stiffness: 220, damping: 20 }}
+            className="cardFlip"
+            initial={{ rotateY: 180, opacity: 0 }}
+            animate={{ rotateY: 0, opacity: 1 }}
+            transition={{ type: 'spring', stiffness: 90, damping: 16 }}
           >
-            <span className="drawnCard__medallion">
-              <BoardIcon icon={card.deck === 'chance' ? 'chance' : 'chest'} />
-            </span>
-            <span className="drawnCard__deck">
-              {card.deck === 'chance' ? 'Chance' : 'Community Chest'}
-            </span>
-            <p className="drawnCard__text">{card.text}</p>
-            <span className="drawnCard__who" style={{ color: drawer?.color }}>
-              drawn by {drawer?.name}
-            </span>
-            {isMyTurn && (
-              <button type="button" className="btn btn--primary btn--block" onClick={dismiss}>
-                Continue
-              </button>
-            )}
+            <div
+              className="cardFlip__back"
+              style={{ backgroundImage: `url("${deckBack(card.deck)}")` }}
+              aria-hidden="true"
+            />
+            <div className={`drawnCard drawnCard--${card.deck} cardFlip__front`}>
+              <span className="drawnCard__medallion">
+                <BoardIcon icon={card.deck === 'chance' ? 'chance' : 'chest'} />
+              </span>
+              <span className="drawnCard__deck">
+                {card.deck === 'chance' ? 'Chance' : 'Community Chest'}
+              </span>
+              {/* One engraved vignette per card. Decorative: the card text
+                  below already says everything, so it carries no alt text
+                  and never delays the modal. */}
+              <img
+                className="drawnCard__art"
+                src={cardArt(card.id)}
+                alt=""
+                width={320}
+                height={320}
+                loading="lazy"
+                decoding="async"
+              />
+              <p className="drawnCard__text">{card.text}</p>
+              <span className="drawnCard__who" style={{ color: drawer?.color }}>
+                drawn by {drawer?.name}
+              </span>
+              {isMyTurn && (
+                <button type="button" className="btn btn--primary btn--block" onClick={dismiss}>
+                  Continue
+                </button>
+              )}
+            </div>
           </motion.div>
+          </div>
         </Modal>
       )}
     </AnimatePresence>

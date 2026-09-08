@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { motion } from 'framer-motion';
+import { ART } from '../art/art';
 import { TOKENS } from '../game/settings';
 import type { TokenId } from '../game/types';
 import { useStore } from '../store/store';
@@ -42,7 +43,10 @@ export function Home() {
   const go = (fn: () => void) => { commit(); fn(); };
 
   return (
-    <div className="home">
+    // The backdrop is set as a variable rather than in the stylesheet
+    // because its path depends on the deploy base and on which version is
+    // selected; CSS owns the scrim that keeps the type readable over it.
+    <div className="home" style={{ '--hero-img': `url("${ART.hero}")` } as CSSProperties}>
       <motion.div
         className="home__inner"
         initial={{ opacity: 0, y: 16 }}

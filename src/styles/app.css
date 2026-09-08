@@ -137,6 +137,34 @@
   display: grid;
   place-items: center;
   padding: clamp(var(--s-4), 4vw, var(--s-8)) var(--s-4);
+
+  /* --hero-img is set in Home.tsx: the deploy base and the selected
+     version are both only known at runtime. Unset, this is a plain dark
+     page exactly as before. */
+  position: relative;
+  isolation: isolate;
+  background-image: var(--hero-img, none);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+/* The scrim. A photographic backdrop and brass-on-dark type cannot both
+   win, so the image is pushed down hard behind the middle of the page and
+   allowed to show at the edges. z-index -1 sits it above the background
+   image but below the content; isolation above stops it escaping. */
+.home::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(72% 58% at 50% 42%, rgb(6 12 9 / 0.88), rgb(6 12 9 / 0.46) 58%, transparent),
+    linear-gradient(180deg, rgb(6 12 9 / 0.34), rgb(6 12 9 / 0.14) 45%, rgb(6 12 9 / 0.6));
+}
+@media (prefers-reduced-motion: reduce) {
+  /* A fixed backdrop repaints on every scroll frame; not worth it here. */
+  .home { background-attachment: scroll; }
 }
 .home__inner { width: min(1120px, 100%); display: flex; flex-direction: column; gap: var(--s-6); }
 
@@ -1004,4 +1032,140 @@
 
   .modal { max-height: 92dvh; }
   .home__foot { display: none; }
+}
+
+/* ==================================================================
+   Generated art: card illustrations, the sticker set, and the
+   sprite-strip table effects. --paper-img and --hero-img are set from
+   JS because their paths depend on the deploy base; everything here
+   degrades to what it looked like before if an image never arrives.
+   ================================================================== */
+
+/* ---- card stock under the deed and the drawn card ---------------- */
+.drawnCard,
+.deed__body {
+  background-image: var(--paper-img, none);
+  background-size: 320px 320px;
+  background-blend-mode: multiply;
+}
+
+/* ---- the drawn card turns over ----------------------------------- */
+.cardFlip__scene { perspective: 1400px; }
+.cardFlip {
+  position: relative;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+.cardFlip__front { backface-visibility: hidden; }
+.cardFlip__back {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  transform: rotateY(180deg);
+  border-radius: var(--r-lg);
+  background-size: cover;
+  background-position: center;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.14);
+}
+
+/* One engraved vignette per card. The generated ivory ground multiplies
+   into the card stock, so the illustration sits on the paper instead of
+   in a pale box on top of it. */
+.drawnCard__art {
+  width: min(56%, 168px);
+  height: auto;
+  aspect-ratio: 1;
+  object-fit: contain;
+  mix-blend-mode: multiply;
+  margin: calc(var(--s-1) * -1) 0 calc(var(--s-2) * -1);
+  pointer-events: none;
+  /* The generated ivory is close to the card stock but not identical, and
+     multiply turns that near-match into a visible rectangle. Feathering
+     the edges dissolves the join whatever the exact tone. */
+  -webkit-mask-image: radial-gradient(circle at 50% 48%, #000 54%, transparent 76%);
+  mask-image: radial-gradient(circle at 50% 48%, #000 54%, transparent 76%);
+}
+
+/* ---- stickers ---------------------------------------------------- */
+.stickerTray {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--s-1);
+  padding: var(--s-2);
+  border-top: 1px solid var(--border);
+  background: rgb(0 0 0 / 0.25);
+}
+.stickerTray__item {
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.stickerTray__item:hover { background: rgb(255 255 255 / 0.08); transform: translateY(-2px); }
+.stickerTray__item:focus-visible { border-color: var(--accent); outline: none; }
+.stickerTray__item img { width: 100%; height: auto; display: block; }
+
+.chatLine[data-sticker] { display: flex; align-items: center; gap: var(--s-2); }
+.chatSticker {
+  width: 84px;
+  height: 84px;
+  object-fit: contain;
+  display: block;
+  filter: drop-shadow(0 2px 6px rgb(0 0 0 / 0.45));
+}
+
+.btn--icon { padding-inline: var(--s-2); display: grid; place-items: center; }
+
+/* ---- one-shot table effects -------------------------------------- */
+.fx {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  /* The blend lives on the container, not the strip. A stacking context
+     forms an isolated group, so a screen-blended child of .fx would have
+     nothing behind it to blend with and its black ground would stay
+     black. Blending .fx itself composites the whole effect over the
+     table. */
+  mix-blend-mode: screen;
+}
+.fx__strip {
+  --fx-size: 380px;
+  width: var(--fx-size);
+  height: var(--fx-size);
+  background-repeat: no-repeat;
+  /* Rendered on black; .fx above screens that ground away. */
+  animation-name: fxPlay;
+  /* jump-none gives 16 values from the first cell to the last inclusive.
+     Plain steps(16) would hold a 17th value one cell past the end of the
+     strip, which freezes the effect on empty black. */
+  animation-timing-function: steps(16, jump-none);
+  animation-fill-mode: forwards;
+}
+.fx__strip[data-fx='victory'] { --fx-size: 560px; }
+.fx__strip[data-fx='ash'] { --fx-size: 520px; opacity: 0.85; }
+
+@keyframes fxPlay {
+  from { background-position: 0 0; }
+  /* 15, not 16: the strip is 16 cells wide, so the last cell starts 15
+     cell-widths in. Going to 16 scrolls one cell past the image. */
+  to { background-position: calc(var(--fx-size) * -15) 0; }
+}
+
+@media (max-width: 640px) {
+  .fx__strip { --fx-size: 260px; }
+  .fx__strip[data-fx='victory'] { --fx-size: 340px; }
+  .fx__strip[data-fx='ash'] { --fx-size: 320px; }
+  .stickerTray { grid-template-columns: repeat(4, 1fr); }
+  .chatSticker { width: 68px; height: 68px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fx { display: none; }
 }

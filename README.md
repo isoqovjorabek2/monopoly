@@ -87,8 +87,8 @@ champagne gold, ivory card stock, cinematic depth. Everything visual resolves
 to a token in `src/styles/tokens.css` - no component contains a raw hex, a px
 shadow, or a magic duration.
 
-**All artwork is drawn as SVG in `src/ui/Pieces.tsx`, not generated as raster.**
-That is a deliberate choice, not a fallback:
+**Everything that scales or tints is drawn as SVG in `src/ui/Pieces.tsx`, not
+generated as raster.** That is a deliberate choice, not a fallback:
 
 - The eight playing pieces render at ~16px on the board and ~34px in the player
   rail *from the same source*, staying crisp at both. A raster asset sized for
@@ -98,8 +98,77 @@ That is a deliberate choice, not a fallback:
 - On a static host with no backend, an asset that is inline in the bundle can
   never 404 and costs no extra request.
 
-The board's centre emblem, the colour-group icons, the houses and hotels, and
-the Chance / Community Chest medallions are all built the same way.
+The colour-group icons, the houses and hotels, and the Chance / Community Chest
+medallions are all built the same way. So are the tile faces, which carry
+property names and prices and are drawn to a canvas in `src/ui/three/tileFace.ts`
+- text has to stay text.
+
+### The generated set
+
+Everything a vector could not supply - woven cloth, engraved metal, printed
+illustration, a lit room, falling coins - is an image in `public/art`,
+generated with FLUX.2 and MiniMax H3 and addressed through `src/art/art.ts`.
+64 files, about 2.2 MB, almost all of it fetched only when it is needed.
+
+| Group | Files | Where | What it replaced |
+| --- | --- | --- | --- |
+| `felt-*` | 4 | the block the plaques sit in, and the inner surface | two flat greens |
+| `medal-*` | 4 | the centre emblem under the wordmark | 48 drawn wedges and two rings |
+| `hero-*` | 4 | the home screen backdrop | an empty dark page |
+| `cards/ch*`, `cards/cc*` | 32 | the drawn-card modal | nothing - the card was text only |
+| `cards/back-*` | 2 | the reverse of a card mid-flip | nothing - there was no flip |
+| `stickers/*` | 12 | the chat composer | nothing - chat was text only |
+| `fx/*` | 3 | table effects on cash, a win, a bankruptcy | nothing |
+| `paper`, `table`, `og` | 3 | card stock, the 3D tabletop, the link preview | flat cream, empty fog, no preview |
+
+**Card illustrations** are one engraved vignette per card, keyed by card id, so
+"Speeding fine" and "Go to Jail" never share a picture. The generated ivory
+ground is multiplied into the card stock and its edges are feathered with a
+mask, so the art sits *on* the paper rather than in a pale box on top of it.
+
+**Stickers** travel as ordinary chat text - `:sticker:money:` - so no protocol
+change was needed and an unknown id degrades to visible text rather than a
+broken image. They are WebP with real alpha, cut out with `rembg`.
+
+**Effects** are 16 frames of a generated clip in one strip; CSS `steps()` walks
+it once. No `<video>`, no decoder, no alpha channel: the clips were rendered on
+black and the effect layer is composited with `screen`, which drops the ground.
+Two details matter and both bit on the way in - the timing function has to be
+`steps(16, jump-none)` ending 15 cells along, or the last frame lands one cell
+past the strip and freezes on black; and the blend has to sit on the `.fx`
+container, because a stacking context forms an isolated group and a blended
+child of one has nothing behind it to blend with.
+
+None of this scales, tints per player, or carries text, so the reasons above do
+not apply. Three rules keep them honest:
+
+- **They degrade.** `useArtTexture` loads by hand instead of suspending, and
+  reports `null` on failure, so a missing file falls back to exactly the
+  procedural drawing it replaced. The board never depends on an image, an
+  unknown sticker id renders as text, and the effect layer is decoration that
+  sits behind pointer events and never blocks a turn.
+- **They are pre-graded.** Each felt texture is scaled so its average is the
+  board's own felt colour, which means swapping variants changes the weave and
+  never how dark the board reads.
+- **They avoid alpha where blending will do.** The medallion and the three
+  effect strips are drawn on black and composited with `additive` / `screen`,
+  which keeps them JPEGs instead of PNGs several times the size. Only the
+  stickers, which sit on an unknown background, actually carry an alpha
+  channel - and those are WebP, not PNG.
+
+Everything obeys `prefers-reduced-motion`: the effect layer does not play at
+all, and the home backdrop stops being fixed-attachment.
+
+Only the first three groups have variants. Four versions of each ship, and any
+of them can be previewed without a rebuild:
+
+```
+?art=3              every surface at version 3
+?felt=1&medal=4     one surface at a time
+```
+
+A choice made in the URL is remembered; the committed defaults live in
+`DEFAULTS` in `src/art/art.ts`.
 
 ## Architecture
 
@@ -178,3 +247,12 @@ implementation of the public-domain rules for playing with friends, and is not
 affiliated with or endorsed by Hasbro.
 
 Built with React, TypeScript, Vite, Zustand, Framer Motion and PeerJS.
+
+Everything in `public/art` was generated via fal.ai: stills with FLUX.2
+[klein], the three effect clips with MiniMax H3, and the sticker cutouts
+through `rembg`. They are original material, ornament and illustration - no
+trademarked mark, character or board design is reproduced in any of them.
+
+Sound is still synthesised in the browser with WebAudio (`src/audio/sfx.ts`)
+rather than shipped as files, for the same reason the playing pieces are still
+SVG: zero bytes and nothing to 404.

@@ -1,9 +1,12 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
-  CanvasTexture, DoubleSide, MathUtils, PMREMGenerator, SRGBColorSpace, Vector3, type Mesh,
+  AdditiveBlending, CanvasTexture, DoubleSide, MathUtils, PMREMGenerator, SRGBColorSpace,
+  Vector3, type Mesh,
 } from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { ART, TABLE } from '../../art/art';
+import { useArtTexture } from './artTexture';
 import { BOARD } from '../../game/board';
 import type { GameState, Space } from '../../game/types';
 import {
@@ -83,23 +86,73 @@ function Tile({ space, ownerColor, mortgaged, highlight, onSelect }: {
   );
 }
 
+/**
+ * A texture arriving after first paint does not light up on its own: three
+ * compiles the shader without USE_MAP and never recompiles, so the surface
+ * renders as flat `color` forever. Keying the material on whether the map
+ * exists builds a fresh one the moment it lands. This is why the board
+ * came out white the first time - the map was ignored and the tint that
+ * was meant to darken it was all that showed.
+ */
+function mapKey(texture: unknown): string {
+  return texture ? 'mapped' : 'flat';
+}
+
+/**
+ * The table the board sits on. Before this the board floated in fog over
+ * nothing; a surface underneath gives the shadows something to land on and
+ * the fog something to eat. Sized to reach the fog's far edge (44) so it
+ * never ends in a visible horizon line.
+ */
+function Table() {
+  const wood = useArtTexture(TABLE, { repeat: 4 });
+  if (!wood) return null;
+  return (
+    <mesh position={[0, -BASE_H / 2 - 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+      <planeGeometry args={[46, 46]} />
+      <meshStandardMaterial map={wood} roughness={0.55} metalness={0.05} />
+    </mesh>
+  );
+}
+
 function Felt() {
+  // Repeated rather than stretched: one 512px image across a 12-unit block
+  // smears the weave into mush at the camera's usual distance.
+  const weave = useArtTexture(ART.felt, { repeat: 3 });
+  const inner = useArtTexture(ART.felt, { repeat: 2 });
+
   return (
     <group>
-      {/* The block the plaques are set into. */}
+      {/* The block the plaques are set into. The textures are pre-graded to
+          average out to the colours below, so a variant swap changes the
+          weave and never how dark the board reads. */}
       <mesh position={[0, 0, 0]} receiveShadow castShadow>
         <boxGeometry args={[TOTAL + 0.5, BASE_H, TOTAL + 0.5]} />
-        <meshStandardMaterial color="#0c2419" roughness={0.95} metalness={0} />
+        <meshStandardMaterial
+          key={mapKey(weave)}
+          map={weave ?? undefined}
+          color={weave ? '#ffffff' : '#0c2419'}
+          roughness={0.95}
+          metalness={0}
+        />
       </mesh>
       {/* Gold leaf rail around the rim. */}
       <mesh position={[0, BASE_H / 2 + 0.005, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry args={[HALF + 0.12, HALF + 0.25, 4, 1, Math.PI / 4]} />
         <meshStandardMaterial color="#c8912f" metalness={1} roughness={0.22} side={DoubleSide} />
       </mesh>
-      {/* Inner playing surface. */}
+      {/* Inner playing surface. Flat colour made this a shade lighter than
+          the block; a map cannot be multiplied brighter than itself, so the
+          two now share one grade and the roughness split does the
+          separating instead. It reads as the same cloth, which it is. */}
       <mesh position={[0, BASE_H / 2 + 0.002, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[TOTAL - 3.3, TOTAL - 3.3]} />
-        <meshStandardMaterial color="#0e2c1e" roughness={0.98} />
+        <meshStandardMaterial
+          key={mapKey(inner)}
+          map={inner ?? undefined}
+          color={inner ? '#ffffff' : '#0e2c1e'}
+          roughness={0.98}
+        />
       </mesh>
     </group>
   );
@@ -139,13 +192,41 @@ function useWordmark() {
   }, []);
 }
 
-/** Deco sunburst printed on the felt, drawn as thin radial wedges. */
+/**
+ * Just inside the inner playing surface (TOTAL - 3.3 = 8.94), so the
+ * engraving stops short of the plaques rather than sliding under them.
+ */
+const MEDALLION_SPAN = 8.6;
+
+/** Deco sunburst printed on the felt: an engraved plate, or drawn wedges. */
 function Medallion() {
   const rays = useMemo(() => Array.from({ length: 48 }, (_, i) => (i * Math.PI * 2) / 48), []);
+  const plate = useArtTexture(ART.medal);
   const wordmark = useWordmark();
   useEffect(() => () => wordmark.dispose(), [wordmark]);
-  return (
-    <group position={[0, BASE_H / 2 + 0.004, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+
+  // The generated plates are gold on black, so additive blending is the
+  // whole transparency story: black contributes nothing to the felt under
+  // it and the gold lines glow. No alpha channel needed, which is what
+  // keeps these as 30KB JPEGs instead of PNGs several times the size.
+  const engraved = plate && (
+    <mesh>
+      <planeGeometry args={[MEDALLION_SPAN, MEDALLION_SPAN]} />
+      <meshBasicMaterial
+        map={plate}
+        blending={AdditiveBlending}
+        transparent
+        opacity={0.62}
+        toneMapped={false}
+        depthWrite={false}
+      />
+    </mesh>
+  );
+
+  // The plate carries its own rays and rings, so the drawn ones are the
+  // fallback rather than a layer under it - together they read as clutter.
+  const drawn = !plate && (
+    <>
       {rays.map((a, i) => (
         <mesh key={i} rotation={[0, 0, a]}>
           <planeGeometry args={[0.07, 3.9]} />
@@ -160,8 +241,19 @@ function Medallion() {
         <ringGeometry args={[1.9, 1.94, 64]} />
         <meshBasicMaterial color="#c8912f" transparent opacity={0.22} toneMapped={false} />
       </mesh>
+    </>
+  );
+
+  // Every plate leaves a clear disc in the middle, but a smaller one than
+  // the drawn rings did, so the wordmark comes in to meet it.
+  const wordmarkSpan: [number, number] = plate ? [4.0, 2.0] : [5.4, 2.7];
+
+  return (
+    <group position={[0, BASE_H / 2 + 0.004, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      {engraved}
+      {drawn}
       <mesh position={[0, 0, 0.001]}>
-        <planeGeometry args={[5.4, 2.7]} />
+        <planeGeometry args={wordmarkSpan} />
         <meshBasicMaterial map={wordmark} transparent opacity={0.9} toneMapped={false} depthWrite={false} />
       </mesh>
     </group>
@@ -297,6 +389,7 @@ export default function Board3D({
       <pointLight position={[8, 5, 8]} intensity={14} color="#6fb6ef" distance={26} />
 
       <Suspense fallback={null}>
+        <Table />
         <Felt />
         <Medallion />
 
