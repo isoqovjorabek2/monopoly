@@ -23,6 +23,15 @@ export function Lobby() {
   const [tab, setTab] = useState<Tab>('seats');
   const [copied, setCopied] = useState<'code' | 'link' | null>(null);
 
+  // Every hook must run before the early return below. A guest mounts this
+  // screen with no room yet and receives one a moment later, so a hook placed
+  // after that return changes the hook count between renders and unmounts the
+  // whole app.
+  const deviations = useMemo(
+    () => (room ? countDeviations(room.settings) : 0),
+    [room],
+  );
+
   const isHost = room ? room.hostId === me.playerId : false;
   const isLocal = role === 'local';
 
@@ -67,8 +76,6 @@ export function Lobby() {
     }
     void copy('link');
   };
-
-  const deviations = useMemo(() => countDeviations(s), [s]);
 
   return (
     <div className="lobby">
