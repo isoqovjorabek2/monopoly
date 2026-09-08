@@ -1,0 +1,30 @@
+{
+  "name": "monopoly-royale",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "A visually stunning, browser-based Monopoly you can play with friends anywhere — no server, no signup.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b --noEmit false --emitDeclarationOnly false"
+  },
+  "dependencies": {
+    "framer-motion": "^11.11.17",
+    "peerjs": "^1.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^5.0.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.5"
+  }
+}

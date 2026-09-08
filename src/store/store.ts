@@ -1,0 +1,618 @@
+import { create } from 'zustand';
+import { play, type SfxName } from '../audio/sfx';
+import { botDecide, botDelay } from '../game/ai';
+import { createGame, reduce, type SeatSpec } from '../game/engine';
+import { describe, type LogLine } from '../game/describe';
+import { legalActions } from '../game/rules';
+import { randomSeed } from '../game/rng';
+import { BOT_NAMES, PLAYER_COLORS, TOKENS, defaultSettings } from '../game/settings';
+import type { GameAction, GameEvent, GameSettings, GameState, TokenId } from '../game/types';
+import { GuestNet, HostNet, type NetStatus } from '../net/net';
+import {
+  type ChatMessage, type Down, type RoomSnapshot, type SeatInfo, type Up,
+  cleanText, generateRoomCode, localPlayerId,
+} from '../net/protocol';
+
+export type Screen = 'home' | 'lobby' | 'game';
+export type Role = 'host' | 'guest' | 'local';
+
+/** A floating +$200 / -$450 over a player's card. */
+export interface CashFloat { id: string; playerId: string; delta: number }
+
+interface Store {
+  screen: Screen;
+  role: Role;
+  code: string;
+  me: { playerId: string; name: string; token: TokenId };
+
+  room: RoomSnapshot | null;
+  log: LogLine[];
+  chat: ChatMessage[];
+  floats: CashFloat[];
+
+  netStatus: NetStatus;
+  netError: string | null;
+
+  /** Board positions the renderer draws, which lag state while a token walks. */
+  animPos: Record<string, number>;
+  /** Dice currently tumbling, for the roll animation. */
+  rolling: boolean;
+  /** Deed the player has opened for inspection. */
+  inspecting: number | null;
+  /** Which side panel is open on small screens. */
+  sheet: 'none' | 'players' | 'log' | 'manage' | 'trade';
+  soundOn: boolean;
+
+  setProfile: (name: string, token: TokenId) => void;
+  hostRoom: (settings?: GameSettings) => void;
+  joinRoom: (code: string) => void;
+  playSolo: () => void;
+  leave: () => void;
+
+  updateSettings: (patch: Partial<GameSettings>) => void;
+  addBot: () => void;
+  removeSeat: (playerId: string) => void;
+  startGame: () => void;
+
+  dispatch: (action: GameAction) => void;
+  sendChat: (text: string) => void;
+
+  inspect: (spaceId: number | null) => void;
+  openSheet: (sheet: Store['sheet']) => void;
+  toggleSound: () => void;
+}
+
+/* ------------------------------------------------------------------ *
+ * Host-side mutable context. Kept outside the store because it is
+ * transport plumbing, not render state.
+ * ------------------------------------------------------------------ */
+let host: HostNet | null = null;
+let guest: GuestNet | null = null;
+let botTimer: number | null = null;
+let walkTimer: number | null = null;
+let logSeq = 0;
+
+const savedName = (): string => {
+  try { return localStorage.getItem('mply.name') ?? ''; } catch { return ''; }
+};
+const savedToken = (): TokenId => {
+  try { return (localStorage.getItem('mply.token') as TokenId) ?? 'topper'; } catch { return 'topper'; }
+};
+const savedSound = (): boolean => {
+  try { return localStorage.getItem('mply.sound') !== 'off'; } catch { return true; }
+};
+
+const emptySeat = (
+  playerId: string, name: string, token: TokenId, index: number, isHost: boolean,
+): SeatInfo => ({
+  playerId,
+  name,
+  token,
+  color: PLAYER_COLORS[index % PLAYER_COLORS.length],
+  isBot: false,
+  botLevel: 'normal',
+  isHost,
+  connected: true,
+  ping: 0,
+});
+
+export const useStore = create<Store>((set, get) => {
+  /* ---------------------------- helpers ---------------------------- */
+
+  /** One short cue per event worth hearing. Silence is the default for
+   *  anything that fires more than once a turn. */
+  const cueFor = (e: GameEvent, myId: string): SfxName | null => {
+    switch (e.type) {
+      case 'DICE_ROLLED': return 'dice';
+      case 'BOUGHT': return 'buy';
+      case 'BUILT': return 'build';
+      case 'CARD_DRAWN': return 'card';
+      case 'JAILED': return 'jail';
+      case 'GAME_OVER': return 'win';
+      case 'TURN_STARTED': return e.playerId === myId ? 'turn' : null;
+      case 'RENT_PAID': return e.from === myId ? 'pay' : e.to === myId ? 'cash' : null;
+      case 'PASSED_GO': return e.playerId === myId ? 'cash' : null;
+      case 'DEBT_INCURRED': return e.playerId === myId ? 'error' : null;
+      default: return null;
+    }
+  };
+
+  const pushEvents = (state: GameState, events: GameEvent[]): void => {
+    const lines: LogLine[] = [];
+    const floats: CashFloat[] = [];
+    const { soundOn, me } = get();
+    for (const e of events) {
+      const cue = cueFor(e, me.playerId);
+      if (cue) play(cue, soundOn);
+      const l = describe(state, e, logSeq++);
+      if (l) lines.push(l);
+      if (e.type === 'MONEY' && Math.abs(e.delta) > 0) {
+        floats.push({ id: `f${logSeq++}`, playerId: e.playerId, delta: e.delta });
+      }
+      if (e.type === 'MOVED') queueWalk(e.playerId, e.from, e.to, e.direct, state);
+      if (e.type === 'DICE_ROLLED') {
+        set({ rolling: true });
+        window.setTimeout(
+          () => set({ rolling: false }),
+          700 / Math.max(state.settings.animationSpeed, 0.25),
+        );
+      }
+    }
+    if (lines.length > 0) set((s) => ({ log: [...s.log, ...lines].slice(-160) }));
+    if (floats.length > 0) {
+      set((s) => ({ floats: [...s.floats, ...floats] }));
+      window.setTimeout(() => {
+        const ids = new Set(floats.map((f) => f.id));
+        set((s) => ({ floats: s.floats.filter((f) => !ids.has(f.id)) }));
+      }, 1600);
+    }
+  };
+
+  /** Walk a token space by space. Teleports (cards) jump straight there. */
+  const queueWalk = (
+    playerId: string, from: number, to: number, direct: boolean, state: GameState,
+  ): void => {
+    if (direct || from === to) { set((s) => ({ animPos: { ...s.animPos, [playerId]: to } })); return; }
+    const forward = ((to - from) % 40 + 40) % 40;
+    const backward = forward > 20 ? forward - 40 : forward;
+    const stepCount = Math.abs(backward);
+    const dir = Math.sign(backward);
+    const perStep = Math.max(70, 150 / Math.max(state.settings.animationSpeed, 0.25));
+
+    let i = 0;
+    if (walkTimer) window.clearInterval(walkTimer);
+    set((s) => ({ animPos: { ...s.animPos, [playerId]: from } }));
+    walkTimer = window.setInterval(() => {
+      i += 1;
+      const pos = ((from + dir * i) % 40 + 40) % 40;
+      set((s) => ({ animPos: { ...s.animPos, [playerId]: pos } }));
+      if (i >= stepCount) {
+        if (walkTimer) window.clearInterval(walkTimer);
+        walkTimer = null;
+      }
+    }, perStep);
+  };
+
+  const snapshot = (): RoomSnapshot | null => get().room;
+
+  const publish = (next: RoomSnapshot, events: GameEvent[] = []): void => {
+    const withRev = { ...next, rev: next.rev + 1 };
+    set({ room: withRev });
+    if (withRev.game) pushEvents(withRev.game, events);
+    if (get().role === 'host' && host) {
+      host.broadcastEvents(withRev.rev, events);
+      host.broadcastRoom(withRev);
+    }
+    scheduleBots();
+  };
+
+  /* --------------------------- bot driver -------------------------- */
+
+  const scheduleBots = (): void => {
+    if (botTimer) { window.clearTimeout(botTimer); botTimer = null; }
+    const { role, room } = get();
+    if (role === 'guest' || !room?.game) return;
+    const game = room.game;
+    if (game.phase === 'game_over' || game.phase === 'lobby') return;
+
+    for (const seat of room.seats) {
+      if (!seat.isBot) continue;
+      const action = botDecide(game, seat.playerId);
+      if (!action) continue;
+      botTimer = window.setTimeout(() => {
+        botTimer = null;
+        applyIntent(seat.playerId, action);
+      }, botDelay(game, seat.playerId));
+      return;
+    }
+  };
+
+  /** The single funnel every action goes through on the authority. The
+   *  host's own clicks take this path too, so there is exactly one code
+   *  path and no chance of the host diverging from everyone else. */
+  const applyIntent = (playerId: string, action: GameAction): void => {
+    const room = snapshot();
+    if (!room?.game) return;
+    if (action.playerId !== playerId) return;             // spoofed actor
+    const { state, events } = reduce(room.game, action);
+    if (state.version === room.game.version) return;      // rejected, no-op
+    publish({ ...room, game: state }, events);
+  };
+
+  /* ------------------------- host: guest input --------------------- */
+
+  const handleUp = (from: string, msg: Up): void => {
+    const room = snapshot();
+    if (!room) return;
+
+    switch (msg.t) {
+      case 'HELLO': {
+        const name = cleanText(msg.name, 18) || 'Player';
+        const existing = room.seats.find((s) => s.playerId === from);
+        if (existing) {
+          // Reconnect: identity is the playerId, never the connection.
+          const seats = room.seats.map((s) =>
+            s.playerId === from ? { ...s, connected: true, name } : s);
+          const next = { ...room, seats };
+          set({ room: next });
+          host?.send(from, { t: 'WELCOME', you: from, snapshot: next });
+          host?.broadcastRoom(next);
+          return;
+        }
+        if (room.game) { host?.send(from, { t: 'BYE', reason: 'in_progress' }); return; }
+        if (room.seats.length >= room.settings.maxPlayers) {
+          host?.send(from, { t: 'BYE', reason: 'room_full' });
+          return;
+        }
+        const seat = emptySeat(from, name, msg.token, room.seats.length, false);
+        const next = { ...room, seats: [...room.seats, seat] };
+        set({ room: next });
+        host?.send(from, { t: 'WELCOME', you: from, snapshot: next });
+        publish(next);
+        return;
+      }
+
+      case 'PROFILE': {
+        const name = cleanText(msg.name, 18) || 'Player';
+        publish({
+          ...room,
+          seats: room.seats.map((s) => (s.playerId === from ? { ...s, name, token: msg.token } : s)),
+        });
+        return;
+      }
+
+      case 'SETTINGS':
+        if (from !== room.hostId) return;
+        publish({ ...room, settings: msg.settings });
+        return;
+
+      case 'ADD_BOT':
+        if (from !== room.hostId) return;
+        addBotSeat();
+        return;
+
+      case 'REMOVE_SEAT':
+        if (from !== room.hostId) return;
+        removeSeatById(msg.target);
+        return;
+
+      case 'INTENT':
+        applyIntent(from, msg.action);
+        return;
+
+      case 'CHAT': {
+        const text = cleanText(msg.text, 220);
+        if (!text) return;
+        const seat = room.seats.find((s) => s.playerId === from);
+        const message: ChatMessage = {
+          id: `c${logSeq++}`,
+          from,
+          name: seat?.name ?? 'Player',
+          color: seat?.color ?? '#fff',
+          text,
+          at: Date.now(),
+        };
+        set((s) => ({ chat: [...s.chat, message].slice(-80) }));
+        host?.broadcastChat(message);
+        return;
+      }
+
+      case 'PONG':
+        return;
+    }
+  };
+
+  /* ------------------------ guest: host output --------------------- */
+
+  const handleDown = (msg: Down): void => {
+    switch (msg.t) {
+      case 'WELCOME':
+        set({ room: msg.snapshot, screen: msg.snapshot.game ? 'game' : 'lobby' });
+        return;
+
+      case 'ROOM': {
+        const cur = get().room;
+        // Out-of-order arrival is real; never go backwards.
+        if (cur && msg.snapshot.rev <= cur.rev) return;
+        const wasInGame = Boolean(cur?.game);
+        set({ room: msg.snapshot, screen: msg.snapshot.game ? 'game' : 'lobby' });
+        if (msg.snapshot.game && !wasInGame) {
+          const pos: Record<string, number> = {};
+          for (const id of msg.snapshot.game.seats) pos[id] = msg.snapshot.game.players[id].position;
+          set({ animPos: pos });
+        }
+        return;
+      }
+
+      case 'EVENTS': {
+        const room = get().room;
+        if (room?.game) pushEvents(room.game, msg.events);
+        return;
+      }
+
+      case 'CHAT':
+        set((s) => ({ chat: [...s.chat, msg.message].slice(-80) }));
+        return;
+
+      case 'REJECT':
+        set({ netError: msg.reason });
+        window.setTimeout(() => set({ netError: null }), 3000);
+        return;
+
+      case 'BYE': {
+        const reason = {
+          host_left: 'The host closed the room.',
+          kicked: 'You were removed from the room.',
+          room_full: 'That room is full.',
+          in_progress: 'That game has already started.',
+        }[msg.reason];
+        teardown();
+        set({ screen: 'home', netStatus: 'closed', netError: reason, room: null });
+        return;
+      }
+
+      case 'PING':
+        return;
+    }
+  };
+
+  /* ------------------------- lobby mutations ----------------------- */
+
+  const addBotSeat = (): void => {
+    const room = snapshot();
+    if (!room || room.game) return;
+    if (room.seats.length >= room.settings.maxPlayers) return;
+    const used = new Set(room.seats.map((s) => s.name));
+    const name = BOT_NAMES.find((n) => !used.has(n)) ?? `Bot ${room.seats.length + 1}`;
+    const usedTokens = new Set(room.seats.map((s) => s.token));
+    const token = TOKENS.find((t) => !usedTokens.has(t.id))?.id ?? 'thimble';
+    const seat: SeatInfo = {
+      ...emptySeat(`bot_${Math.random().toString(36).slice(2, 8)}`, name, token, room.seats.length, false),
+      isBot: true,
+      botLevel: room.settings.botLevel,
+    };
+    publish({ ...room, seats: [...room.seats, seat] });
+  };
+
+  const removeSeatById = (playerId: string): void => {
+    const room = snapshot();
+    if (!room || room.game) return;
+    if (playerId === room.hostId) return;
+    const seat = room.seats.find((s) => s.playerId === playerId);
+    if (seat && !seat.isBot) host?.kick(playerId);
+    publish({ ...room, seats: room.seats.filter((s) => s.playerId !== playerId) });
+  };
+
+  const teardown = (): void => {
+    host?.destroy();
+    guest?.destroy();
+    host = null;
+    guest = null;
+    if (botTimer) window.clearTimeout(botTimer);
+    if (walkTimer) window.clearInterval(walkTimer);
+    botTimer = null;
+    walkTimer = null;
+  };
+
+  /* ------------------------------ store ---------------------------- */
+
+  return {
+    screen: 'home',
+    role: 'local',
+    code: '',
+    me: { playerId: localPlayerId(), name: savedName(), token: savedToken() },
+
+    room: null,
+    log: [],
+    chat: [],
+    floats: [],
+
+    netStatus: 'idle',
+    netError: null,
+
+    animPos: {},
+    rolling: false,
+    inspecting: null,
+    sheet: 'none',
+    soundOn: savedSound(),
+
+    setProfile: (name, token) => {
+      const clean = cleanText(name, 18) || 'Player';
+      try {
+        localStorage.setItem('mply.name', clean);
+        localStorage.setItem('mply.token', token);
+      } catch { /* private mode */ }
+      set((s) => ({ me: { ...s.me, name: clean, token } }));
+
+      const { role, room, me } = get();
+      if (role === 'guest') guest?.send({ t: 'PROFILE', playerId: me.playerId, name: clean, token });
+      else if (room && !room.game) {
+        publish({
+          ...room,
+          seats: room.seats.map((s) => (s.playerId === me.playerId ? { ...s, name: clean, token } : s)),
+        });
+      }
+    },
+
+    hostRoom: (settings) => {
+      teardown();
+      const me = get().me;
+      const code = generateRoomCode();
+      const room: RoomSnapshot = {
+        roomId: code,
+        hostId: me.playerId,
+        seats: [emptySeat(me.playerId, me.name || 'Host', me.token, 0, true)],
+        settings: { ...(settings ?? defaultSettings()), seed: randomSeed() },
+        game: null,
+        rev: 0,
+      };
+      set({ role: 'host', code, room, screen: 'lobby', log: [], chat: [], netError: null });
+
+      host = new HostNet(code, {
+        onUp: handleUp,
+        onPresence: (playerId, connected, ping) => {
+          const cur = snapshot();
+          if (!cur) return;
+          publish({
+            ...cur,
+            seats: cur.seats.map((s) => (s.playerId === playerId ? { ...s, connected, ping } : s)),
+          });
+        },
+        onStatus: (status, detail) => set({ netStatus: status, netError: detail ?? null }),
+      });
+      host.start();
+    },
+
+    joinRoom: (rawCode) => {
+      teardown();
+      const me = get().me;
+      const code = rawCode.trim().toUpperCase();
+      set({
+        role: 'guest', code, room: null, screen: 'lobby',
+        log: [], chat: [], netError: null, netStatus: 'connecting',
+      });
+      guest = new GuestNet(code, { playerId: me.playerId, name: me.name || 'Player', token: me.token }, {
+        onDown: handleDown,
+        onStatus: (status, detail) => set({ netStatus: status, netError: detail ?? null }),
+      });
+      guest.start();
+    },
+
+    playSolo: () => {
+      teardown();
+      const me = get().me;
+      const room: RoomSnapshot = {
+        roomId: 'LOCAL',
+        hostId: me.playerId,
+        seats: [emptySeat(me.playerId, me.name || 'You', me.token, 0, true)],
+        settings: { ...defaultSettings(), fillWithBots: true },
+        game: null,
+        rev: 0,
+      };
+      set({
+        role: 'local', code: '', room, screen: 'lobby',
+        log: [], chat: [], netError: null, netStatus: 'idle',
+      });
+      addBotSeat();
+      addBotSeat();
+    },
+
+    leave: () => {
+      teardown();
+      set({
+        screen: 'home', role: 'local', room: null, code: '',
+        log: [], chat: [], floats: [], animPos: {},
+        netStatus: 'idle', netError: null, sheet: 'none', inspecting: null,
+      });
+    },
+
+    updateSettings: (patch) => {
+      const { role, room, me } = get();
+      if (!room || room.game) return;
+      const settings = { ...room.settings, ...patch };
+      if (role === 'guest') guest?.send({ t: 'SETTINGS', playerId: me.playerId, settings });
+      else publish({ ...room, settings });
+    },
+
+    addBot: () => {
+      const { role, me } = get();
+      if (role === 'guest') guest?.send({ t: 'ADD_BOT', playerId: me.playerId });
+      else addBotSeat();
+    },
+
+    removeSeat: (playerId) => {
+      const { role, me } = get();
+      if (role === 'guest') guest?.send({ t: 'REMOVE_SEAT', playerId: me.playerId, target: playerId });
+      else removeSeatById(playerId);
+    },
+
+    startGame: () => {
+      const { role, room, me } = get();
+      if (!room || room.game) return;
+      if (role === 'guest') {
+        guest?.send({ t: 'INTENT', playerId: me.playerId, action: { type: 'START_GAME', playerId: me.playerId } });
+        return;
+      }
+      let seats = room.seats;
+      if (room.settings.fillWithBots) {
+        while (seats.length < 2) {
+          addBotSeat();
+          seats = snapshot()?.seats ?? seats;
+        }
+      }
+      if (seats.length < 2) return;
+
+      const specs: SeatSpec[] = seats.map((s) => ({
+        id: s.playerId,
+        name: s.name,
+        token: s.token,
+        color: s.color,
+        isBot: s.isBot,
+        botLevel: s.botLevel,
+      }));
+      const fresh = createGame({ ...room.settings, seed: room.settings.seed || randomSeed() }, specs);
+      const started = reduce(fresh, { type: 'START_GAME', playerId: me.playerId });
+      const pos: Record<string, number> = {};
+      for (const id of started.state.seats) pos[id] = 0;
+      set({ screen: 'game', animPos: pos, log: [] });
+      publish({ ...room, seats, game: started.state }, started.events);
+    },
+
+    dispatch: (action) => {
+      const { role, me } = get();
+      if (action.playerId !== me.playerId) return;
+      if (role === 'guest') { guest?.send({ t: 'INTENT', playerId: me.playerId, action }); return; }
+      applyIntent(me.playerId, action);
+    },
+
+    sendChat: (text) => {
+      const clean = cleanText(text, 220);
+      if (!clean) return;
+      const { role, me, room } = get();
+      if (role === 'guest') { guest?.send({ t: 'CHAT', playerId: me.playerId, text: clean }); return; }
+      const seat = room?.seats.find((s) => s.playerId === me.playerId);
+      const message: ChatMessage = {
+        id: `c${logSeq++}`,
+        from: me.playerId,
+        name: seat?.name ?? me.name,
+        color: seat?.color ?? '#fff',
+        text: clean,
+        at: Date.now(),
+      };
+      set((s) => ({ chat: [...s.chat, message].slice(-80) }));
+      host?.broadcastChat(message);
+    },
+
+    inspect: (spaceId) => set({ inspecting: spaceId }),
+    openSheet: (sheet) => set({ sheet }),
+    toggleSound: () => set((s) => {
+      const soundOn = !s.soundOn;
+      try { localStorage.setItem('mply.sound', soundOn ? 'on' : 'off'); } catch { /* private mode */ }
+      return { soundOn };
+    }),
+  };
+});
+
+// Dev-only handle so the store can be poked from the console while
+// debugging a live game. Stripped from production builds.
+if (import.meta.env.DEV) {
+  (window as unknown as { __mply: unknown }).__mply = useStore;
+}
+
+/* ------------------------- derived selectors ------------------------ */
+
+export const useGame = (): GameState | null => useStore((s) => s.room?.game ?? null);
+
+export const useMyId = (): string => useStore((s) => s.me.playerId);
+
+export const useMyActions = (): GameAction[] => useStore((s) => {
+  const game = s.room?.game;
+  if (!game) return [];
+  return legalActions(game, s.me.playerId);
+});
+
+export const useIsMyTurn = (): boolean => useStore((s) => {
+  const game = s.room?.game;
+  if (!game) return false;
+  return game.seats[game.seatIndex] === s.me.playerId;
+});

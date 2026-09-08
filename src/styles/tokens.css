@@ -1,0 +1,144 @@
+/* ==================================================================
+   Design tokens.
+   Concept: a 1930s private gaming room - lacquered green felt, brass
+   and champagne gold, ivory card stock, cinematic depth.
+
+   Components consume ONLY the semantic layer below. No component
+   should ever contain a raw hex, a px shadow, or a magic duration.
+   ================================================================== */
+
+:root {
+  /* ---- raw palette: one warm-green ramp, one brass ramp ---------- */
+  --felt-900: #05100c;
+  --felt-800: #08170f;
+  --felt-700: #0b2016;
+  --felt-600: #0f2b1d;
+  --felt-500: #143826;
+  --felt-400: #1d4a33;
+
+  --brass-100: #fbf0d4;
+  --brass-200: #f2dfae;
+  --brass-300: #e8c983;
+  --brass-400: #dcae52;
+  --brass-500: #c8912f;
+  --brass-600: #a3711f;
+  --brass-700: #7a5314;
+
+  --ivory-50: #fdfaf2;
+  --ivory-100: #f6f0e2;
+  --ivory-200: #e8dfcb;
+
+  /* Neutrals are tinted toward the felt, never pure grey - pure grey
+     next to a warm accent is what makes an interface look cheap. */
+  --n-0:  #060b09;
+  --n-10: #0c1411;
+  --n-20: #131d18;
+  --n-30: #1b2721;
+  --n-40: #26332c;
+  --n-50: #38473e;
+  --n-60: #5c6d63;
+  --n-70: #8b9a90;
+  --n-80: #b6c2ba;
+  --n-90: #dee5e0;
+
+  --danger-400: #ef6f6f;
+  --danger-600: #b93b3b;
+  --success-400: #5ecfa0;
+  --info-400: #6fb6ef;
+
+  /* ---- semantic layer ------------------------------------------- */
+  --bg-app: var(--n-0);
+  --bg-deep: var(--felt-900);
+  --bg-surface: var(--n-10);
+  --bg-raised: var(--n-20);
+  --bg-inset: #04080600;
+  --bg-felt: var(--felt-700);
+  --bg-felt-deep: var(--felt-800);
+
+  --border: rgb(255 255 255 / 0.07);
+  --border-strong: rgb(255 255 255 / 0.14);
+  --border-brass: color-mix(in oklab, var(--brass-500) 45%, transparent);
+
+  --text: var(--n-90);
+  --text-muted: var(--n-70);
+  --text-faint: var(--n-60);
+  --text-on-brass: #1a1206;
+
+  --accent: var(--brass-400);
+  --accent-strong: var(--brass-300);
+  --accent-dim: var(--brass-600);
+
+  --paper: var(--ivory-50);
+  --paper-edge: var(--ivory-200);
+  --paper-ink: #17130c;
+
+  /* ---- type ------------------------------------------------------ */
+  --font-display: 'Oswald', 'Haettenschweiler', 'Arial Narrow', sans-serif;
+  --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-num: 'Roboto Mono', ui-monospace, 'SFMono-Regular', monospace;
+
+  --t-2xs: 0.6875rem;
+  --t-xs:  0.75rem;
+  --t-sm:  0.8125rem;
+  --t-md:  0.9375rem;
+  --t-lg:  1.125rem;
+  --t-xl:  1.4375rem;
+  --t-2xl: 1.875rem;
+  --t-3xl: 2.5rem;
+  --t-4xl: 3.5rem;
+
+  /* ---- space ----------------------------------------------------- */
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px;
+  --s-5: 22px; --s-6: 30px; --s-7: 44px; --s-8: 64px;
+
+  /* ---- radius: not uniform. Controls tight, surfaces soft. ------- */
+  --r-xs: 4px; --r-sm: 7px; --r-md: 11px; --r-lg: 16px; --r-xl: 24px;
+  --r-pill: 999px;
+
+  /* ---- elevation: contact + ambient + top highlight, always ------ */
+  --e-1: 0 1px 2px rgb(0 0 0 / 0.42),
+         inset 0 1px 0 rgb(255 255 255 / 0.045);
+  --e-2: 0 2px 4px rgb(0 0 0 / 0.34),
+         0 10px 26px -8px rgb(0 0 0 / 0.5),
+         inset 0 1px 0 rgb(255 255 255 / 0.06);
+  --e-3: 0 4px 10px rgb(0 0 0 / 0.36),
+         0 28px 70px -16px rgb(0 0 0 / 0.68),
+         inset 0 1px 0 rgb(255 255 255 / 0.08);
+  --e-board: 0 2px 0 rgb(0 0 0 / 0.5),
+             0 30px 60px -20px rgb(0 0 0 / 0.8),
+             0 0 0 1px rgb(255 255 255 / 0.05);
+
+  --ring-accent: 0 0 0 1px color-mix(in oklab, var(--accent) 55%, transparent),
+                 0 0 22px -4px color-mix(in oklab, var(--accent) 70%, transparent);
+  --ring-focus: 0 0 0 2px var(--bg-app), 0 0 0 4px var(--accent);
+
+  /* ---- motion ---------------------------------------------------- */
+  --dur-fast: 130ms;
+  --dur-mid: 250ms;
+  --dur-slow: 420ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.55, 0, 1, 0.45);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ---- board geometry -------------------------------------------- */
+  --tile-corner: 1.62fr;
+  --board-max: 860px;
+
+  color-scheme: dark;
+}
+
+/* This board is a single committed material - a light theme would be a
+   different product, not a variant. The palette is therefore explicit and
+   fixed, and body carries its own background so no host theme leaks in. */
+
+/* ---- colour-group swatches, warmed to sit on the felt ------------- */
+:root {
+  --g-brown:     #8d5524;
+  --g-lightblue: #8fd3f4;
+  --g-pink:      #d9418c;
+  --g-orange:    #f08a24;
+  --g-red:       #e0242c;
+  --g-yellow:    #f2ca27;
+  --g-green:     #189e4a;
+  --g-darkblue:  #2b52c4;
+}
