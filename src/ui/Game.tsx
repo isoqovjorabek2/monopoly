@@ -4,7 +4,7 @@ import { BOARD } from '../game/board';
 import { maxRaisable } from '../game/rules';
 import type { GameAction, GameState } from '../game/types';
 import { useStore } from '../store/store';
-import { Board } from './Board';
+import { BoardStage, readRenderMode, writeRenderMode, type RenderMode } from './BoardStage';
 import { DeedCard } from './DeedCard';
 import {
   AuctionPanel, GameOver, IncomingTrades, LogFeed, PlayerRail, PortfolioModal, TradePanel,
@@ -33,6 +33,13 @@ export function Game() {
 
   const [portfolioOf, setPortfolioOf] = useState<string | null>(null);
   const [tradeOpen, setTradeOpen] = useState(false);
+  const [renderMode, setRenderMode] = useState<RenderMode>(readRenderMode);
+
+  const toggleRender = () => {
+    const next: RenderMode = renderMode === '3d' ? '2d' : '3d';
+    setRenderMode(next);
+    writeRenderMode(next);
+  };
 
   const state = room?.game ?? null;
   const myId = me.playerId;
@@ -62,6 +69,17 @@ export function Game() {
         <button
           type="button"
           className="btn btn--ghost btn--sm"
+          onClick={toggleRender}
+          aria-pressed={renderMode === '3d'}
+          title={renderMode === '3d'
+            ? 'Switch to the flat board'
+            : 'Switch to the three-dimensional board'}
+        >
+          {renderMode === '3d' ? '3D board' : 'Flat board'}
+        </button>
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
           onClick={toggleSound}
           aria-pressed={soundOn}
         >
@@ -83,12 +101,14 @@ export function Game() {
         </aside>
 
         <main className="game__stage">
-          <div className="game__boardWrap">
-            <Board
+          <div className="game__boardWrap" data-mode={renderMode}>
+            <BoardStage
+              mode={renderMode}
               state={state}
               animPos={animPos}
               rolling={rolling}
               onInspect={inspect}
+              onFallback={() => setRenderMode('2d')}
               highlight={state.phase === 'awaiting_buy' || state.phase === 'auction'
                 ? (state.auction?.spaceId ?? state.players[state.seats[state.seatIndex]].position)
                 : null}

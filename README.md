@@ -47,6 +47,39 @@ host-authoritative WebRTC star instead of a server:
 **The host must stay on the page.** If they close the tab the room ends — there is
 nowhere else for the state to live. Everyone else can drop and rejoin freely.
 
+## The board is 3D
+
+The default board is a real three.js scene: a lit object on a table rather than
+a diagram of one. Perspective, brass that actually reflects, dice that tumble
+and land, pieces that hop in arcs, and a camera that leans toward whatever the
+game is drawing attention to.
+
+It is **lazy-loaded**: three.js is a 227KB gzipped chunk that only downloads
+when the 3D board is actually used, so the main bundle stays at ~144KB and a
+player who prefers the flat board pays nothing for the one they don't use.
+
+There is a **flat board toggle in the game header**, and the flat board is
+selected automatically when WebGL is unavailable or the reader has
+`prefers-reduced-motion: reduce`. Both renderers read the same `GameState` and
+the same `animPos` from the store, so they are interchangeable and the engine
+never learns that 3D exists.
+
+Everything in the scene is procedural geometry and canvas textures generated at
+runtime - the eight pieces, the houses and hotels, the tile faces, the dice
+pips, the centre medallion. Nothing is downloaded, so there is no model to
+license, no texture to 404, and no CDN in the critical path.
+
+Two things worth knowing if you work on it:
+
+- **The engine decides the roll before anything moves.** `Dice3D` only plays the
+  throw and lands on the value it was given; it snaps to that value when there
+  is no animation to play, so a player joining mid-turn always sees the truth.
+- **Camera framing accounts for foreshortening.** A flat board seen from
+  elevation θ is only `span × sin(θ)` tall on screen. Framing to the raw span
+  leaves the board tiny, and a zero width on the first measure makes the
+  distance `Infinity`, which puts a NaN in the camera matrix and silently
+  blanks the entire scene.
+
 ## Art direction
 
 The look is a 1930s private gaming room: lacquered green felt, brass and
@@ -84,7 +117,9 @@ src/
   net/           WebRTC transport (protocol + host/guest)
   store/         zustand store gluing engine, transport and UI together
   ui/            React components
-    Pieces.tsx     every drawn asset: pieces, buildings, board icons
+    Pieces.tsx     every drawn 2D asset: pieces, buildings, board icons
+    BoardStage.tsx picks the 3D or flat renderer, with capability fallback
+    three/         the 3D board: layout, tile textures, pieces, dice
   styles/        design tokens, board geometry, screen layouts
 ```
 

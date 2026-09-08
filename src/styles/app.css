@@ -397,6 +397,46 @@
   width: min(100%, calc(100dvh - 110px), var(--board-max));
   container-type: inline-size;
 }
+/* Seen in perspective the board wants the whole cell, not a square box. */
+.game__boardWrap[data-mode='3d'] {
+  width: 100%;
+  max-width: none;
+}
+
+.stage3d {
+  position: relative;
+  width: 100%;
+  height: min(calc(100dvh - 96px), 78vw);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+/* The flat board stands in until the 3D scene has drawn a frame, at full
+   strength so the wait never looks like a broken screen. */
+.stage3d__under {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 2%;
+  pointer-events: none;
+  transition: opacity var(--dur-slow) var(--ease-out);
+}
+.stage3d__under > * {
+  /* Height-first, so the square board fits a landscape cell instead of
+     overflowing it. */
+  height: 100%;
+  width: auto;
+  aspect-ratio: 1;
+  max-width: 100%;
+}
+.stage3d[data-ready] .stage3d__under { opacity: 0; }
+
+.stage3d__canvas {
+  position: absolute;
+  inset: 0;
+  transition: opacity var(--dur-slow) var(--ease-out);
+}
+.stage3d__canvas canvas { display: block; outline: none; }
 
 .game__tabbar { display: none; }
 
