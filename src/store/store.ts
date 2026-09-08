@@ -244,7 +244,13 @@ export const useStore = create<Store>((set, get) => {
           host?.send(from, { t: 'BYE', reason: 'room_full' });
           return;
         }
-        const seat = emptySeat(from, name, msg.token, room.seats.length, false);
+        // Two players can easily arrive wanting the same piece (it is the
+        // saved default), so the host hands out the nearest free one.
+        const taken = new Set(room.seats.map((x) => x.token));
+        const token = taken.has(msg.token)
+          ? TOKENS.find((t) => !taken.has(t.id))?.id ?? msg.token
+          : msg.token;
+        const seat = emptySeat(from, name, token, room.seats.length, false);
         const next = { ...room, seats: [...room.seats, seat] };
         set({ room: next });
         host?.send(from, { t: 'WELCOME', you: from, snapshot: next });
@@ -254,9 +260,13 @@ export const useStore = create<Store>((set, get) => {
 
       case 'PROFILE': {
         const name = cleanText(msg.name, 18) || 'Player';
+        const taken = new Set(room.seats.filter((x) => x.playerId !== from).map((x) => x.token));
+        const token = taken.has(msg.token)
+          ? room.seats.find((x) => x.playerId === from)?.token ?? msg.token
+          : msg.token;
         publish({
           ...room,
-          seats: room.seats.map((s) => (s.playerId === from ? { ...s, name, token: msg.token } : s)),
+          seats: room.seats.map((s) => (s.playerId === from ? { ...s, name, token } : s)),
         });
         return;
       }
