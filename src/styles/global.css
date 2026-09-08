@@ -144,7 +144,23 @@ input, select, textarea { font: inherit; color: inherit; }
   border-color: color-mix(in oklab, var(--brass-300) 60%, transparent);
   font-weight: 700;
 }
+.btn--primary {
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--brass-300), var(--brass-500) 52%, var(--brass-600));
+}
+/* Gold catches the light when you reach for it. */
+.btn--primary::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 38%, rgb(255 255 255 / 0.42) 50%, transparent 62%);
+  background-size: 260% 100%;
+  background-position: 170% 0;
+  transition: background-position 620ms var(--ease-out);
+  pointer-events: none;
+}
 .btn--primary:hover:not(:disabled) { box-shadow: var(--e-2), var(--ring-accent); }
+.btn--primary:hover:not(:disabled)::after { background-position: -70% 0; }
 
 .btn--danger { --btn-bg: var(--danger-600); --btn-fg: #fff; }
 .btn--ghost {

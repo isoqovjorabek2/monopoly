@@ -47,6 +47,27 @@ host-authoritative WebRTC star instead of a server:
 **The host must stay on the page.** If they close the tab the room ends — there is
 nowhere else for the state to live. Everyone else can drop and rejoin freely.
 
+## Art direction
+
+The look is a 1930s private gaming room: lacquered green felt, brass and
+champagne gold, ivory card stock, cinematic depth. Everything visual resolves
+to a token in `src/styles/tokens.css` - no component contains a raw hex, a px
+shadow, or a magic duration.
+
+**All artwork is drawn as SVG in `src/ui/Pieces.tsx`, not generated as raster.**
+That is a deliberate choice, not a fallback:
+
+- The eight playing pieces render at ~16px on the board and ~34px in the player
+  rail *from the same source*, staying crisp at both. A raster asset sized for
+  the rail turns to mush on the board.
+- They tint to each player's colour through `currentColor`, so eight players
+  need one drawing each, not eight.
+- On a static host with no backend, an asset that is inline in the bundle can
+  never 404 and costs no extra request.
+
+The board's centre emblem, the colour-group icons, the houses and hotels, and
+the Chance / Community Chest medallions are all built the same way.
+
 ## Architecture
 
 ```
@@ -63,6 +84,7 @@ src/
   net/           WebRTC transport (protocol + host/guest)
   store/         zustand store gluing engine, transport and UI together
   ui/            React components
+    Pieces.tsx     every drawn asset: pieces, buildings, board icons
   styles/        design tokens, board geometry, screen layouts
 ```
 

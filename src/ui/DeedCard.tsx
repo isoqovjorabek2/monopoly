@@ -114,11 +114,16 @@ export function DeedCard({
 
           {group && state.settings.doubleRentOnMonopoly && (
             <p className="muted small">
-              {owner && hasUnmortgagedMonopoly(state, owner.id, group)
-                ? 'Full set held: base rent is doubled.'
-                : GROUPS[group].length === 2
-                  ? 'Holding both deeds doubles the base rent.'
-                  : `Holding all ${GROUPS[group].length} deeds doubles the base rent.`}
+              {/* The doubling only applies to an unimproved set - once houses
+                  are up the ladder replaces it, so saying otherwise here
+                  would misprice the square in the reader's head. */}
+              {st.houses > 0
+                ? 'Rent is set by the buildings, not the colour-set bonus.'
+                : owner && hasUnmortgagedMonopoly(state, owner.id, group)
+                  ? 'Full set held: base rent is doubled.'
+                  : GROUPS[group].length === 2
+                    ? 'Holding both deeds doubles the base rent.'
+                    : `Holding all ${GROUPS[group].length} deeds doubles the base rent.`}
             </p>
           )}
           {st.mortgaged && (

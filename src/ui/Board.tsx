@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import { BOARD, GROUP_COLOR, edgeOf, isCorner } from '../game/board';
 import type { GameState, Space } from '../game/types';
-import { tokenGlyph } from './bits';
+import { BoardIcon, House, Hotel, Piece, type SpaceIcon } from './Pieces';
 import { Dice } from './Dice';
 
 /* ---------------- geometry -------------------------------------------
@@ -44,23 +44,23 @@ export function tokenPos(id: number, index: number): { left: string; top: string
 
 /* ------------------------------- tile -------------------------------- */
 
-const GLYPH: Record<string, string> = {
-  go: '→',
-  chance: '?',
-  chest: '✦',
-  tax: '◆',
-  jail: '☷',
-  freeparking: '❈',
-  gotojail: '⚑',
-  railroad: '▬',
-  utility: '✦',
+const KIND_ICON: Record<string, SpaceIcon> = {
+  go: 'go',
+  chance: 'chance',
+  chest: 'chest',
+  jail: 'jail',
+  freeparking: 'parking',
+  gotojail: 'gotojail',
+  railroad: 'railroad',
 };
 
-/** The two utilities need to be told apart at a glance; sharing the
- *  Community Chest star made them unreadable. */
-const SPACE_GLYPH: Record<number, string> = {
-  12: '⚡',
-  28: '💧',
+/** Per-space overrides: the two utilities and the two taxes each need to
+ *  be told apart at a glance. */
+const SPACE_ICON: Record<number, SpaceIcon> = {
+  4: 'tax',
+  12: 'electric',
+  28: 'water',
+  38: 'luxury',
 };
 
 interface TileProps {
@@ -80,9 +80,9 @@ const Tile = memo(function Tile({
   const { col, row } = cellOf(space.id);
   const band = space.group ? GROUP_COLOR[space.group] : undefined;
 
-  const glyph = space.kind === 'railroad' || space.kind === 'utility' || !space.group
-    ? SPACE_GLYPH[space.id] ?? GLYPH[space.kind]
-    : null;
+  const icon = space.kind === 'railroad' || space.kind === 'utility' || !space.group
+    ? SPACE_ICON[space.id] ?? KIND_ICON[space.kind]
+    : undefined;
 
   // A tile is only about eight characters wide. Names wrap at spaces on
   // their own, but a single long word ("MEDITERRANEAN") has no break
@@ -118,7 +118,7 @@ const Tile = memo(function Tile({
       {ownerColor && <span className="tile__ownerEdge" />}
 
       <span className="tile__body">
-        {glyph && <span className="tile__glyph" aria-hidden>{glyph}</span>}
+        {icon && <BoardIcon icon={icon} className="tile__icon" />}
         <span className="tile__name">{space.short}</span>
         {space.price != null && <span className="tile__price">{space.price}</span>}
         {space.taxAmount != null && <span className="tile__price">Pay {space.taxAmount}</span>}
@@ -127,8 +127,8 @@ const Tile = memo(function Tile({
       {houses > 0 && (
         <span className="tile__builds" aria-hidden>
           {houses === 5
-            ? <span className="hotel" />
-            : Array.from({ length: houses }, (_, i) => <span key={i} className="house" />)}
+            ? <Hotel className="hotel" />
+            : Array.from({ length: houses }, (_, i) => <House key={i} className="house" />)}
         </span>
       )}
     </button>
@@ -175,11 +175,7 @@ export function Board({
       })}
 
       <div className="board__centre">
-        <div className="wordmark">
-          Monopoly
-          <span className="wordmark__rule" />
-          <span className="wordmark__sub">Royale</span>
-        </div>
+        <Medallion />
         <Dice dice={state.dice} rolling={rolling} />
         <CentreHud state={state} />
       </div>
@@ -200,12 +196,69 @@ export function Board({
                 style={{ left, top, ['--tc' as string]: p.color } as React.CSSProperties}
                 title={p.name}
               >
-                {tokenGlyph(p.token)}
+                <Piece token={p.token} className="token__piece" />
               </span>
             );
           }))}
       </div>
     </div>
+  );
+}
+
+/** The printed emblem in the middle of the board: a deco sunburst under a
+ *  ringed medallion, sitting behind the live chrome rather than competing
+ *  with it. Drawn rather than generated so it stays crisp at any board size. */
+function Medallion() {
+  const rays = Array.from({ length: 48 }, (_, i) => i * 7.5);
+  return (
+    <svg className="medallion" viewBox="0 0 400 400" aria-hidden focusable="false">
+      <defs>
+        <linearGradient id="mgold" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--brass-200)" />
+          <stop offset="55%" stopColor="var(--brass-500)" />
+          <stop offset="100%" stopColor="var(--brass-700)" />
+        </linearGradient>
+        <radialGradient id="mglow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="var(--brass-400)" stopOpacity="0.30" />
+          <stop offset="70%" stopColor="var(--brass-600)" stopOpacity="0.06" />
+          <stop offset="100%" stopColor="transparent" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+
+      <circle cx="200" cy="200" r="196" fill="url(#mglow)" />
+
+      <g className="medallion__rays">
+        {rays.map((deg) => (
+          <path
+            key={deg}
+            d="M200 200 L196.4 22 L203.6 22 Z"
+            transform={`rotate(${deg} 200 200)`}
+          />
+        ))}
+      </g>
+
+      <g className="medallion__rings">
+        <circle cx="200" cy="200" r="150" />
+        <circle cx="200" cy="200" r="143" strokeWidth="1.5" />
+        <circle cx="200" cy="200" r="96" />
+      </g>
+
+      {/* Deco corner fans, the shape the era is built on. */}
+      <g className="medallion__fans">
+        {[45, 135, 225, 315].map((deg) => (
+          <g key={deg} transform={`rotate(${deg} 200 200)`}>
+            <path d="M200 42 a158 158 0 0 1 40 5 L200 62 Z" />
+          </g>
+        ))}
+      </g>
+
+      {/* Type sits above and below the live chrome, never behind it. */}
+      <g className="medallion__type">
+        <text x="200" y="126" textAnchor="middle">MONOPOLY</text>
+        <path d="M138 146 H262" />
+        <text x="200" y="296" textAnchor="middle" className="medallion__sub">ROYALE</text>
+      </g>
+    </svg>
   );
 }
 

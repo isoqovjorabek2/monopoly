@@ -114,15 +114,15 @@ export function defaultSettings(): GameSettings {
  * not only in hue).
  * ---------------------------------------------------------------- */
 
-export const TOKENS: { id: TokenId; label: string; glyph: string }[] = [
-  { id: 'topper', label: 'Top Hat', glyph: 'TH' },
-  { id: 'roadster', label: 'Roadster', glyph: 'RD' },
-  { id: 'terrier', label: 'Terrier', glyph: 'TR' },
-  { id: 'thimble', label: 'Thimble', glyph: 'TB' },
-  { id: 'boot', label: 'Boot', glyph: 'BT' },
-  { id: 'battleship', label: 'Battleship', glyph: 'BS' },
-  { id: 'iron', label: 'Iron', glyph: 'IR' },
-  { id: 'wheelbarrow', label: 'Wheelbarrow', glyph: 'WB' },
+export const TOKENS: { id: TokenId; label: string }[] = [
+  { id: 'topper', label: 'Top Hat' },
+  { id: 'roadster', label: 'Roadster' },
+  { id: 'terrier', label: 'Terrier' },
+  { id: 'thimble', label: 'Thimble' },
+  { id: 'boot', label: 'Boot' },
+  { id: 'battleship', label: 'Battleship' },
+  { id: 'iron', label: 'Iron' },
+  { id: 'wheelbarrow', label: 'Wheelbarrow' },
 ];
 
 export const PLAYER_COLORS = [

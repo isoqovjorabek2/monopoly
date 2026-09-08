@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { TOKENS } from '../game/settings';
 import type { TokenId } from '../game/types';
+import { Piece } from './Pieces';
 
 export const fmt = (n: number): string =>
   `$${Math.round(n).toLocaleString('en-US')}`;
@@ -34,9 +35,6 @@ export function Money({ value, className = '' }: { value: number; className?: st
   return <span className={`num ${className}`}>{fmt(shown)}</span>;
 }
 
-export const tokenGlyph = (id: TokenId): string =>
-  TOKENS.find((t) => t.id === id)?.glyph ?? '?';
-
 export const tokenLabel = (id: TokenId): string =>
   TOKENS.find((t) => t.id === id)?.label ?? 'Token';
 
@@ -51,12 +49,11 @@ export function Avatar({
         '--tc': color,
         width: size,
         height: size,
-        fontSize: size * 0.4,
         opacity: dim ? 0.45 : 1,
       } as React.CSSProperties}
       data-active={active || undefined}
     >
-      {tokenGlyph(token)}
+      <Piece token={token} className="avatar__piece" />
     </span>
   );
 }

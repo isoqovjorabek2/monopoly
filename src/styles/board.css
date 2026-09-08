@@ -14,7 +14,13 @@
   padding: 1px;
   border-radius: var(--r-md);
   background: rgb(0 0 0 / 0.6);
-  box-shadow: var(--e-board);
+  /* Gold leaf edging: a thin bright rule inside a dark one reads as a
+     bevelled metal frame far more convincingly than a single border. */
+  box-shadow:
+    var(--e-board),
+    0 0 0 1px color-mix(in oklab, var(--brass-500) 55%, transparent),
+    0 0 0 4px var(--felt-900),
+    0 0 0 5px color-mix(in oklab, var(--brass-700) 70%, transparent);
   isolation: isolate;
   user-select: none;
   container-type: inline-size;
@@ -43,16 +49,38 @@
   position: relative;
   display: flex;
   overflow: hidden;
-  background: linear-gradient(180deg, var(--felt-500), var(--felt-600));
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.055), transparent 42%),
+    linear-gradient(180deg, var(--felt-500), var(--felt-600));
   color: var(--ivory-100);
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), filter var(--dur-fast) var(--ease-out);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.06),
+    inset 0 -1px 0 rgb(0 0 0 / 0.35);
+  transition:
+    filter var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
 }
-.tile:hover { filter: brightness(1.25); }
+/* Woven felt. Two crossed hairline gradients cost nothing and stop the
+   surface reading as flat paint. */
+.tile::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image:
+    repeating-linear-gradient(90deg, rgb(255 255 255 / 0.028) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(0deg, rgb(0 0 0 / 0.05) 0 1px, transparent 1px 3px);
+}
+.tile:hover { filter: brightness(1.22) saturate(1.1); z-index: 6; }
+.tile:active { transform: scale(0.985); }
 .tile:focus-visible { z-index: 6; }
 
 .tile--corner {
-  background: linear-gradient(150deg, var(--felt-400), var(--felt-600));
+  background:
+    radial-gradient(120% 120% at 30% 20%, rgb(255 255 255 / 0.09), transparent 60%),
+    linear-gradient(150deg, var(--felt-400), var(--felt-600));
   align-items: center;
   justify-content: center;
 }
@@ -65,11 +93,17 @@
 .tile--right  { flex-direction: row; }
 
 .tile__band {
+  position: relative;
   flex: 0 0 22%;
   min-height: 8px;
   min-width: 8px;
-  background: var(--band, transparent);
-  box-shadow: inset 0 -1px 0 rgb(0 0 0 / 0.35), inset 0 1px 0 rgb(255 255 255 / 0.2);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.34), rgb(255 255 255 / 0.04) 46%, rgb(0 0 0 / 0.16)),
+    var(--band, transparent);
+  box-shadow:
+    inset 0 -1px 0 rgb(0 0 0 / 0.45),
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    0 1px 3px rgb(0 0 0 / 0.35);
 }
 
 .tile__body {
@@ -101,6 +135,8 @@
   overflow-wrap: break-word;
   word-break: normal;
   opacity: 0.94;
+  /* Letterpress: the type sits in the felt rather than on top of it. */
+  text-shadow: 0 1px 0 rgb(0 0 0 / 0.55);
   /* A flex item sizes to max-content by default, which makes the name
      overflow the tile instead of wrapping at its spaces. */
   width: 100%;
@@ -112,7 +148,14 @@
   color: var(--brass-300);
   font-variant-numeric: tabular-nums;
 }
-.tile__glyph { font-size: clamp(9px, 2.9cqi, 22px); line-height: 1; }
+.tile__icon {
+  width: clamp(9px, 2.9cqi, 20px);
+  height: clamp(9px, 2.9cqi, 20px);
+  color: var(--band, var(--brass-300));
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.55));
+  flex: 0 0 auto;
+}
+.tile--corner .tile__icon { width: clamp(12px, 3.6cqi, 26px); height: clamp(12px, 3.6cqi, 26px); }
 
 .tile--corner .tile__name {
   font-size: clamp(6px, min(1.9cqi, calc(20cqi / var(--maxword, 8))), 12px);
@@ -151,13 +194,14 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(180deg, transparent 40%, color-mix(in oklab, var(--own) 55%, transparent));
-  opacity: 0.85;
+  background:
+    radial-gradient(120% 90% at 50% 100%, color-mix(in oklab, var(--own) 46%, transparent), transparent 68%);
+  opacity: 0.9;
 }
 .tile__ownerEdge {
   position: absolute;
-  background: var(--own);
-  box-shadow: 0 0 10px -1px var(--own);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--own) 82%, #fff 18%), var(--own));
+  box-shadow: 0 0 10px -1px var(--own), inset 0 0 0 1px rgb(0 0 0 / 0.3);
   z-index: 3;
 }
 .tile--bottom .tile__ownerEdge { left: 0; right: 0; bottom: 0; height: 3px; }
@@ -196,16 +240,12 @@
 .tile--right  .tile__builds { left: 1px; top: 0; bottom: 0; flex-direction: column; }
 
 .house, .hotel {
-  width: clamp(3px, 1.1cqi, 7px);
-  height: clamp(3px, 1.1cqi, 7px);
-  border-radius: 1px;
-  background: var(--g-green);
-  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.6), 0 1px 2px rgb(0 0 0 / 0.5);
+  height: clamp(4px, 1.4cqi, 9px);
+  width: auto;
+  filter: drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.65));
 }
-.hotel {
-  width: clamp(7px, 2.4cqi, 15px);
-  background: var(--g-red);
-}
+.house { color: #2ec46a; aspect-ratio: 1; }
+.hotel { color: #f0413f; aspect-ratio: 28 / 16; height: clamp(5px, 1.7cqi, 11px); }
 
 /* ------------------------------ tokens ----------------------------- */
 
@@ -220,21 +260,23 @@
   position: absolute;
   display: grid;
   place-items: center;
-  width: clamp(13px, 3.1cqi, 26px);
-  height: clamp(13px, 3.1cqi, 26px);
-  margin: calc(clamp(13px, 3.1cqi, 26px) / -2) 0 0 calc(clamp(13px, 3.1cqi, 26px) / -2);
+  width: clamp(15px, 3.5cqi, 30px);
+  height: clamp(15px, 3.5cqi, 30px);
+  margin: calc(clamp(15px, 3.5cqi, 30px) / -2) 0 0 calc(clamp(15px, 3.5cqi, 30px) / -2);
   border-radius: 50%;
   background: radial-gradient(circle at 32% 28%, color-mix(in oklab, var(--tc) 82%, #fff 18%), var(--tc) 62%, color-mix(in oklab, var(--tc) 70%, #000 30%));
   border: 1.5px solid rgb(0 0 0 / 0.55);
   box-shadow: 0 2px 5px rgb(0 0 0 / 0.65), inset 0 1px 1px rgb(255 255 255 / 0.4);
-  font-family: var(--font-display);
-  font-size: clamp(6px, 1.4cqi, 11px);
-  font-weight: 600;
-  color: rgb(0 0 0 / 0.72);
+  color: rgb(12 8 2 / 0.82);
   transition:
     left var(--dur-fast) var(--ease-out),
     top var(--dur-fast) var(--ease-out);
   will-change: left, top;
+}
+.token__piece {
+  width: 68%;
+  height: 68%;
+  filter: drop-shadow(0 0.5px 0 rgb(255 255 255 / 0.35));
 }
 .token--active {
   box-shadow:
@@ -276,39 +318,45 @@
   pointer-events: none;
 }
 
-.wordmark {
+.medallion {
   position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  opacity: 0.34;
+  inset: 6%;
+  width: 88%;
+  height: 88%;
   pointer-events: none;
+  overflow: visible;
+}
+.medallion__rays path {
+  fill: var(--brass-500);
+  opacity: 0.10;
+}
+.medallion__rays path:nth-child(even) { opacity: 0.045; }
+
+.medallion__rings circle {
+  fill: none;
+  stroke: var(--brass-500);
+  stroke-width: 2.5;
+  opacity: 0.34;
+}
+.medallion__fans path { fill: var(--brass-500); opacity: 0.18; }
+
+.medallion__type text {
   font-family: var(--font-display);
+  font-size: 46px;
   font-weight: 500;
-  font-size: clamp(13px, 4.4cqi, 40px);
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  background: linear-gradient(180deg, var(--brass-200), var(--brass-500) 55%, var(--brass-700));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  text-align: center;
-  line-height: 1;
-  transform: rotate(-45deg);
+  letter-spacing: 7px;
+  fill: url(#mgold);
+  opacity: 0.85;
 }
-.wordmark__rule {
-  height: 2px;
-  margin: 6px auto;
-  width: 62%;
-  background: linear-gradient(90deg, transparent, var(--brass-500), transparent);
+.medallion__type .medallion__sub {
+  font-size: 19px;
+  letter-spacing: 15px;
+  opacity: 0.7;
 }
-.wordmark__sub {
-  font-size: 0.3em;
-  letter-spacing: 0.42em;
-  color: var(--brass-400);
-  -webkit-text-fill-color: var(--brass-400);
+.medallion__type path {
+  stroke: var(--brass-500);
+  stroke-width: 2;
+  opacity: 0.5;
 }
 
 /* ------------------------------- dice ------------------------------ */
@@ -388,6 +436,11 @@
   color: var(--text-muted);
 }
 
+/* At phone board sizes the emblem's fine linework turns to mush, so it
+   steps back further and drops its smallest type. */
 @container (max-width: 420px) {
-  .wordmark__sub { display: none; }
+  .medallion__type .medallion__sub,
+  .medallion__fans { display: none; }
+  .medallion__rings circle { opacity: 0.24; }
+  .medallion__type text { opacity: 0.62; }
 }

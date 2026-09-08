@@ -10,6 +10,7 @@ import {
   AuctionPanel, GameOver, IncomingTrades, LogFeed, PlayerRail, PortfolioModal, TradePanel,
 } from './Panels';
 import { Modal, fmt } from './bits';
+import { BoardIcon } from './Pieces';
 
 export function Game() {
   const room = useStore((s) => s.room);
@@ -384,6 +385,9 @@ function CardModal({
             animate={{ rotateX: 0, opacity: 1, y: 0 }}
             transition={{ type: 'spring', stiffness: 220, damping: 20 }}
           >
+            <span className="drawnCard__medallion">
+              <BoardIcon icon={card.deck === 'chance' ? 'chance' : 'chest'} />
+            </span>
             <span className="drawnCard__deck">
               {card.deck === 'chance' ? 'Chance' : 'Community Chest'}
             </span>
