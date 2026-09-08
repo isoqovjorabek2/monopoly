@@ -1,5 +1,15 @@
-/* Cues generated with WebAudio rather than shipped as files: zero bytes,
- * nothing to 404 on a static host, and every cue stays under 400ms. */
+/* ------------------------------------------------------------------ *
+ * Table cues.
+ *
+ * Every cue is a recorded sample in public/audio - dice on felt, a stamp
+ * on a deed, a cell door - because the synthesised beeps this started as
+ * read as a menu, not a table. They are mono 56kbps and 77KB for the set,
+ * fetched once on the first sound and only if sound is on.
+ *
+ * The synthesised versions are still here and still correct. They cover
+ * the gap before the samples finish decoding, and they cover a sample
+ * that 404s or fails to decode, so sound never simply stops working.
+ * ------------------------------------------------------------------ */
 
 let ctx: AudioContext | null = null;
 
@@ -64,7 +74,7 @@ function noise(dur: number, gain = 0.1, delay = 0): void {
   src.start(ac.currentTime + delay);
 }
 
-export const SFX = {
+const SYNTH = {
   dice: () => { noise(0.09, 0.09); noise(0.07, 0.07, 0.11); noise(0.06, 0.05, 0.2); },
   step: () => tone({ freq: 620, dur: 0.05, type: 'triangle', gain: 0.045 }),
   cash: () => {
@@ -90,9 +100,56 @@ export const SFX = {
   error: () => tone({ freq: 200, to: 140, dur: 0.16, type: 'sawtooth', gain: 0.07 }),
 };
 
-export type SfxName = keyof typeof SFX;
+export type SfxName = keyof typeof SYNTH;
+
+/** Kept for anything that wants the pure-synth cue deliberately. */
+export const SFX = SYNTH;
+
+/**
+ * Per-cue trim. The samples are all normalised to the same loudness, which
+ * is right for a stamp and much too present for a footstep that fires
+ * every tile a piece walks over.
+ */
+const MIX: Record<SfxName, number> = {
+  dice: 0.85, step: 0.28, cash: 0.8, pay: 0.7, buy: 0.75, card: 0.7,
+  jail: 0.75, build: 0.7, turn: 0.5, win: 0.9, error: 0.6,
+};
+
+const NAMES = Object.keys(SYNTH) as SfxName[];
+const buffers = new Map<SfxName, AudioBuffer>();
+let fetched = false;
+
+/** One pass, on the first cue that actually plays. */
+function preload(ac: AudioContext): void {
+  if (fetched) return;
+  fetched = true;
+  for (const name of NAMES) {
+    void fetch(`${import.meta.env.BASE_URL}audio/${name}.mp3`)
+      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status)))))
+      .then((raw) => ac.decodeAudioData(raw))
+      .then((decoded) => { buffers.set(name, decoded); })
+      .catch(() => { /* this cue keeps its synthesised version */ });
+  }
+}
+
+function playSample(ac: AudioContext, name: SfxName): boolean {
+  const buf = buffers.get(name);
+  if (!buf) return false;
+  const src = ac.createBufferSource();
+  const amp = ac.createGain();
+  src.buffer = buf;
+  amp.gain.value = MIX[name];
+  src.connect(amp).connect(ac.destination);
+  src.start();
+  return true;
+}
 
 export function play(name: SfxName, enabled: boolean): void {
   if (!enabled) return;
-  try { SFX[name](); } catch { /* audio unavailable; never break the game for it */ }
+  try {
+    const ac = audio();
+    if (!ac) return;
+    preload(ac);
+    if (!playSample(ac, name)) SYNTH[name]();
+  } catch { /* audio unavailable; never break the game for it */ }
 }

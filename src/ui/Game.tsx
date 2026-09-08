@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { BOARD } from '../game/board';
 import { maxRaisable } from '../game/rules';
@@ -13,6 +13,7 @@ import { Modal, fmt } from './bits';
 import { BoardIcon } from './Pieces';
 import { FxLayer, useFx } from './Fx';
 import { cardArt, deckBack } from '../art/art';
+import { HelpModal, useGameKeys } from './Help';
 
 export function Game() {
   const room = useStore((s) => s.room);
@@ -35,6 +36,7 @@ export function Game() {
 
   const [portfolioOf, setPortfolioOf] = useState<string | null>(null);
   const [tradeOpen, setTradeOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [renderMode, setRenderMode] = useState<RenderMode>(readRenderMode);
 
   const toggleRender = () => {
@@ -68,6 +70,8 @@ export function Game() {
     if (iAmOut && !fired.current.out) { fired.current.out = true; fire('ash'); }
     if (iWon && !fired.current.won) { fired.current.won = true; fire('victory'); }
   }, [iAmOut, iWon, fire]);
+
+  useGameKeys(useCallback(() => setHelpOpen((v) => !v), []));
 
   if (!room || !state) return null;
 
@@ -109,6 +113,15 @@ export function Game() {
           aria-pressed={soundOn}
         >
           {soundOn ? 'Sound on' : 'Sound off'}
+        </button>
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          onClick={() => setHelpOpen(true)}
+          title="Rules and keyboard shortcuts"
+        >
+          How to play
+          <kbd className="kbd">?</kbd>
         </button>
       </header>
 
@@ -186,6 +199,7 @@ export function Game() {
       {state.phase === 'auction' && <AuctionPanel state={state} myId={myId} dispatch={dispatch} />}
       <CardModal state={state} myId={myId} isMyTurn={isMyTurn} dispatch={dispatch} />
       {state.phase === 'game_over' && <GameOver state={state} onLeave={leave} />}
+      <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
       <FxLayer request={fx} />
     </div>
   );
@@ -322,9 +336,11 @@ function ActionBar({
           </p>
           <button
             type="button" className="btn btn--primary btn--block"
+            data-hotkey="advance"
             onClick={() => dispatch({ type: 'ROLL', playerId: myId })}
           >
             Roll the dice
+            <kbd className="kbd">space</kbd>
           </button>
         </>
       )}
@@ -363,9 +379,11 @@ function ActionBar({
           </p>
           <button
             type="button" className="btn btn--primary btn--block"
+            data-hotkey="advance"
             onClick={() => dispatch({ type: 'END_TURN', playerId: myId })}
           >
             End turn
+            <kbd className="kbd">space</kbd>
           </button>
         </>
       )}
@@ -465,8 +483,14 @@ function CardModal({
                 drawn by {drawer?.name}
               </span>
               {isMyTurn && (
-                <button type="button" className="btn btn--primary btn--block" onClick={dismiss}>
+                <button
+                  type="button"
+                  className="btn btn--primary btn--block"
+                  data-hotkey="advance"
+                  onClick={dismiss}
+                >
                   Continue
+                  <kbd className="kbd">space</kbd>
                 </button>
               )}
             </div>

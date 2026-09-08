@@ -170,6 +170,53 @@ of them can be previewed without a rebuild:
 A choice made in the URL is remembered; the committed defaults live in
 `DEFAULTS` in `src/art/art.ts`.
 
+## Playing it
+
+The board is the thing you look at; everything else tries to stay out of the
+way. Three decisions carry most of that:
+
+- **Space advances the turn** - roll, continue through a card, end the turn -
+  from anywhere on the page. It is bound to a `data-hotkey="advance"` attribute
+  rather than to a phase, so it always does whatever the primary button says.
+  Buying, bidding and declaring bankruptcy are deliberately *not* on a key: a
+  stray space bar should never spend money.
+- **`?` opens the reference** - rent for railroads and utilities, the even-build
+  rule, how jail resolves. Mid-game rules questions used to mean leaving the
+  game to look something up, which is the memory-load problem
+  [NN/g describes in board games](https://www.nngroup.com/articles/usability-heuristics-board-games/):
+  recognition over recall, so the numbers are one key away.
+- **Controls say why they are dead.** A disabled button with only a tooltip is
+  invisible to a touch user and easy to miss on a mouse; the home screen now
+  states what is missing instead.
+
+## Sound
+
+Eleven recorded cues in `public/audio`, mono and 77KB for the whole set, fetched
+once on the first sound and only if sound is on. Each is trimmed to the
+transient, loudness-matched, then mixed per cue in `MIX` - a footstep that fires
+on every tile a piece walks over cannot sit at the same level as a stamp.
+
+## When the GPU drops the board
+
+A WebGL context can be lost at any time - a laptop switching GPUs, a driver
+reset, memory pressure - and nothing recovers from it on its own. Left alone,
+three stops drawing, the canvas paints **solid white** over the board, and the
+next frame throws deep in the renderer and takes the whole game with it.
+
+`BoardStage` handles all three parts of that:
+
+1. The canvas unmounts in the same tick as the loss, which stops three
+   rendering into a dead context.
+2. `.stage3d__canvas` is hidden until it has drawn a frame, so the flat board
+   waiting underneath shows through instead of a white rectangle.
+3. The scene remounts after 700ms - the renderer, its programs and every
+   texture went with the context, so it is rebuilt rather than resumed. Two
+   losses are a hiccup worth riding out; a third drops to the flat board for
+   good rather than flashing at the player.
+
+An error boundary around the 3D tree backs all of that up: any throw out of
+three costs the board, never the game everyone is in the middle of.
+
 ## Architecture
 
 ```
@@ -253,6 +300,8 @@ Everything in `public/art` was generated via fal.ai: stills with FLUX.2
 through `rembg`. They are original material, ornament and illustration - no
 trademarked mark, character or board design is reproduced in any of them.
 
-Sound is still synthesised in the browser with WebAudio (`src/audio/sfx.ts`)
-rather than shipped as files, for the same reason the playing pieces are still
-SVG: zero bytes and nothing to 404.
+The eleven table cues in `public/audio` were generated with CassetteAI's sound
+effects model. The synthesised WebAudio cues they replaced are still in
+`src/audio/sfx.ts` and still wired up: they cover the moment before the samples
+finish decoding, and they cover a sample that 404s or fails to decode, so sound
+degrades rather than stopping.

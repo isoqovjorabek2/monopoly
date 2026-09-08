@@ -4,7 +4,16 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
  * player is left staring at a blank page with no idea what happened and
  * no way back. A crash should still be a designed state. */
 
-interface Props { children: ReactNode }
+interface Props {
+  children: ReactNode;
+  /**
+   * Renders instead of the full-page crash screen. Used to contain a
+   * failure to the part that failed - a dead 3D canvas should cost the
+   * board, not the game everyone is in the middle of.
+   */
+  fallback?: (error: Error) => ReactNode;
+  onError?: (error: Error) => void;
+}
 interface State { error: Error | null }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -17,11 +26,13 @@ export class ErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, info: ErrorInfo): void {
     // Keep the detail in the console for anyone who opens devtools.
     console.error('Monopoly Royale crashed:', error, info.componentStack);
+    this.props.onError?.(error);
   }
 
   render(): ReactNode {
     const { error } = this.state;
     if (!error) return this.props.children;
+    if (this.props.fallback) return this.props.fallback(error);
 
     return (
       <div className="crash">

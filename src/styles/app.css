@@ -464,6 +464,10 @@
   inset: 0;
   transition: opacity var(--dur-slow) var(--ease-out);
 }
+/* Hidden until it has drawn, which also covers the case that made this
+   necessary: a canvas whose WebGL context is lost paints solid white, and
+   an always-visible one puts that white square over the flat board. */
+.stage3d:not([data-ready]) .stage3d__canvas { opacity: 0; }
 .stage3d__canvas canvas { display: block; outline: none; }
 
 .game__tabbar { display: none; }
@@ -1168,4 +1172,66 @@
 
 @media (prefers-reduced-motion: reduce) {
   .fx { display: none; }
+}
+
+/* ==================================================================
+   Playability: keyboard hints, the in-game reference, and saying why
+   a control is disabled instead of leaving a dead button.
+   ================================================================== */
+
+.kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.5em;
+  margin-left: var(--s-2);
+  padding: 2px 6px;
+  border: 1px solid rgb(0 0 0 / 0.22);
+  border-bottom-width: 2px;
+  border-radius: var(--r-xs);
+  background: rgb(0 0 0 / 0.14);
+  font: 500 10px/1.4 var(--font-num);
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  color: inherit;
+  opacity: 0.72;
+}
+/* On a ghost button the key sits on the dark surface, not on brass. */
+.btn--ghost .kbd { border-color: var(--border-strong); background: rgb(255 255 255 / 0.06); }
+
+.hint { font-size: var(--t-sm); color: var(--brass-300); }
+
+.help { display: flex; flex-direction: column; gap: var(--s-5); }
+.help__block { display: flex; flex-direction: column; gap: var(--s-2); }
+.help__heading {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-sm);
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--brass-300);
+}
+.help__keys { margin: 0; display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-5); }
+.help__keys > div { display: flex; align-items: center; gap: var(--s-2); }
+.help__keys dt { margin: 0; }
+.help__keys dt .kbd { margin-left: 0; }
+.help__keys dd { margin: 0; font-size: var(--t-sm); color: var(--text-muted); }
+
+.help__list { margin: 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 6px; }
+.help__list li { font-size: var(--t-sm); color: var(--text-muted); }
+
+.help__rules { margin: 0; display: flex; flex-direction: column; gap: 1px; }
+.help__rules > div {
+  display: grid;
+  grid-template-columns: minmax(0, 12rem) minmax(0, 1fr);
+  gap: var(--s-3);
+  padding: 7px var(--s-2);
+  background: rgb(255 255 255 / 0.02);
+}
+.help__rules > div:nth-child(even) { background: rgb(255 255 255 / 0.04); }
+.help__rules dt { margin: 0; font-size: var(--t-sm); color: var(--text); }
+.help__rules dd { margin: 0; font-size: var(--t-sm); color: var(--text-muted); }
+
+@media (max-width: 560px) {
+  .help__rules > div { grid-template-columns: 1fr; gap: 2px; }
 }

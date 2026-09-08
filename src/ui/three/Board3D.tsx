@@ -329,10 +329,12 @@ export interface Board3DProps {
   onInspect: (id: number) => void;
   quality: 'high' | 'low';
   onReady?: () => void;
+  /** The GPU dropped the context; the caller decides whether to retry. */
+  onContextLost?: () => void;
 }
 
 export default function Board3D({
-  state, animPos, rolling, highlight, onInspect, quality, onReady,
+  state, animPos, rolling, highlight, onInspect, quality, onReady, onContextLost,
 }: Board3DProps) {
   const current = state.seats[state.seatIndex];
 
@@ -367,6 +369,17 @@ export default function Board3D({
         const pmrem = new PMREMGenerator(gl);
         scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
         pmrem.dispose();
+
+        // A lost context is not rare on laptops that switch GPUs or throttle
+        // under memory pressure, and nothing recovers from it on its own:
+        // three stops drawing and the canvas paints solid white over the
+        // board. preventDefault is what lets the browser hand a context back
+        // at all; the caller remounts the scene on top of that.
+        gl.domElement.addEventListener('webglcontextlost', (e) => {
+          e.preventDefault();
+          onContextLost?.();
+        });
+
         // Reveal only once a frame has actually been drawn.
         requestAnimationFrame(() => requestAnimationFrame(() => onReady?.()));
       }}

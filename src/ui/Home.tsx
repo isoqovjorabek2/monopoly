@@ -82,7 +82,13 @@ export function Home() {
                 onChange={(e) => setName(e.target.value)}
                 onBlur={commit}
                 autoComplete="nickname"
+                aria-describedby={nameOk ? undefined : 'name-hint'}
               />
+              {!nameOk && (
+                <span id="name-hint" className="hint">
+                  Pick a name and the three buttons on the right come alive.
+                </span>
+              )}
             </label>
 
             <div className="labelled">
