@@ -1343,12 +1343,66 @@
   padding: var(--s-2);
   background: var(--bg-deep);
 }
-.game[data-focus] .game__top { opacity: 0.35; transition: opacity var(--dur-mid) var(--ease-out); }
+/* The header carries nothing you need mid-turn: leaving, the renderer
+   toggle, sound, the rules. Dimming it was half a measure - it still took a
+   row of height off the board and still drew the eye. It now leaves the
+   layout entirely and comes back when the pointer goes looking for it, or
+   when anything in it takes keyboard focus. */
+.game__reveal { display: none; }
+.game[data-focus] .game__reveal {
+  display: block;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 48px;
+  z-index: 64;
+}
+.game[data-focus] .game__top {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 65;
+  padding: var(--s-2) var(--s-3);
+  background: linear-gradient(180deg, rgb(4 10 7 / 0.94), rgb(4 10 7 / 0.72) 62%, transparent);
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--dur-mid) var(--ease-out),
+    opacity var(--dur-mid) var(--ease-out);
+}
+/* Revealed by the strip, then held open by the header itself - which now
+   covers the strip, so the two hovers hand over without a gap. */
+.game[data-focus] .game__reveal:hover ~ .game__top,
 .game[data-focus] .game__top:hover,
-.game[data-focus] .game__top:focus-within { opacity: 1; }
+.game[data-focus] .game__top:focus-within {
+  transform: none;
+  opacity: 1;
+  pointer-events: auto;
+}
 
 .game[data-focus] .game__layout { grid-template-columns: minmax(0, 1fr); }
 .game[data-focus] .game__rail { display: none; }
+/* The stage is the only thing left competing for height, so let it have
+   the row rather than sitting at its content size inside it. */
+.game[data-focus] .game__stage { align-self: stretch; }
+
+/* The view controls are chrome too. They stay hoverable - the padded
+   ::before is their hit area - and stay out of the picture until asked. */
+.game[data-focus] .boardTools {
+  position: relative;
+  opacity: 0;
+  transition: opacity var(--dur-mid) var(--ease-out);
+}
+.game[data-focus] .boardTools::before {
+  content: '';
+  position: absolute;
+  inset: -22px -32px -12px;
+}
+.game[data-focus] .boardTools:hover,
+.game[data-focus] .boardTools:focus-within { opacity: 1; }
 
 /* The side column becomes a floating panel over the felt rather than a
    column that steals width from the board. */
@@ -1368,11 +1422,35 @@
   box-shadow: var(--e-3);
 }
 
+/* A flat board is square because a Monopoly board is square, so full screen
+   can only give it more of the short axis. */
 .game[data-focus] .game__boardWrap {
+  /* 16 for the shell's own padding, 42 for the view controls' row - they
+     are transparent until hovered but they still hold their space, and
+     without counting them the board runs into them. */
+  --chrome: 58px;
   width: min(
     calc(100% * var(--board-zoom, 1)),
-    calc((100dvh - 76px) * var(--board-zoom, 1))
+    calc((100dvh - var(--chrome)) * var(--board-zoom, 1))
   );
+}
+
+/* The 3D board has no such excuse. It is a camera pointed at an object, and
+   a camera fills whatever frame you give it - the square box is a
+   requirement the flat board has and this one inherited by sharing a
+   container. In focus mode it takes the window: wider than tall is simply a
+   wider shot of the same table.
+
+   This has to out-specify the rule above, which is why it repeats the
+   [data-mode] hook: the generic focus rule was squeezing the scene back
+   into the flat board's square. */
+.game[data-focus] .game__boardWrap[data-mode='3d'] {
+  width: 100%;
+  height: 100%;
+}
+.game[data-focus] .stage3d {
+  height: 100%;
+  border-radius: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {

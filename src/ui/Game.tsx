@@ -44,7 +44,7 @@ export function Game() {
   const fallBackTo2D = useCallback(() => setRenderMode('2d'), []);
 
   const [zoom, setZoom] = useState(readBoardZoom);
-  const { focused, toggle: toggleFocus } = useFocusMode();
+  const { focused, toggle: toggleFocus, autoEnter } = useFocusMode();
 
   const stepZoom = useCallback((delta: number) => {
     setZoom((z) => {
@@ -89,6 +89,19 @@ export function Game() {
 
   useGameKeys(useCallback(() => setHelpOpen((v) => !v), []), toggleFocus);
 
+  /* Open into focus mode when the game starts. Once, and only on the way in
+   * from the lobby: a player who folds the rails back out has said what they
+   * want, and re-entering on the next render would be an argument. The
+   * browser usually grants real fullscreen here too, because Start was a
+   * click a moment ago and the gesture is still warm. */
+  const openedFullScreen = useRef(false);
+  useEffect(() => {
+    if (openedFullScreen.current || !room?.game) return;
+    if (room.game.phase === 'lobby' || room.game.phase === 'game_over') return;
+    openedFullScreen.current = true;
+    autoEnter();
+  }, [room?.game, autoEnter]);
+
   if (!room || !state) return null;
 
   const isMyTurn = state.seats[state.seatIndex] === myId;
@@ -96,6 +109,10 @@ export function Game() {
 
   return (
     <div className="game" data-focus={focused || undefined}>
+      {/* A strip along the top edge that reveals the header. The header
+          itself is out of the way in focus mode, so something has to be
+          left behind to bring it back. */}
+      {focused && <div className="game__reveal" aria-hidden />}
       <header className="game__top">
         <button type="button" className="btn btn--ghost btn--sm" onClick={leave}>Leave</button>
         <span className="game__turn overline">

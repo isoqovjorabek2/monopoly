@@ -234,8 +234,28 @@ Two controls under it fix that, and they are deliberately separate:
 - **Full screen** (`F`) folds the rails away, floats the action panel over the
   felt, and asks the browser for real fullscreen on top. The layout half stands
   on its own when that request is refused - iOS Safari has no
-  `Element.requestFullscreen`, and a fullscreen request needs a real user
-  gesture - so the button always does something.
+  `Element.requestFullscreen`, and the request needs a real user gesture - so
+  the button always does something.
+
+A game **opens into full screen by itself**. The click on Start is a user
+gesture a second old, so the browser usually grants the real thing too. Folding
+the rails back out is remembered: a player who does it once is not asked again
+next game.
+
+Once you are in it, the chrome goes with the rails. The header carries nothing
+you need mid-turn - leaving, the renderer toggle, sound, the rules - so it
+leaves the layout entirely and slides back when the pointer goes looking along
+the top edge, or when anything in it takes keyboard focus. The view controls do
+the same at the bottom. `Esc` leaves, and it is handled directly for the case
+where the fullscreen request was refused and there is no fullscreen for `Esc`
+to exit on its own.
+
+**In full screen the 3D board takes the whole window**, rather than the square
+the flat board needs. A square container is a requirement a Monopoly board has
+and the 3D scene only inherited by sharing a box with it: a camera fills
+whatever frame you give it, and the rig already frames on the limiting axis, so
+a 2.3:1 window is simply a wider shot of the same table with more of it either
+side of the board.
 
 Two things the board answers without a modal now:
 
