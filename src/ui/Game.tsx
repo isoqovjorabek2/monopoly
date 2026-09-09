@@ -38,6 +38,9 @@ export function Game() {
   const [tradeOpen, setTradeOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [renderMode, setRenderMode] = useState<RenderMode>(readRenderMode);
+  // Stable by construction: BoardStage keys an effect on this, and an inline
+  // arrow made that effect re-run on every render of the game screen.
+  const fallBackTo2D = useCallback(() => setRenderMode('2d'), []);
 
   const toggleRender = () => {
     const next: RenderMode = renderMode === '3d' ? '2d' : '3d';
@@ -146,7 +149,7 @@ export function Game() {
               animPos={animPos}
               rolling={rolling}
               onInspect={inspect}
-              onFallback={() => setRenderMode('2d')}
+              onFallback={fallBackTo2D}
               highlight={state.phase === 'awaiting_buy' || state.phase === 'auction'
                 ? (state.auction?.spaceId ?? state.players[state.seats[state.seatIndex]].position)
                 : null}

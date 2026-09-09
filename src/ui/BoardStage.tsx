@@ -9,17 +9,35 @@ const Board3D = lazy(() => import('./three/Board3D'));
 
 export type RenderMode = '3d' | '2d';
 
-/** Cheap capability probe. A context that fails to create means 3D is not
- *  an option at all, whatever the preference says. */
+/**
+ * Capability probe, run at most once.
+ *
+ * It was neither cheap nor idempotent. Every call built a real WebGL
+ * context and dropped it on the floor, and a browser keeps only a handful
+ * of live contexts per page - Chrome allows about sixteen - before it
+ * starts killing the oldest to make room. The oldest is the board's. Since
+ * this ran from an effect whose dependency changed on every render of the
+ * game screen, a game accumulated roughly one leaked context per turn and
+ * the board was evicted from under the player somewhere in the middle of
+ * it: three losses in and it fell back to the flat board for good.
+ *
+ * The answer cannot change during a session, so it is computed once, and
+ * the probe hands its context straight back rather than waiting for GC.
+ */
+let webglProbe: boolean | null = null;
+
 function webglAvailable(): boolean {
+  if (webglProbe !== null) return webglProbe;
   try {
     const canvas = document.createElement('canvas');
-    return Boolean(
-      canvas.getContext('webgl2') ?? canvas.getContext('webgl'),
-    );
+    const gl = (canvas.getContext('webgl2') ?? canvas.getContext('webgl')) as
+      WebGLRenderingContext | null;
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+    webglProbe = Boolean(gl);
   } catch {
-    return false;
+    webglProbe = false;
   }
+  return webglProbe;
 }
 
 function prefersReducedMotion(): boolean {
@@ -78,9 +96,21 @@ export function BoardStage({
   const [alive, setAlive] = useState(true);
   const losses = useRef(0);
   const retryTimer = useRef<number | null>(null);
+  const healthyTimer = useRef<number | null>(null);
 
   useEffect(() => () => {
     if (retryTimer.current != null) window.clearTimeout(retryTimer.current);
+    if (healthyTimer.current != null) window.clearTimeout(healthyTimer.current);
+  }, []);
+
+  /** A scene that comes back and then draws cleanly for half a minute had a
+   *  hiccup, not a pattern. Counting losses for the whole session instead
+   *  demotes a player two hours in over three unrelated stumbles they never
+   *  even saw, because each one recovered. */
+  const onSceneReady = useCallback(() => {
+    setReady(true);
+    if (healthyTimer.current != null) window.clearTimeout(healthyTimer.current);
+    healthyTimer.current = window.setTimeout(() => { losses.current = 0; }, 30000);
   }, []);
 
   const onContextLost = useCallback(() => {
@@ -92,10 +122,19 @@ export function BoardStage({
     setAlive(false);
     setReady(false);
     losses.current += 1;
+    if (healthyTimer.current != null) {
+      window.clearTimeout(healthyTimer.current);
+      healthyTimer.current = null;
+    }
 
     // Twice is a hiccup worth riding out. A third means this machine cannot
     // hold a context for this scene, and retrying just flashes the board.
-    if (losses.current > 2) { setFailed(true); onFallback(); return; }
+    if (losses.current > 2) {
+      console.warn('[board] three lost GPU contexts; falling back to the flat board');
+      setFailed(true);
+      onFallback();
+      return;
+    }
 
     if (retryTimer.current != null) window.clearTimeout(retryTimer.current);
     retryTimer.current = window.setTimeout(() => {
@@ -105,10 +144,27 @@ export function BoardStage({
   }, [onFallback]);
 
   /** Any throw out of the 3D tree costs the board, never the game. */
-  const on3DError = useCallback(() => { setFailed(true); onFallback(); }, [onFallback]);
+  const on3DError = useCallback((error: Error) => {
+    console.warn('[board] the 3D scene threw; falling back to the flat board', error);
+    setFailed(true);
+    onFallback();
+  }, [onFallback]);
 
   // A new game in a new session starts flat again while the chunk loads.
   useEffect(() => { if (mode === '2d') setReady(false); }, [mode]);
+
+  /**
+   * A fallback is not a verdict. Asking for the 3D board again from the
+   * header is an explicit second opinion, and it used to do nothing at all:
+   * `failed` outlived the mode it set, so the toggle stayed dead for the
+   * rest of the session and the only way back was a reload.
+   */
+  useEffect(() => {
+    if (mode !== '3d') return;
+    setFailed(false);
+    losses.current = 0;
+    setAlive(true);
+  }, [mode]);
 
   useEffect(() => {
     if (mode === '3d' && !webglAvailable()) { setFailed(true); onFallback(); }
@@ -143,7 +199,7 @@ export function BoardStage({
                 highlight={highlight}
                 onInspect={onInspect}
                 quality={tier}
-                onReady={() => setReady(true)}
+                onReady={onSceneReady}
                 onContextLost={onContextLost}
               />
             )}

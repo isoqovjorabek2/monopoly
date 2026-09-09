@@ -421,12 +421,14 @@ export default function Board3D({
           );
         })}
 
-        {Object.entries(state.properties).map(([key, st]) => {
+        {/* flatMap, not map: a nested array of children has no key of its
+            own, and React reconciles the whole row of buildings from
+            scratch every time any one property is improved. */}
+        {Object.entries(state.properties).flatMap(([key, st]) => {
           const id = Number(key);
-          if (!st.houses) return null;
+          if (!st.houses) return [];
           const hotel = st.houses === 5;
-          const spots = buildingPositions(id, hotel ? 1 : st.houses);
-          return spots.map((p, i) => (
+          return buildingPositions(id, hotel ? 1 : st.houses).map((p, i) => (
             <Building3D key={`${id}-${i}`} position={p} hotel={hotel} />
           ));
         })}
