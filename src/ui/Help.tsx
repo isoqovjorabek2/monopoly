@@ -20,7 +20,7 @@ function isTyping(target: EventTarget | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
 }
 
-export function useGameKeys(onHelp: () => void): void {
+export function useGameKeys(onHelp: () => void, onFocusMode?: () => void): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isTyping(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -28,6 +28,20 @@ export function useGameKeys(onHelp: () => void): void {
       if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
         e.preventDefault();
         onHelp();
+        return;
+      }
+
+      if ((e.key === 'f' || e.key === 'F') && onFocusMode) {
+        e.preventDefault();
+        onFocusMode();
+        return;
+      }
+
+      // Enter on a focused control already activates that control. Without
+      // this, arrowing to a board tile and pressing Enter would inspect the
+      // tile AND advance the turn.
+      if (e.key === 'Enter' && document.activeElement instanceof HTMLElement
+        && document.activeElement.matches('button, a, [role="button"]')) {
         return;
       }
 
@@ -47,7 +61,7 @@ export function useGameKeys(onHelp: () => void): void {
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onHelp]);
+  }, [onHelp, onFocusMode]);
 }
 
 const RENT_RULES: [string, string][] = [

@@ -13,7 +13,18 @@
   gap: 1px;
   padding: 1px;
   border-radius: var(--r-md);
-  background: rgb(0 0 0 / 0.6);
+  /* One continuous piece of cloth under the whole grid, rather than forty
+     repeats of the same swatch: the plaques above are translucent, so the
+     weave runs through them and through the seams between them.
+
+     The texture is pre-graded to average out to this colour, so a 404 or a
+     slow network costs the board its weave and never its value - which is
+     the same contract the 3D board's surfaces have. */
+  background-color: rgb(0 0 0 / 0.6);
+  background-image: var(--felt-img, none);
+  background-size: cover;
+  background-position: center;
+  background-blend-mode: overlay;
   /* Gold leaf edging: a thin bright rule inside a dark one reads as a
      bevelled metal frame far more convincingly than a single border. */
   box-shadow:
@@ -49,14 +60,19 @@
   position: relative;
   display: flex;
   overflow: hidden;
+  /* Translucent so the board's cloth reads through the plaque. The alpha
+     is high enough that the type keeps its contrast against it. */
   background:
     linear-gradient(180deg, rgb(255 255 255 / 0.055), transparent 42%),
-    linear-gradient(180deg, var(--felt-500), var(--felt-600));
+    linear-gradient(180deg,
+      color-mix(in oklab, var(--felt-500) 88%, transparent),
+      color-mix(in oklab, var(--felt-600) 93%, transparent));
   color: var(--ivory-100);
   cursor: pointer;
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.06),
-    inset 0 -1px 0 rgb(0 0 0 / 0.35);
+    inset 0 -1px 0 rgb(0 0 0 / 0.35),
+    inset 0 0 0 1px rgb(0 0 0 / 0.22);
   transition:
     filter var(--dur-fast) var(--ease-out),
     transform var(--dur-fast) var(--ease-out);
@@ -80,9 +96,41 @@
 .tile--corner {
   background:
     radial-gradient(120% 120% at 30% 20%, rgb(255 255 255 / 0.09), transparent 60%),
-    linear-gradient(150deg, var(--felt-400), var(--felt-600));
+    linear-gradient(150deg,
+      color-mix(in oklab, var(--felt-400) 86%, transparent),
+      color-mix(in oklab, var(--felt-600) 92%, transparent));
   align-items: center;
   justify-content: center;
+}
+
+/* The four corner emblems.
+   Engraved on black and composited with `screen`, so the ground drops out
+   against the felt with no alpha channel to pay for. They sit under the
+   type, never over it. */
+.tile__emblem {
+  position: absolute;
+  /* The label takes the bottom quarter, so the emblem gets the rest of the
+     square to itself rather than sitting under the type and turning both
+     to mush - which is what a centred emblem behind centred text does at
+     the ~50px a corner tile actually gets. */
+  inset: 3% 3% 27% 3%;
+  z-index: 1;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  mix-blend-mode: screen;
+  /* Engraving this fine loses its bite once it is scaled down this far. */
+  filter: contrast(1.25) brightness(1.2);
+  pointer-events: none;
+}
+.tile--corner .tile__body {
+  position: relative;
+  z-index: 2;
+  justify-content: flex-end;
+  padding-bottom: 5%;
+}
+.tile--corner .tile__name {
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.9), 0 0 8px rgb(0 0 0 / 0.75);
 }
 
 /* Tiles stack their content perpendicular to the edge they sit on so
@@ -306,6 +354,27 @@
     linear-gradient(150deg, var(--felt-700), var(--felt-800) 60%, var(--felt-900));
   overflow: hidden;
 }
+/* The generated emblem, under the drawn one.
+   It is a ground, not the subject: at any real strength its concentric
+   linework sits exactly where the wordmark is and buries it, and the
+   middle is where the dice and the turn HUD live. So it is masked to an
+   annulus and kept faint - it supplies the engraved metal a vector cannot,
+   and nothing else. The drawn rings and type stay on top, because those
+   have to be legible at every board size. */
+.board__centre::after {
+  content: '';
+  position: absolute;
+  inset: 2%;
+  z-index: 0;
+  background: var(--medal-img, none) center / contain no-repeat;
+  mix-blend-mode: screen;
+  opacity: 0.24;
+  -webkit-mask-image: radial-gradient(circle at 50% 50%,
+    transparent 22%, #000 42%, #000 74%, transparent 94%);
+  mask-image: radial-gradient(circle at 50% 50%,
+    transparent 22%, #000 42%, #000 74%, transparent 94%);
+  pointer-events: none;
+}
 .board__centre::before {
   content: '';
   position: absolute;
@@ -439,8 +508,100 @@
 /* At phone board sizes the emblem's fine linework turns to mush, so it
    steps back further and drops its smallest type. */
 @container (max-width: 420px) {
+  /* Fine linework is the first thing to go: at a phone board size it is
+     noise competing with the only two words that have to be readable. */
+  .board__centre::after { display: none; }
+  .tile__emblem { opacity: 0.75; }
   .medallion__type .medallion__sub,
   .medallion__fans { display: none; }
   .medallion__rings circle { opacity: 0.24; }
   .medallion__type text { opacity: 0.62; }
+}
+
+
+/* ==================================================================
+   The peek.
+
+   Answering "what is this square worth?" used to cost a modal, which
+   costs the player their view of the whole board at the moment they were
+   trying to compare two parts of it. This answers in place, on hover and
+   on keyboard focus, and it is decoration: the deed modal is still one
+   click away and is still what a touch user gets.
+
+   Positioned from the same track geometry the tokens use and pushed
+   toward the middle of the board, so it never leaves the board's own box
+   and never has to measure anything.
+   ================================================================== */
+
+.peek {
+  position: absolute;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: max-content;
+  max-width: 46cqi;
+  padding: calc(var(--s-2) - 1px) var(--s-2);
+  border-radius: var(--r-sm);
+  background: rgb(4 10 7 / 0.94);
+  border: 1px solid var(--border-brass);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.6),
+    0 10px 26px -8px rgb(0 0 0 / 0.9),
+    inset 0 1px 0 rgb(255 255 255 / 0.07);
+  pointer-events: none;
+  animation: peekIn var(--dur-fast) var(--ease-out);
+}
+
+/* Toward the centre from whichever edge the tile is on. */
+.peek--bottom { transform: translate(-50%, calc(-100% - 0.6 * var(--corner-size))); }
+.peek--top    { transform: translate(-50%, calc(0.6 * var(--corner-size))); }
+.peek--left   { transform: translate(calc(0.6 * var(--corner-size)), -50%); }
+.peek--right  { transform: translate(calc(-100% - 0.6 * var(--corner-size)), -50%); }
+
+.peek__band {
+  height: 3px;
+  border-radius: 2px;
+  margin-bottom: 2px;
+  box-shadow: inset 0 -1px 0 rgb(0 0 0 / 0.4);
+}
+.peek__name {
+  font-family: var(--font-display);
+  font-size: clamp(9px, 2.1cqi, 15px);
+  letter-spacing: 0.02em;
+  color: var(--ivory-100);
+  text-transform: uppercase;
+  line-height: 1.1;
+}
+.peek__meta {
+  display: flex;
+  gap: var(--s-2);
+  font-size: clamp(7px, 1.6cqi, 12px);
+  color: var(--text-muted);
+}
+.peek__buy { color: var(--brass-300); }
+.peek__flag { color: var(--danger-400); }
+.peek__nums {
+  display: flex;
+  gap: var(--s-2);
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(7px, 1.7cqi, 13px);
+  color: var(--brass-200);
+}
+.peek__rent { color: var(--text-muted); }
+
+@keyframes peekIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* A hovered tile lifts toward the reader rather than only brightening -
+   depth is what tells you the board is a physical thing. */
+.tile:hover { filter: brightness(1.16) saturate(1.06); }
+.tile:focus-visible,
+.tile:hover { z-index: 6; }
+
+@media (prefers-reduced-motion: reduce) {
+  .peek { animation: none; }
 }

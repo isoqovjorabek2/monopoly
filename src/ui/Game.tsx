@@ -5,6 +5,7 @@ import { maxRaisable } from '../game/rules';
 import type { GameAction, GameState } from '../game/types';
 import { useStore } from '../store/store';
 import { BoardStage, readRenderMode, writeRenderMode, type RenderMode } from './BoardStage';
+import { BoardTools, readBoardZoom, useFocusMode, writeBoardZoom, ZOOM_STEPS } from './BoardTools';
 import { DeedCard } from './DeedCard';
 import {
   AuctionPanel, GameOver, IncomingTrades, LogFeed, PlayerRail, PortfolioModal, TradePanel,
@@ -42,6 +43,18 @@ export function Game() {
   // arrow made that effect re-run on every render of the game screen.
   const fallBackTo2D = useCallback(() => setRenderMode('2d'), []);
 
+  const [zoom, setZoom] = useState(readBoardZoom);
+  const { focused, toggle: toggleFocus } = useFocusMode();
+
+  const stepZoom = useCallback((delta: number) => {
+    setZoom((z) => {
+      const i = ZOOM_STEPS.indexOf(z);
+      const next = ZOOM_STEPS[Math.min(ZOOM_STEPS.length - 1, Math.max(0, i + delta))];
+      writeBoardZoom(next);
+      return next;
+    });
+  }, []);
+
   const toggleRender = () => {
     const next: RenderMode = renderMode === '3d' ? '2d' : '3d';
     setRenderMode(next);
@@ -74,7 +87,7 @@ export function Game() {
     if (iWon && !fired.current.won) { fired.current.won = true; fire('victory'); }
   }, [iAmOut, iWon, fire]);
 
-  useGameKeys(useCallback(() => setHelpOpen((v) => !v), []));
+  useGameKeys(useCallback(() => setHelpOpen((v) => !v), []), toggleFocus);
 
   if (!room || !state) return null;
 
@@ -82,7 +95,7 @@ export function Game() {
   const iAmBankrupt = state.players[myId]?.bankrupt ?? false;
 
   return (
-    <div className="game">
+    <div className="game" data-focus={focused || undefined}>
       <header className="game__top">
         <button type="button" className="btn btn--ghost btn--sm" onClick={leave}>Leave</button>
         <span className="game__turn overline">
@@ -142,7 +155,11 @@ export function Game() {
         </aside>
 
         <main className="game__stage">
-          <div className="game__boardWrap" data-mode={renderMode}>
+          <div
+            className="game__boardWrap"
+            data-mode={renderMode}
+            style={{ ['--board-zoom' as string]: zoom } as React.CSSProperties}
+          >
             <BoardStage
               mode={renderMode}
               state={state}
@@ -155,6 +172,12 @@ export function Game() {
                 : null}
             />
           </div>
+          <BoardTools
+            zoom={zoom}
+            focused={focused}
+            onZoom={stepZoom}
+            onToggleFocus={toggleFocus}
+          />
         </main>
 
         <aside className="game__side" data-open={sheet === 'log' || undefined}>

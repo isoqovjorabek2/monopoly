@@ -121,11 +121,12 @@ property names and prices and are drawn to a canvas in `src/ui/three/tileFace.ts
 Everything a vector could not supply - woven cloth, engraved metal, printed
 illustration, a lit room, falling coins - is an image in `public/art`,
 generated with FLUX.2 and MiniMax H3 and addressed through `src/art/art.ts`.
-64 files, about 2.2 MB, almost all of it fetched only when it is needed.
+68 files, about 2.3 MB, almost all of it fetched only when it is needed.
 
 | Group | Files | Where | What it replaced |
 | --- | --- | --- | --- |
-| `felt-*` | 4 | the block the plaques sit in, and the inner surface | two flat greens |
+| `felt-*` | 4 | the block the plaques sit in, the inner surface, **and the flat board's cloth** | two flat greens |
+| `corners/*` | 4 | the four corner emblems on the flat board | four small drawn icons |
 | `medal-*` | 4 | the centre emblem under the wordmark | 48 drawn wedges and two rings |
 | `hero-*` | 4 | the home screen backdrop | an empty dark page |
 | `cards/ch*`, `cards/cc*` | 32 | the drawn-card modal | nothing - the card was text only |
@@ -133,6 +134,16 @@ generated with FLUX.2 and MiniMax H3 and addressed through `src/art/art.ts`.
 | `stickers/*` | 12 | the chat composer | nothing - chat was text only |
 | `fx/*` | 3 | table effects on cash, a win, a bankruptcy | nothing |
 | `paper`, `table`, `og` | 3 | card stock, the 3D tabletop, the link preview | flat cream, empty fog, no preview |
+
+**Corner emblems** are the flat board's share of this. GO, Jail, Free Parking
+and Go To Jail were four SVG icons at a size where they read as clip art; they
+are now engraved vignettes on pure black, composited with `screen` so the
+ground drops out against the felt with no alpha channel to pay for. The black
+point is graded to true zero first, because JPEG ringing around linework that
+fine leaves the ground sitting around 8-14, and `screen` turns any non-zero
+ground into a haze over the whole tile. The label moved to the bottom quarter
+of the square so the emblem is not sitting under the type, which at ~50px
+turns both to mush.
 
 **Card illustrations** are one engraved vignette per card, keyed by card id, so
 "Speeding fine" and "Go to Jail" never share a picture. The generated ivory
@@ -151,6 +162,15 @@ Two details matter and both bit on the way in - the timing function has to be
 past the strip and freezes on black; and the blend has to sit on the `.fx`
 container, because a stacking context forms an isolated group and a blended
 child of one has nothing behind it to blend with.
+
+The flat board draws on the same set. It used to be gradients pretending to be
+cloth: it now has one continuous piece of felt under the whole grid rather than
+forty repeats of a swatch - the plaques above it are translucent, so the weave
+runs through them and through the seams between - and the centre carries the
+generated medallion under the drawn one. The generated one is masked to an
+annulus and kept faint on purpose: at any real strength its concentric linework
+sits exactly where the wordmark is and buries it, and the middle of the board is
+where the dice and the turn HUD live.
 
 None of this scales, tints per player, or carries text, so the reasons above do
 not apply. Three rules keep them honest:
@@ -201,6 +221,32 @@ way. Three decisions carry most of that:
 - **Controls say why they are dead.** A disabled button with only a tooltip is
   invisible to a touch user and easy to miss on a mouse; the home screen now
   states what is missing instead.
+
+### Seeing the board
+
+The board is sized off the shorter viewport axis so it is always square and
+always whole, which on a wide screen leaves a small board ringed by empty felt.
+Two controls under it fix that, and they are deliberately separate:
+
+- **Zoom**, 82% to 150%, remembered between sessions because it is a property of
+  the player's eyesight and monitor rather than of the game. Past the height the
+  rails leave, the page scrolls rather than cropping the board.
+- **Full screen** (`F`) folds the rails away, floats the action panel over the
+  felt, and asks the browser for real fullscreen on top. The layout half stands
+  on its own when that request is refused - iOS Safari has no
+  `Element.requestFullscreen`, and a fullscreen request needs a real user
+  gesture - so the button always does something.
+
+Two things the board answers without a modal now:
+
+- **Hovering a square shows what it is worth** - owner, price, and the rent it
+  currently charges - and so does arrowing onto it. Opening a modal to compare
+  two parts of the board costs you the view of the board you were comparing.
+- **The forty squares are one composite widget**, not forty tab stops. One tile
+  is in the tab order and the arrow keys walk around the ring, Home and End jump
+  to GO and Free Parking. The flat board is also `inert` while it stands in
+  underneath the 3D canvas, which it was not before: tabbing through a 3D game
+  used to walk an invisible board.
 
 ## The bots negotiate
 

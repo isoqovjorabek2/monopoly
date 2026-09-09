@@ -420,10 +420,38 @@
 .game__rail { max-height: calc(100dvh - 90px); overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; }
 .game__side { max-height: calc(100dvh - 90px); }
 
-.game__stage { display: grid; place-items: center; min-width: 0; }
+.game__stage {
+  display: grid;
+  /* The board takes what is left; the view controls take what they need and
+     are never the thing that gets pushed off the bottom. */
+  grid-template-rows: minmax(0, 1fr) auto;
+  justify-items: center;
+  /* `safe` matters: a board zoomed past the viewport centred normally gets
+     clipped at the TOP, where there is no way to scroll back to it. Safe
+     alignment falls back to start exactly when that would happen. */
+  align-items: safe center;
+  min-width: 0;
+  min-height: 0;
+  /* `.game` is min-height, not height, so a board zoomed past the viewport
+     grows the page and the document scrolls - which is what a zoom control
+     should do. This is only here for the case where a container above does
+     bound the height, so the board is scrollable rather than cropped. */
+  overflow: auto;
+  overscroll-behavior: contain;
+}
 .game__boardWrap {
-  width: min(100%, calc(100dvh - 110px), var(--board-max));
+  /* Square, and sized off whichever axis runs out first, so it is always
+     whole. --chrome is everything else competing for the short axis;
+     --board-zoom is the player's multiplier on top, applied to the cap too
+     so it cannot silently eat the zoom. */
+  --chrome: 120px;
+  width: min(
+    calc(100% * var(--board-zoom, 1)),
+    calc((100dvh - var(--chrome)) * var(--board-zoom, 1)),
+    calc(var(--board-max) * var(--board-zoom, 1))
+  );
   container-type: inline-size;
+  transition: width var(--dur-mid) var(--ease-out);
 }
 /* Seen in perspective the board wants the whole cell, not a square box. */
 .game__boardWrap[data-mode='3d'] {
@@ -990,7 +1018,17 @@
   .game__top .chip { display: none; }
   .game__turn { font-size: 10px; }
   .game__layout { grid-template-columns: 1fr; }
-  .game__boardWrap { width: min(100%, 96vw); }
+  /* Phone: the rails are sheets, so the width is the board's to take - but
+     the fixed tab bar and the view controls still own part of the height,
+     and the board used to be sized as though they did not exist and run
+     off the bottom of the screen. */
+  .game__boardWrap {
+    --chrome: 172px;
+    width: min(
+      calc(96vw * var(--board-zoom, 1)),
+      calc((100dvh - var(--chrome)) * var(--board-zoom, 1))
+    );
+  }
 
   /* Rails become bottom sheets so the board keeps the whole screen. */
   .game__rail, .game__side {
@@ -1234,4 +1272,125 @@
 
 @media (max-width: 560px) {
   .help__rules > div { grid-template-columns: 1fr; gap: 2px; }
+}
+
+
+/* ==================================================================
+   Board view controls.
+   ================================================================== */
+
+.boardTools {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  margin-top: var(--s-2);
+  padding: 3px;
+  border-radius: var(--r-pill);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--e-1);
+}
+.boardTools__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-width: 30px;
+  height: 26px;
+  padding: 0 var(--s-2);
+  justify-content: center;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--t-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.boardTools__btn:hover:not(:disabled) { background: var(--bg-raised); color: var(--ivory-100); }
+.boardTools__btn:disabled { opacity: 0.35; cursor: default; }
+.boardTools__btn[aria-pressed='true'] { background: var(--bg-raised); color: var(--brass-200); }
+.boardTools__value {
+  min-width: 42px;
+  text-align: center;
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.boardTools__sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--border-strong);
+}
+
+/* ==================================================================
+   Focus mode.
+
+   The rails fold away and the board takes the window. Everything the
+   player still needs mid-turn - whose turn it is, what they can do -
+   already lives on the board itself and in the action bar, so the bar
+   is the one thing that stays, docked as a compact overlay.
+
+   The bottom-sheet tab bar keeps working, so the rails are a tap away
+   rather than gone.
+   ================================================================== */
+
+.game[data-focus] {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  padding: var(--s-2);
+  background: var(--bg-deep);
+}
+.game[data-focus] .game__top { opacity: 0.35; transition: opacity var(--dur-mid) var(--ease-out); }
+.game[data-focus] .game__top:hover,
+.game[data-focus] .game__top:focus-within { opacity: 1; }
+
+.game[data-focus] .game__layout { grid-template-columns: minmax(0, 1fr); }
+.game[data-focus] .game__rail { display: none; }
+
+/* The side column becomes a floating panel over the felt rather than a
+   column that steals width from the board. */
+.game[data-focus] .game__side {
+  position: fixed;
+  right: var(--s-3);
+  bottom: var(--s-3);
+  width: min(340px, 32vw);
+  max-height: 52dvh;
+  z-index: 62;
+  overflow-y: auto;
+  padding: var(--s-3);
+  border-radius: var(--r-lg);
+  background: color-mix(in oklab, var(--bg-surface) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--e-3);
+}
+
+.game[data-focus] .game__boardWrap {
+  width: min(
+    calc(100% * var(--board-zoom, 1)),
+    calc((100dvh - 76px) * var(--board-zoom, 1))
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game__boardWrap { transition: none; }
+  .game[data-focus] .game__top { transition: none; }
+}
+
+/* On a phone the rails are already sheets and the board already has the
+   width, so focus mode only has the header to give back. */
+@media (max-width: 720px) {
+  .game[data-focus] .game__side {
+    position: fixed;
+    right: 0;
+    left: 0;
+    bottom: 54px;
+    width: auto;
+    max-height: 62dvh;
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
+  }
+  .boardTools__btn--wide .kbd { display: none; }
 }

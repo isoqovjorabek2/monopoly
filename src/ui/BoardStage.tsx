@@ -94,6 +94,7 @@ export function BoardStage({
   // the GPU went with it, so the scene is rebuilt rather than resumed.
   const [attempt, setAttempt] = useState(0);
   const [alive, setAlive] = useState(true);
+  const under = useRef<HTMLDivElement>(null);
   const losses = useRef(0);
   const retryTimer = useRef<number | null>(null);
   const healthyTimer = useRef<number | null>(null);
@@ -153,6 +154,17 @@ export function BoardStage({
   // A new game in a new session starts flat again while the chunk loads.
   useEffect(() => { if (mode === '2d') setReady(false); }, [mode]);
 
+  /* The flat board stays mounted underneath the canvas as the stand-in, and
+   * aria-hidden alone leaves its forty tiles in the tab order: tabbing
+   * through a 3D game walked an invisible board. Set as an attribute rather
+   * than a prop because React 18's types predate `inert`. */
+  useEffect(() => {
+    const el = under.current;
+    if (!el) return;
+    if (ready) el.setAttribute('inert', '');
+    else el.removeAttribute('inert');
+  }, [ready]);
+
   /**
    * A fallback is not a verdict. Asking for the 3D board again from the
    * header is an explicit second opinion, and it used to do nothing at all:
@@ -186,7 +198,7 @@ export function BoardStage({
     <div className="stage3d" data-ready={ready || undefined}>
       {/* The flat board stands in until the 3D chunk and its textures are
           ready, then cross-fades out. */}
-      <div className="stage3d__under" aria-hidden={ready}>{flat}</div>
+      <div className="stage3d__under" ref={under} aria-hidden={ready}>{flat}</div>
       <ErrorBoundary fallback={() => null} onError={on3DError}>
         <Suspense fallback={null}>
           <div className="stage3d__canvas">

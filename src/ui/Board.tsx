@@ -1,8 +1,10 @@
-import { memo } from 'react';
+import { memo, useCallback, useRef, useState } from 'react';
+import { ART, CORNER_EMBLEM, cornerArt } from '../art/art';
 import { BOARD, GROUP_COLOR, edgeOf, isCorner } from '../game/board';
 import type { GameState, Space } from '../game/types';
 import { BoardIcon, House, Hotel, Piece, type SpaceIcon } from './Pieces';
 import { Dice } from './Dice';
+import { fmt } from './bits';
 
 /* ---------------- geometry -------------------------------------------
  * The grid is [corner, 9 units, corner] on both axes. Token positions are
@@ -69,20 +71,27 @@ interface TileProps {
   houses: number;
   mortgaged: boolean;
   highlight: boolean;
+  /** Roving tabindex: exactly one tile is in the tab order at a time. */
+  focusable: boolean;
   onInspect: (id: number) => void;
+  onPeek: (id: number | null) => void;
+  register: (id: number, el: HTMLButtonElement | null) => void;
 }
 
 const Tile = memo(function Tile({
-  space, ownerColor, houses, mortgaged, highlight, onInspect,
+  space, ownerColor, houses, mortgaged, highlight, focusable, onInspect, onPeek, register,
 }: TileProps) {
   const edge = edgeOf(space.id);
   const corner = isCorner(space.id);
   const { col, row } = cellOf(space.id);
   const band = space.group ? GROUP_COLOR[space.group] : undefined;
 
-  const icon = space.kind === 'railroad' || space.kind === 'utility' || !space.group
-    ? SPACE_ICON[space.id] ?? KIND_ICON[space.kind]
-    : undefined;
+  const emblem = CORNER_EMBLEM[space.id];
+  const icon = emblem
+    ? undefined
+    : space.kind === 'railroad' || space.kind === 'utility' || !space.group
+      ? SPACE_ICON[space.id] ?? KIND_ICON[space.kind]
+      : undefined;
 
   // A tile is only about eight characters wide. Names wrap at spaces on
   // their own, but a single long word ("MEDITERRANEAN") has no break
@@ -93,6 +102,9 @@ const Tile = memo(function Tile({
   return (
     <button
       type="button"
+      ref={(el) => register(space.id, el)}
+      tabIndex={focusable ? 0 : -1}
+      data-space={space.id}
       className={[
         'tile',
         `tile--${edge}`,
@@ -108,12 +120,23 @@ const Tile = memo(function Tile({
         ...(ownerColor ? { ['--own' as string]: ownerColor } : {}),
       } as React.CSSProperties}
       onClick={() => onInspect(space.id)}
+      onPointerEnter={(e) => { if (e.pointerType === 'mouse') onPeek(space.id); }}
+      onPointerLeave={(e) => { if (e.pointerType === 'mouse') onPeek(null); }}
+      onFocus={() => onPeek(space.id)}
+      onBlur={() => onPeek(null)}
       aria-label={
         `${space.name}${space.price ? `, $${space.price}` : ''}`
         + `${ownerColor ? ', owned' : ''}${mortgaged ? ', mortgaged' : ''}`
       }
     >
       {band && <span className="tile__band" />}
+      {emblem && (
+        <span
+          className="tile__emblem"
+          style={{ backgroundImage: `url("${cornerArt(emblem)}")` }}
+          aria-hidden
+        />
+      )}
       {ownerColor && <span className="tile__owner" />}
       {ownerColor && <span className="tile__ownerEdge" />}
 
@@ -148,6 +171,38 @@ export function Board({
 }) {
   const current = state.seats[state.seatIndex];
 
+  /* Forty buttons in the tab order is forty presses to get past the board,
+   * so the ring behaves like one composite widget: one tile is tabbable and
+   * the arrow keys walk around it, which is also how a sighted mouse user
+   * already thinks about the board. */
+  const [cursor, setCursor] = useState(0);
+  const [peek, setPeek] = useState<number | null>(null);
+  const tiles = useRef(new Map<number, HTMLButtonElement>());
+
+  const register = useCallback((id: number, el: HTMLButtonElement | null) => {
+    if (el) tiles.current.set(id, el);
+    else tiles.current.delete(id);
+  }, []);
+
+  const moveTo = useCallback((id: number) => {
+    const next = ((id % 40) + 40) % 40;
+    setCursor(next);
+    tiles.current.get(next)?.focus();
+  }, []);
+
+  const onKeyDown = useCallback((e: React.KeyboardEvent) => {
+    // Around the ring rather than by screen direction: the board is a loop,
+    // and "right" means something different on each of its four edges.
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    if (step !== undefined) {
+      e.preventDefault();
+      moveTo(cursor + step);
+      return;
+    }
+    if (e.key === 'Home') { e.preventDefault(); moveTo(0); }
+    if (e.key === 'End') { e.preventDefault(); moveTo(20); }
+  }, [cursor, moveTo]);
+
   // Group the pieces by square so they can fan out instead of overlapping.
   const bySpace: Record<number, string[]> = {};
   for (const id of state.seats) {
@@ -157,7 +212,19 @@ export function Board({
   }
 
   return (
-    <div className="board" role="group" aria-label="Game board">
+    <div
+      className="board"
+      role="group"
+      aria-label="Game board"
+      onKeyDown={onKeyDown}
+      /* The generated surfaces are handed to CSS rather than imported by
+         it, because their paths carry the base path and the ?art= variant
+         override, both of which only exist at runtime. */
+      style={{
+        ['--felt-img' as string]: `url("${ART.felt}")`,
+        ['--medal-img' as string]: `url("${ART.medal}")`,
+      } as React.CSSProperties}
+    >
       {BOARD.map((space) => {
         const st = state.properties[space.id];
         const owner = st?.owner ? state.players[st.owner] : null;
@@ -169,7 +236,10 @@ export function Board({
             houses={st?.houses ?? 0}
             mortgaged={st?.mortgaged ?? false}
             highlight={highlight === space.id}
+            focusable={cursor === space.id}
             onInspect={onInspect}
+            onPeek={setPeek}
+            register={register}
           />
         );
       })}
@@ -179,6 +249,8 @@ export function Board({
         <Dice dice={state.dice} rolling={rolling} />
         <CentreHud state={state} />
       </div>
+
+      {peek !== null && <Peek state={state} spaceId={peek} />}
 
       <div className="tokenLayer" aria-hidden>
         {Object.entries(bySpace).flatMap(([pos, ids]) =>
@@ -201,6 +273,64 @@ export function Board({
             );
           }))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * What a tile is worth, without leaving the board.
+ *
+ * Opening a modal to answer "how much is this?" costs the player their
+ * place in the game and their sense of the whole board at once. The peek
+ * answers it in situ: it appears on hover and on keyboard focus, and it is
+ * pure decoration - the modal is still there for anyone who clicks.
+ *
+ * It is placed toward the middle of the board from the tile it describes,
+ * using the same track geometry the tokens use, so it never leaves the
+ * board's own box and never needs to measure anything.
+ */
+function Peek({ state, spaceId }: { state: GameState; spaceId: number }) {
+  const space = BOARD[spaceId];
+  const st = state.properties[spaceId];
+  const owner = st?.owner ? state.players[st.owner] : null;
+  const { col, row } = cellOf(spaceId);
+  const edge = edgeOf(spaceId);
+
+  const rentRow = (() => {
+    if (!space.rent || !st) return null;
+    if (st.houses === 5) return { label: 'Hotel', value: space.rent[5] };
+    if (st.houses > 0) {
+      return { label: `${st.houses} house${st.houses > 1 ? 's' : ''}`, value: space.rent[st.houses] };
+    }
+    return { label: 'Rent', value: space.rent[0] };
+  })();
+
+  return (
+    <div
+      className={`peek peek--${edge}`}
+      style={{
+        left: `${(trackCentre(col) / TOTAL) * 100}%`,
+        top: `${(trackCentre(row) / TOTAL) * 100}%`,
+      }}
+      aria-hidden
+    >
+      {space.group && <span className="peek__band" style={{ background: GROUP_COLOR[space.group] }} />}
+      <span className="peek__name">{space.name}</span>
+      <span className="peek__meta">
+        {owner
+          ? <span style={{ color: owner.color }}>{owner.name}</span>
+          : space.price != null ? <span className="peek__buy">Unowned</span> : null}
+        {st?.mortgaged && <span className="peek__flag">Mortgaged</span>}
+      </span>
+      {(space.price != null || rentRow) && (
+        <span className="peek__nums">
+          {space.price != null && <span>{fmt(space.price)}</span>}
+          {rentRow && !st?.mortgaged && (
+            <span className="peek__rent">{rentRow.label} {fmt(rentRow.value)}</span>
+          )}
+        </span>
+      )}
+      {space.taxAmount != null && <span className="peek__nums">Pay {fmt(space.taxAmount)}</span>}
     </div>
   );
 }

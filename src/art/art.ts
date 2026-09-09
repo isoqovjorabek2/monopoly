@@ -113,8 +113,29 @@ const base = (path: string): string => `${import.meta.env.BASE_URL}art/${path}`;
 /** Ivory card stock, under the deed and the drawn card. */
 export const PAPER = base('paper.jpg');
 
-/** Walnut, for the table the 3D board sits on. */
+/** Walnut, for the table the board sits on. */
 export const TABLE = base('table.jpg');
+
+/**
+ * The four corner emblems on the flat board. The 3D board draws its
+ * corners into a canvas texture; the flat board had four small SVG icons
+ * doing the same job at a size where they read as clip art.
+ *
+ * Engraved on pure black and composited with `screen`, which is why they
+ * are JPEGs with no alpha: the ground drops out against the felt, and the
+ * black point is graded to true zero so it drops out completely rather
+ * than laying a haze over the tile.
+ */
+export type CornerEmblem = 'go' | 'jail' | 'parking' | 'gotojail';
+
+export const CORNER_EMBLEM: Record<number, CornerEmblem> = {
+  0: 'go',
+  10: 'jail',
+  20: 'parking',
+  30: 'gotojail',
+};
+
+export const cornerArt = (name: CornerEmblem): string => base(`corners/${name}.jpg`);
 
 /**
  * One engraved vignette per card, keyed by card id, so a player who draws
