@@ -923,7 +923,7 @@
 /* ------------------------------ trade ------------------------------ */
 
 .trade { display: flex; flex-direction: column; gap: var(--s-4); }
-.trade__who { display: flex; flex-direction: column; gap: var(--s-2); }
+.trade__who { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
 .trade__whoList { display: flex; gap: var(--s-2); flex-wrap: wrap; }
 .trade__whoItem {
   display: flex; align-items: center; gap: 6px;
@@ -956,9 +956,151 @@
 }
 .tradeSide__item[data-on] { border-color: var(--accent); background: color-mix(in oklab, var(--accent) 14%, transparent); }
 .tradeSide__item:disabled { opacity: 0.35; cursor: not-allowed; }
-.tradeSide__item .truncate { flex: 1 1 auto; }
 .tradeSide__band { width: 4px; height: 16px; border-radius: 2px; flex: 0 0 auto; }
 .trade__foot { display: flex; justify-content: flex-end; gap: var(--s-2); }
+
+/* --- trading, rebuilt ------------------------------------------------
+   The three questions the old panel made the player answer for
+   themselves: which deed finishes whose set, what it is worth to the
+   other chair, and whether the offer stands a chance.
+   -------------------------------------------------------------------- */
+
+.trade__note {
+  margin: 0;
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-sm);
+  background: rgb(255 255 255 / 0.04);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: var(--t-sm);
+}
+
+/* Deeds live in their sets, because "two of the three oranges" is the
+   unit a player thinks in - a flat alphabetical list is not. */
+.tradeSide__sets {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  max-height: 320px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+.tradeSide__sets .tradeSide__list { max-height: none; overflow: visible; }
+
+.tradeSet__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.tradeSet__swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  box-shadow: inset 0 -1px 0 rgb(0 0 0 / 0.4);
+  flex: 0 0 auto;
+}
+.tradeSet__name {
+  font-size: var(--t-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+}
+.tradeSet__count {
+  margin-left: auto;
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The badge that carries the whole game: this deed finishes a set for
+   whoever is receiving it. */
+.tradeSide__tag {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  background: color-mix(in oklab, var(--brass-500) 26%, transparent);
+  color: var(--brass-100);
+}
+.tradeSide__tag--warn {
+  background: color-mix(in oklab, var(--danger-600) 30%, transparent);
+  color: var(--ivory-100);
+}
+.tradeSide__item[data-key] { border-color: var(--border-brass); }
+.tradeSide__item[data-key][data-on] { border-color: var(--accent); }
+
+/* A disabled control that does not say why is a dead end, so the reason
+   sits under it rather than in a title attribute a touch user never sees. */
+.tradeSide__why {
+  display: block;
+  padding: 2px 8px 4px;
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+}
+
+.tradeSide__cash {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: var(--s-1);
+}
+.tradeSide__cashHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+.tradeSide__cashHead .num { color: var(--brass-200); font-variant-numeric: tabular-nums; }
+.tradeSide__slider { width: 100%; accent-color: var(--accent); cursor: pointer; }
+.tradeSide__max { align-self: flex-end; }
+
+.tradeSide__cards {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  padding: 6px 8px;
+  background: rgb(255 255 255 / 0.03);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: inherit;
+  font-size: var(--t-sm);
+  cursor: pointer;
+}
+.tradeSide__cards[data-on] {
+  border-color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+}
+
+/* What the deal is worth from both chairs, and - against a bot - the
+   answer it is going to give. */
+.trade__verdict {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  border-radius: var(--r-md);
+  background: rgb(255 255 255 / 0.035);
+  border: 1px solid var(--border);
+}
+.trade__balance { display: flex; gap: var(--s-3); flex-wrap: wrap; }
+.trade__gain {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  background: rgb(255 255 255 / 0.04);
+  font-variant-numeric: tabular-nums;
+}
+.trade__gainWho { font-size: var(--t-sm); color: var(--text-muted); max-width: 12ch; }
+.trade__gain[data-sign='up'] .num { color: var(--success-400); }
+.trade__gain[data-sign='down'] .num { color: var(--danger-400); }
+.trade__reading { margin: 0; font-size: var(--t-sm); color: var(--text-muted); }
 
 .offer { display: flex; flex-direction: column; gap: var(--s-4); }
 .offer__side {
@@ -1390,7 +1532,51 @@
 }
 
 .game[data-focus] .game__layout { grid-template-columns: minmax(0, 1fr); }
-.game[data-focus] .game__rail { display: none; }
+
+/* Who is winning and who is nearly broke is the thing you look up most
+   often, so hiding the player rail outright - which is what full screen
+   used to do - took away the one panel worth glancing at. It comes back
+   the same way the header does: off the left edge, returned by a strip
+   along that edge, and held open while the pointer is on it. */
+.game__revealLeft { display: none; }
+.game[data-focus] .game__revealLeft {
+  display: block;
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 44px;
+  z-index: 62;
+}
+.game[data-focus] .game__rail {
+  position: fixed;
+  top: 52px;
+  left: 0;
+  z-index: 63;
+  width: min(300px, 26vw);
+  max-height: calc(100dvh - 68px);
+  overflow-y: auto;
+  padding: var(--s-3);
+  border-radius: 0 var(--r-lg) var(--r-lg) 0;
+  background: color-mix(in oklab, var(--bg-surface) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--border-strong);
+  border-left: 0;
+  box-shadow: var(--e-3);
+  transform: translateX(-100%);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--dur-mid) var(--ease-out),
+    opacity var(--dur-mid) var(--ease-out);
+}
+.game[data-focus] .game__revealLeft:hover ~ .game__layout .game__rail,
+.game[data-focus] .game__rail:hover,
+.game[data-focus] .game__rail:focus-within {
+  transform: none;
+  opacity: 1;
+  pointer-events: auto;
+}
 /* The stage is the only thing left competing for height, so let it have
    the row rather than sitting at its content size inside it. */
 .game[data-focus] .game__stage { align-self: stretch; }
@@ -1474,6 +1660,25 @@
 /* On a phone the rails are already sheets and the board already has the
    width, so focus mode only has the header to give back. */
 @media (max-width: 720px) {
+  /* A phone already has the rails as bottom sheets on a tab bar, which is
+     a better answer than a drawer off an edge you cannot hover. */
+  .game[data-focus] .game__revealLeft { display: none; }
+  .game[data-focus] .game__rail {
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 54px;
+    width: auto;
+    max-height: 62dvh;
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
+    border-left: 1px solid var(--border-strong);
+    transform: translateY(110%);
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .game[data-focus] .game__rail[data-open] { transform: none; }
+
   .game[data-focus] .game__side {
     position: fixed;
     right: 0;

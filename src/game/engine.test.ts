@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BOARD, GROUPS, OWNABLE_IDS } from './board';
 import { createGame, reduce, type SeatSpec } from './engine';
-import { botDecide } from './ai';
+import { acceptMargin, botDecide, suggestTrade } from './ai';
 import { calculateRent, canTrade, legalActions, netWorth, ownedBy } from './rules';
 import { rand } from './rng';
 import { CLASSIC } from './settings';
@@ -470,6 +470,65 @@ describe('bots that trade', () => {
     }
     expect(s.trades).toHaveLength(0);
     expect(expiry).toBe(1);
+  });
+
+  /* The trade panel is built on these two: it offers `suggestTrade` as
+   * "Suggest a deal" and prints `acceptMargin` as "Ada will take this".
+   * If either drifts from what the bot actually does, the panel starts
+   * lying to the player, which is worse than saying nothing. */
+  it('suggests a deal a human can send, and the bot then takes it', () => {
+    let s = deadlock();
+    const offer = suggestTrade(s, 'p0', 'p1');
+    expect(offer).not.toBeNull();
+    if (!offer) return;
+
+    expect(canTrade(s, offer)).toBe(true);
+    expect(offer.wantProperties).toEqual([9]);
+    // Predicted before sending...
+    expect(acceptMargin(s, 'p1', offer)).toBeGreaterThan(0);
+
+    // ...and that prediction is what the bot actually does with it.
+    s = apply(s, { type: 'PROPOSE_TRADE', playerId: 'p0', offer });
+    expect(s.trades).toHaveLength(1);
+    expect(botDecide(s, 'p1')?.type).toBe('ACCEPT_TRADE');
+  });
+
+  it('predicts a refusal as exactly as it predicts an acceptance', () => {
+    const s = deadlock();
+    // A deal that takes their light blue and gives nothing back.
+    const robbery = {
+      from: 'p0', to: 'p1',
+      giveCash: 0, giveProperties: [], giveJailCards: 0,
+      wantCash: 0, wantProperties: [9], wantJailCards: 0,
+    };
+    expect(canTrade(s, robbery)).toBe(true);
+    expect(acceptMargin(s, 'p1', robbery)).toBeLessThan(0);
+
+    const offered = apply(s, { type: 'PROPOSE_TRADE', playerId: 'p0', offer: robbery });
+    expect(botDecide(offered, 'p1')?.type).toBe('DECLINE_TRADE');
+  });
+
+  it('suggests nothing when neither side is one deed from a set', () => {
+    const s = botGame();
+    s.properties[1].owner = 'p0';
+    s.properties[6].owner = 'p1';
+    expect(suggestTrade(s, 'p0', 'p1')).toBeNull();
+  });
+
+  it('offers to sell the deed the other side is waiting on', () => {
+    const s = botGame();
+    // p1 holds two light blues; p0 holds the third and nothing else.
+    s.properties[6].owner = 'p1';
+    s.properties[8].owner = 'p1';
+    s.properties[9].owner = 'p0';
+    const offer = suggestTrade(s, 'p0', 'p1');
+    expect(offer).not.toBeNull();
+    if (!offer) return;
+    expect(offer.giveProperties).toEqual([9]);
+    expect(offer.wantProperties).toEqual([]);
+    // Sold, not given away.
+    expect(offer.wantCash).toBeGreaterThan(0);
+    expect(canTrade(s, offer)).toBe(true);
   });
 
   it('composes nothing the engine will refuse, over four full bot games', () => {

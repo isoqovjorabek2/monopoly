@@ -138,6 +138,23 @@ export const CORNER_EMBLEM: Record<number, CornerEmblem> = {
 export const cornerArt = (name: CornerEmblem): string => base(`corners/${name}.jpg`);
 
 /**
+ * One engraved motif per colour group, plus one for the railroads and one
+ * for the utilities: twelve squares of the board share a picture rather
+ * than each having their own, which is what keeps this ten files instead
+ * of twenty-eight and what makes a set read as a set at a glance.
+ *
+ * Same contract as the corners - engraved on black, composited with
+ * `screen`, no alpha - and kept faint, because unlike a corner these sit
+ * behind a name and a price that have to stay readable.
+ */
+export type GroupMotif =
+  | 'brown' | 'lightblue' | 'pink' | 'orange'
+  | 'red' | 'yellow' | 'green' | 'darkblue'
+  | 'railroad' | 'utility';
+
+export const groupArt = (name: GroupMotif): string => base(`groups/${name}.jpg`);
+
+/**
  * One engraved vignette per card, keyed by card id, so a player who draws
  * "Speeding fine" and one who draws "Go to Jail" do not get the same
  * picture. Fetched only when that card is actually drawn.

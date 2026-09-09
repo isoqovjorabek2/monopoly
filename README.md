@@ -121,12 +121,13 @@ property names and prices and are drawn to a canvas in `src/ui/three/tileFace.ts
 Everything a vector could not supply - woven cloth, engraved metal, printed
 illustration, a lit room, falling coins - is an image in `public/art`,
 generated with FLUX.2 and MiniMax H3 and addressed through `src/art/art.ts`.
-68 files, about 2.3 MB, almost all of it fetched only when it is needed.
+78 files, about 2.4 MB, almost all of it fetched only when it is needed.
 
 | Group | Files | Where | What it replaced |
 | --- | --- | --- | --- |
 | `felt-*` | 4 | the block the plaques sit in, the inner surface, **and the flat board's cloth** | two flat greens |
 | `corners/*` | 4 | the four corner emblems on the flat board | four small drawn icons |
+| `groups/*` | 10 | one motif per colour set, plus stations and utilities | flat felt |
 | `medal-*` | 4 | the centre emblem under the wordmark | 48 drawn wedges and two rings |
 | `hero-*` | 4 | the home screen backdrop | an empty dark page |
 | `cards/ch*`, `cards/cc*` | 32 | the drawn-card modal | nothing - the card was text only |
@@ -144,6 +145,14 @@ fine leaves the ground sitting around 8-14, and `screen` turns any non-zero
 ground into a haze over the whole tile. The label moved to the bottom quarter
 of the square so the emblem is not sitting under the type, which at ~50px
 turns both to mush.
+
+**Colour-set motifs** are how a set reads as a set before you have read a single
+name: twelve squares share ten pictures rather than each carrying its own, which
+is what keeps this ten files instead of twenty-eight. Same contract as the
+corners - engraved on black, `screen`, no alpha - but far fainter, and anchored
+to the outer edge of the plaque, away from the name. The generated set varies in
+how much dark ground it leaves, and the outer half is the half the type does not
+use. They are the first thing dropped at phone board sizes.
 
 **Card illustrations** are one engraved vignette per card, keyed by card id, so
 "Speeding fine" and "Go to Jail" never share a picture. The generated ivory
@@ -246,7 +255,9 @@ Once you are in it, the chrome goes with the rails. The header carries nothing
 you need mid-turn - leaving, the renderer toggle, sound, the rules - so it
 leaves the layout entirely and slides back when the pointer goes looking along
 the top edge, or when anything in it takes keyboard focus. The view controls do
-the same at the bottom. `Esc` leaves, and it is handled directly for the case
+the same at the bottom, and the **player rail** does it off the left edge: who
+is winning and who is nearly broke is the thing you look up most often, so full
+screen hiding it outright took away the one panel worth glancing at. `Esc` leaves, and it is handled directly for the case
 where the fullscreen request was refused and there is no fullscreen for `Esc`
 to exit on its own.
 
@@ -336,6 +347,39 @@ mortgages and sells rather than trading its way out. Raising money is a
 sequence with a deadline, and an offer that may never be answered is not a step
 you can put in the middle of one.
 
+## Trading
+
+Trading is where a Monopoly game is actually decided, and it is the screen
+people give up on. A list of deeds and two number boxes asks the player to know
+three things the board never tells them: which deed finishes whose set, what a
+deed is worth to the other chair, and whether the offer they just built stands
+any chance of being accepted.
+
+So the panel answers all three:
+
+- **Deeds are grouped into their sets** and counted (`2/3`), because "two of the
+  three oranges" is the unit a player thinks in and an alphabetical list is not.
+  A deed that would complete a set *for whoever receives it* is badged, on both
+  sides - that badge is the whole game of trading in one word.
+- **The running balance is shown from both chairs**, using the same valuation
+  the bots trade on. You can see what you are gaining and what they are.
+- **Against a bot the verdict is exact.** `acceptMargin()` is the function the
+  bot itself answers with, so "Ada will take this" is not a guess - it is the
+  same arithmetic, read early. Tune the offer until it says yes rather than
+  sending it and hoping. Against a human it says so instead of pretending to
+  know.
+- **Suggest a deal** composes an offer outright, from the same search a bot uses
+  to open a negotiation - including the case where you are the one holding what
+  they need, where it proposes a sale rather than a swap. When neither side is a
+  deed from a set it says so rather than inventing something.
+- A deed that cannot move says why, under the control, rather than being greyed
+  out with a tooltip a touch user never sees.
+
+The engine tests cover the join between the two: that a suggested deal is one
+the reducer accepts *and* the bot then takes, and that an offer predicted to be
+refused is refused. If those two drifted apart the panel would start lying, which
+is worse than saying nothing.
+
 ## Sound
 
 Eleven recorded cues in `public/audio`, mono and 77KB for the whole set, fetched
@@ -411,7 +455,7 @@ machine proves nothing about NAT traversal. Open the room on a phone on cellular
 
 ## Tests
 
-`npm test` runs 44 checks over the engine, including:
+`npm test` runs 48 checks over the engine, including:
 
 - every deed's rent ladder against the printed card
 - determinism: same seed + same action log ⇒ byte-identical state

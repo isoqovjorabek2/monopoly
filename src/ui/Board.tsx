@@ -1,5 +1,5 @@
 import { memo, useCallback, useRef, useState } from 'react';
-import { ART, CORNER_EMBLEM, cornerArt } from '../art/art';
+import { ART, CORNER_EMBLEM, cornerArt, groupArt, type GroupMotif } from '../art/art';
 import { BOARD, GROUP_COLOR, edgeOf, isCorner } from '../game/board';
 import type { GameState, Space } from '../game/types';
 import { BoardIcon, House, Hotel, Piece, type SpaceIcon } from './Pieces';
@@ -87,6 +87,11 @@ const Tile = memo(function Tile({
   const band = space.group ? GROUP_COLOR[space.group] : undefined;
 
   const emblem = CORNER_EMBLEM[space.id];
+  const motif: GroupMotif | null = space.group
+    ? space.group
+    : space.kind === 'railroad' ? 'railroad'
+      : space.kind === 'utility' ? 'utility'
+        : null;
   const icon = emblem
     ? undefined
     : space.kind === 'railroad' || space.kind === 'utility' || !space.group
@@ -130,6 +135,13 @@ const Tile = memo(function Tile({
       }
     >
       {band && <span className="tile__band" />}
+      {motif && (
+        <span
+          className="tile__motif"
+          style={{ backgroundImage: `url("${groupArt(motif)}")` }}
+          aria-hidden
+        />
+      )}
       {emblem && (
         <span
           className="tile__emblem"

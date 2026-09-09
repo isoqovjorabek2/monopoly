@@ -101,8 +101,12 @@ function tradeValue(s: GameState, pid: string, spaceId: number): number {
 const jailCardValue = (s: GameState): number => s.settings.jailFine * 1.5;
 
 /** One side's net gain from an offer. `give*` is always what the proposer
- *  parts with, so the recipient reads the same object backwards. */
-function tradeGain(s: GameState, pid: string, o: TradeBody): number {
+ *  parts with, so the recipient reads the same object backwards.
+ *
+ *  Exported because the trade panel shows the player both sides of this
+ *  arithmetic. A human who can see what the other chair sees is a human
+ *  who does not need a manual. */
+export function tradeGain(s: GameState, pid: string, o: TradeBody): number {
   const receiving = pid === o.to;
   const inProps = receiving ? o.giveProperties : o.wantProperties;
   const outProps = receiving ? o.wantProperties : o.giveProperties;
@@ -124,6 +128,29 @@ const TRADE_COOLDOWN = 8;
  *  clear what a bot on the other chair demands before it will accept, or
  *  bots would negotiate at each other all game and never close. */
 const PREMIUM_FLOOR = 130;
+
+/** The surplus a bot demands before it will accept. Difficulty is patience. */
+const ACCEPT_DEMAND: Record<BotLevel, number> = { easy: 0, normal: 40, hard: 120 };
+
+/**
+ * How far an offer clears the bar `pid` sets for accepting it. Positive
+ * means they take it.
+ *
+ * The trade panel calls this to tell a player whether a bot will say yes
+ * before they send it, which is the single thing that turns trading from
+ * guesswork into a negotiation. It is the same function the bot answers
+ * with, so the prediction and the answer cannot drift apart.
+ */
+export function acceptMargin(s: GameState, pid: string, o: TradeBody): number {
+  const p = s.players[pid];
+  if (!p) return -Infinity;
+  const level = p.botLevel;
+  let demand = ACCEPT_DEMAND[level];
+  // No deal is worth being unable to pay the rent it walks into.
+  const cashOut = o.to === pid ? o.wantCash : o.giveCash;
+  if (p.cash - cashOut < cashFloor(s, pid, level)) demand += 250;
+  return tradeGain(s, pid, o) - demand;
+}
 
 const TRADE_STYLE: Record<BotLevel, { propose: boolean; premium: number; minGain: number }> = {
   // An easy bot answers offers but never opens with one - difficulty is
@@ -147,7 +174,7 @@ function tradableOwned(s: GameState, pid: string): number[] {
 /** True when this one deed finishes something for `who` - a colour set, or
  *  the fourth railroad. Nothing smaller is worth opening a negotiation
  *  over, and nothing smaller is worth an opponent's attention. */
-function completesFor(s: GameState, who: string, spaceId: number): boolean {
+export function completesFor(s: GameState, who: string, spaceId: number): boolean {
   const space = BOARD[spaceId];
   if (space.group) {
     return GROUPS[space.group].every((id) => id === spaceId || s.properties[id].owner === who);
@@ -163,9 +190,12 @@ const roundUp10 = (n: number): number => Math.ceil(n / 10) * 10;
  *  and is something the engine will actually take. */
 function balanced(
   s: GameState, pid: string, them: string,
-  want: number, give: number | null,
+  want: number | null, give: number | null,
   style: { premium: number; minGain: number }, spare: number,
 ): TradeBody | null {
+  // A deal with nothing on either side is not a deal.
+  if (want === null && give === null) return null;
+
   const offer: TradeBody = {
     from: pid,
     to: them,
@@ -173,14 +203,15 @@ function balanced(
     giveProperties: give === null ? [] : [give],
     giveJailCards: 0,
     wantCash: 0,
-    wantProperties: [want],
+    wantProperties: want === null ? [] : [want],
     wantJailCards: 0,
   };
 
   // Value it from their chair. Deeds and cash are on the table for
   // everyone to see, so this is reading the board, not their hand.
   const theirs = tradeGain(s, them, offer);
-  const premium = PREMIUM_FLOOR + style.premium * tradeValue(s, them, want);
+  const premium = PREMIUM_FLOOR
+    + style.premium * (want === null ? 0 : tradeValue(s, them, want));
 
   if (theirs < premium) {
     const short = roundUp10(premium - theirs);
@@ -207,6 +238,46 @@ function balanced(
  * no opponent would read, and the space of subsets is far too large to
  * score honestly inside a turn.
  */
+export function suggestTrade(
+  s: GameState, pid: string, them: string, level: BotLevel = 'normal',
+): TradeBody | null {
+  const style = TRADE_STYLE[level];
+  const me = s.players[pid];
+  const other = s.players[them];
+  if (!s.settings.allowTrades) return null;
+  if (!me || !other || me.bankrupt || other.bankrupt || pid === them) return null;
+
+  const spare = Math.max(0, me.cash - cashFloor(s, pid, level));
+
+  // What is worth asking for: a deed of theirs that finishes a set of mine.
+  const wants: (number | null)[] = tradableOwned(s, them)
+    .filter((id) => completesFor(s, pid, id));
+  // What is worth offering: a deed of mine that finishes a set of theirs.
+  // It is the only currency that reliably prises a deed out of an
+  // opponent's hand; cash alone works early, before anyone is close.
+  const gives: (number | null)[] = tradableOwned(s, pid)
+    .filter((id) => completesFor(s, them, id));
+
+  // Nothing to ask for is still a deal worth proposing if they need
+  // something I am holding - that one is a sale, not a swap.
+  if (wants.length === 0 && gives.length === 0) return null;
+  if (wants.length === 0) wants.push(null);
+  gives.push(null);
+
+  let best: TradeBody | null = null;
+  let bestGain = style.minGain;
+  for (const want of wants) {
+    for (const give of gives) {
+      const offer = balanced(s, pid, them, want, give, style, spare);
+      if (!offer) continue;
+      const gain = tradeGain(s, pid, offer);
+      if (gain > bestGain) { bestGain = gain; best = offer; }
+    }
+  }
+  return best;
+}
+
+/** The best offer this bot will open with, across the whole table. */
 export function botTradeOffer(s: GameState, pid: string, level: BotLevel): TradeBody | null {
   const style = TRADE_STYLE[level];
   if (!style.propose || !s.settings.allowTrades) return null;
@@ -220,10 +291,6 @@ export function botTradeOffer(s: GameState, pid: string, level: BotLevel): Trade
   // proposing to everyone in turn reads as a machine, not an opponent.
   if (s.seats.some((them) => s.tradeCooldowns[tradeKey(pid, them)] === s.turnNumber)) return null;
 
-  const floor = cashFloor(s, pid, level);
-  const spare = Math.max(0, me.cash - floor);
-  const myTradable = tradableOwned(s, pid);
-
   let best: TradeBody | null = null;
   let bestGain = style.minGain;
 
@@ -234,24 +301,10 @@ export function botTradeOffer(s: GameState, pid: string, level: BotLevel): Trade
     const cooled = s.tradeCooldowns[tradeKey(pid, them)];
     if (cooled !== undefined && s.turnNumber - cooled < TRADE_COOLDOWN) continue;
 
-    const wants = tradableOwned(s, them).filter((id) => completesFor(s, pid, id));
-    if (wants.length === 0) continue;
-    // The only currency that reliably prises a deed out of an opponent's
-    // hand is a deed that finishes something of theirs. Cash alone works
-    // early, when nobody is close to a set yet.
-    const sweeteners: (number | null)[] = [
-      null,
-      ...myTradable.filter((id) => completesFor(s, them, id)),
-    ];
-
-    for (const want of wants) {
-      for (const give of sweeteners) {
-        const offer = balanced(s, pid, them, want, give, style, spare);
-        if (!offer) continue;
-        const gain = tradeGain(s, pid, offer);
-        if (gain > bestGain) { bestGain = gain; best = offer; }
-      }
-    }
+    const offer = suggestTrade(s, pid, them, level);
+    if (!offer) continue;
+    const gain = tradeGain(s, pid, offer);
+    if (gain > bestGain) { bestGain = gain; best = offer; }
   }
   return best;
 }
@@ -343,14 +396,10 @@ function scoreAction(s: GameState, pid: string, a: GameAction, level: BotLevel):
     case 'ACCEPT_TRADE': {
       const t = s.trades.find((x) => x.id === a.tradeId);
       if (!t) return -100;
-      const gain = tradeGain(s, pid, t);
       // Demanding a premium is what stops a human farming the bots with a
-      // stream of barely-positive deals.
-      let demand = { easy: 0, normal: 40, hard: 120 }[level];
-      // And no deal is worth being unable to pay the rent it walks into.
-      const cashOut = t.to === pid ? t.wantCash : t.giveCash;
-      if (me.cash - cashOut < floor) demand += 250;
-      return gain > demand ? 90 : -60;
+      // stream of barely-positive deals. acceptMargin holds that bar, and
+      // the trade panel reads the same function to predict this answer.
+      return acceptMargin(s, pid, t) > 0 ? 90 : -60;
     }
 
     case 'DECLINE_TRADE':

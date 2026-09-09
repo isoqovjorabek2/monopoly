@@ -103,6 +103,38 @@
   justify-content: center;
 }
 
+/* The colour-group motifs.
+
+   Twelve squares share ten pictures, so a set reads as a set before you
+   have read a single name. Same contract as the corner emblems - engraved
+   on black, composited with `screen`, no alpha channel - but far fainter,
+   because these sit behind a name and a price rather than owning their
+   square. The type keeps its letterpress shadow, which is what stops the
+   busier motifs from eating it.
+
+   Anchored to the outer edge of the plaque, away from the name: the
+   generated set varies in how much dark ground it leaves, and the outer
+   half is the half the type does not use. */
+.tile__motif {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-repeat: no-repeat;
+  background-size: 92% auto;
+  mix-blend-mode: screen;
+  opacity: 0.3;
+  pointer-events: none;
+}
+.tile--bottom .tile__motif { background-position: center 92%; }
+.tile--top    .tile__motif { background-position: center 8%; }
+.tile--left   .tile__motif { background-position: 8% center; background-size: auto 92%; }
+.tile--right  .tile__motif { background-position: 92% center; background-size: auto 92%; }
+
+.tile__body { position: relative; z-index: 1; }
+/* An owned square already carries a colour wash; two washes over one motif
+   is mud. */
+.tile__owner ~ .tile__motif { opacity: 0.2; }
+
 /* The four corner emblems.
    Engraved on black and composited with `screen`, so the ground drops out
    against the felt with no alpha channel to pay for. They sit under the
@@ -512,6 +544,7 @@
      noise competing with the only two words that have to be readable. */
   .board__centre::after { display: none; }
   .tile__emblem { opacity: 0.75; }
+  .tile__motif { display: none; }
   .medallion__type .medallion__sub,
   .medallion__fans { display: none; }
   .medallion__rings circle { opacity: 0.24; }

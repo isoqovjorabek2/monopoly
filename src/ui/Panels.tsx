@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { BOARD, GROUPS, GROUP_COLOR, GROUP_ORDER } from '../game/board';
-import { netWorth, ownedBy } from '../game/rules';
-import type { GameAction, GameState, Player, TradeOffer } from '../game/types';
+import { BOARD, GROUPS, GROUP_COLOR, GROUP_LABEL, GROUP_ORDER } from '../game/board';
+import { canTrade, netWorth, ownedBy } from '../game/rules';
+import { acceptMargin, completesFor, suggestTrade, tradeGain } from '../game/ai';
+import type { GameAction, GameState, Player, TradeBody, TradeOffer } from '../game/types';
 import type { LogLine } from '../game/describe';
 import type { ChatMessage, SeatInfo } from '../net/protocol';
 import { Avatar, Empty, Modal, Money, fmt } from './bits';
@@ -442,7 +443,34 @@ export function AuctionPanel({
   );
 }
 
-/* =============================== trade ============================== */
+/* =============================== trade ==============================
+ *
+ * Trading is where a Monopoly game is actually decided and it is the
+ * screen people give up on, because a list of deeds and two number boxes
+ * asks the player to know three things the board never tells them: which
+ * deed finishes whose set, what a deed is worth to the other side, and
+ * whether the offer they just built has any chance of being accepted.
+ *
+ * So the panel answers all three. Deeds are grouped into their sets and
+ * badged when they complete one. The running balance is shown from both
+ * chairs, using the same valuation the bots trade on. And against a bot
+ * the verdict is exact - `acceptMargin` is the function the bot will
+ * answer with - so a player can tune an offer until it says yes instead
+ * of sending it and hoping.
+ *
+ * `Suggest a deal` composes one outright, from the same search a bot uses
+ * to open a negotiation. It is the shortest path from "I know I want the
+ * orange set" to a sendable offer.
+ * ================================================================== */
+
+const EMPTY_OFFER = {
+  give: [] as number[],
+  want: [] as number[],
+  giveCash: 0,
+  wantCash: 0,
+  giveCards: 0,
+  wantCards: 0,
+};
 
 export function TradePanel({
   state, myId, open, onClose, dispatch,
@@ -455,52 +483,66 @@ export function TradePanel({
 }) {
   const others = state.seats.filter((id) => id !== myId && !state.players[id].bankrupt);
   const [withId, setWithId] = useState(others[0] ?? '');
-  const [giveProps, setGiveProps] = useState<number[]>([]);
-  const [wantProps, setWantProps] = useState<number[]>([]);
-  const [giveCash, setGiveCash] = useState(0);
-  const [wantCash, setWantCash] = useState(0);
+  const [draft, setDraft] = useState(EMPTY_OFFER);
+  const [noDeal, setNoDeal] = useState(false);
 
   useEffect(() => {
     if (!others.includes(withId) && others.length > 0) setWithId(others[0]);
   }, [others, withId]);
 
-  useEffect(() => {
-    setGiveProps([]); setWantProps([]); setGiveCash(0); setWantCash(0);
-  }, [withId, open]);
-
-  if (!open) return null;
-  if (others.length === 0) {
-    return <Modal open onClose={onClose} title="Trade"><Empty>Nobody left to trade with.</Empty></Modal>;
-  }
+  useEffect(() => { setDraft(EMPTY_OFFER); setNoDeal(false); }, [withId, open]);
 
   const me = state.players[myId];
   const them = state.players[withId];
-  const mine = ownedBy(state, myId);
-  const theirs = ownedBy(state, withId);
 
-  const blocked = (id: number): boolean => {
-    const g = BOARD[id].group;
-    return Boolean(g && GROUPS[g].some((x) => state.properties[x].houses > 0));
+  const offer: TradeBody | null = useMemo(() => (them ? {
+    from: myId,
+    to: withId,
+    giveCash: draft.giveCash,
+    giveProperties: draft.give,
+    giveJailCards: draft.giveCards,
+    wantCash: draft.wantCash,
+    wantProperties: draft.want,
+    wantJailCards: draft.wantCards,
+  } : null), [myId, withId, draft, them]);
+
+  if (!open) return null;
+  if (others.length === 0 || !them || !offer) {
+    return <Modal open onClose={onClose} title="Trade"><Empty>Nobody left to trade with.</Empty></Modal>;
+  }
+
+  const empty = draft.give.length + draft.want.length
+    + draft.giveCash + draft.wantCash + draft.giveCards + draft.wantCards === 0;
+  const sound = canTrade(state, offer);
+
+  const myGain = tradeGain(state, myId, offer);
+  const theirGain = tradeGain(state, withId, offer);
+  // Only a bot's answer is knowable in advance. A human's is not, and
+  // pretending otherwise would be a lie dressed as help.
+  const margin = them.isBot ? acceptMargin(state, withId, offer) : null;
+
+  const set = (patch: Partial<typeof EMPTY_OFFER>) => {
+    setNoDeal(false);
+    setDraft((d) => ({ ...d, ...patch }));
+  };
+  const toggle = (side: 'give' | 'want', id: number) => {
+    const list = draft[side];
+    set({ [side]: list.includes(id) ? list.filter((x) => x !== id) : [...list, id] });
   };
 
-  const toggle = (list: number[], setList: (v: number[]) => void, id: number) =>
-    setList(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
-
-  const valid =
-    (giveProps.length + wantProps.length + giveCash + wantCash) > 0
-    && giveCash <= me.cash && wantCash <= them.cash
-    && ![...giveProps, ...wantProps].some(blocked);
+  const onSuggest = () => {
+    const s = suggestTrade(state, myId, withId);
+    if (!s) { setNoDeal(true); return; }
+    setNoDeal(false);
+    setDraft({
+      give: s.giveProperties, want: s.wantProperties,
+      giveCash: s.giveCash, wantCash: s.wantCash,
+      giveCards: s.giveJailCards, wantCards: s.wantJailCards,
+    });
+  };
 
   const send = () => {
-    dispatch({
-      type: 'PROPOSE_TRADE',
-      playerId: myId,
-      offer: {
-        from: myId, to: withId,
-        giveCash, giveProperties: giveProps, giveJailCards: 0,
-        wantCash, wantProperties: wantProps, wantJailCards: 0,
-      },
-    });
+    dispatch({ type: 'PROPOSE_TRADE', playerId: myId, offer });
     onClose();
   };
 
@@ -526,42 +568,77 @@ export function TradePanel({
               );
             })}
           </div>
+          <span className="spacer" />
+          <button type="button" className="btn btn--ghost btn--sm" onClick={onSuggest}>
+            Suggest a deal
+          </button>
         </div>
+
+        {noDeal && (
+          <p className="trade__note">
+            No obvious deal with {them.name} yet — neither of you is one deed from a set.
+            You can still build an offer by hand.
+          </p>
+        )}
 
         <div className="trade__cols">
           <TradeSide
             title="You give"
-            cash={giveCash}
-            maxCash={me.cash}
-            onCash={setGiveCash}
-            deeds={mine}
-            selected={giveProps}
-            blocked={blocked}
             state={state}
-            onToggle={(id) => toggle(giveProps, setGiveProps, id)}
+            ownerId={myId}
+            receiverId={withId}
+            selected={draft.give}
+            onToggle={(id) => toggle('give', id)}
+            cash={draft.giveCash}
+            maxCash={me.cash}
+            onCash={(v) => set({ giveCash: v })}
+            cards={draft.giveCards}
+            maxCards={me.getOutOfJailCards}
+            onCards={(v) => set({ giveCards: v })}
           />
           <TradeSide
             title={`${them.name} gives`}
-            cash={wantCash}
-            maxCash={them.cash}
-            onCash={setWantCash}
-            deeds={theirs}
-            selected={wantProps}
-            blocked={blocked}
             state={state}
-            onToggle={(id) => toggle(wantProps, setWantProps, id)}
+            ownerId={withId}
+            receiverId={myId}
+            selected={draft.want}
+            onToggle={(id) => toggle('want', id)}
+            cash={draft.wantCash}
+            maxCash={them.cash}
+            onCash={(v) => set({ wantCash: v })}
+            cards={draft.wantCards}
+            maxCards={them.getOutOfJailCards}
+            onCards={(v) => set({ wantCards: v })}
           />
         </div>
 
-        {[...giveProps, ...wantProps].some(blocked) && (
-          <p className="banner banner--bad small">
-            A deed cannot change hands while its colour set has buildings on it. Sell them first.
-          </p>
+        {!empty && (
+          <div className="trade__verdict" aria-live="polite">
+            <div className="trade__balance">
+              <Gain label="You" value={myGain} />
+              <Gain label={them.name} value={theirGain} />
+            </div>
+            <p className="trade__reading">
+              {!sound
+                ? 'That deal cannot be made: a deed cannot change hands while its colour set has buildings on it, and neither side can pay more cash than it holds.'
+                : margin === null
+                  ? `${them.name} decides for themselves — the figures above are what the deal is worth to each of you.`
+                  : margin > 90 ? `${them.name} will take this.`
+                    : margin > 0 ? `${them.name} will probably take this.`
+                      : margin > -120 ? `${them.name} will turn this down. Add a little.`
+                        : `${them.name} will turn this down flat.`}
+            </p>
+          </div>
         )}
 
         <footer className="trade__foot">
           <button type="button" className="btn btn--ghost" onClick={onClose}>Cancel</button>
-          <button type="button" className="btn btn--primary" disabled={!valid} onClick={send}>
+          <button
+            type="button"
+            className="btn btn--primary"
+            disabled={empty || !sound}
+            onClick={send}
+          >
             Send offer
           </button>
         </footer>
@@ -570,63 +647,133 @@ export function TradePanel({
   );
 }
 
+/** A signed value with its sign carried by colour as well as a glyph. */
+function Gain({ label, value }: { label: string; value: number }) {
+  const rounded = Math.round(value);
+  return (
+    <span className="trade__gain" data-sign={rounded > 0 ? 'up' : rounded < 0 ? 'down' : undefined}>
+      <span className="trade__gainWho truncate">{label}</span>
+      <span className="num">{rounded > 0 ? '+' : rounded < 0 ? '−' : ''}{fmt(Math.abs(rounded))}</span>
+    </span>
+  );
+}
+
 function TradeSide({
-  title, cash, maxCash, onCash, deeds, selected, blocked, state, onToggle,
+  title, state, ownerId, receiverId, selected, onToggle,
+  cash, maxCash, onCash, cards, maxCards, onCards,
 }: {
   title: string;
+  state: GameState;
+  /** Whose deeds these are. */
+  ownerId: string;
+  /** Who would end up with them - which is what decides the badges. */
+  receiverId: string;
+  selected: number[];
+  onToggle: (id: number) => void;
   cash: number;
   maxCash: number;
   onCash: (v: number) => void;
-  deeds: number[];
-  selected: number[];
-  blocked: (id: number) => boolean;
-  state: GameState;
-  onToggle: (id: number) => void;
+  cards: number;
+  maxCards: number;
+  onCards: (v: number) => void;
 }) {
+  const deeds = ownedBy(state, ownerId);
+
+  // Grouped into sets, in board order, because "two of the three oranges"
+  // is the unit a player actually thinks in.
+  const groups = GROUP_ORDER.map((g) => ({
+    key: g as string,
+    label: GROUP_LABEL[g],
+    color: GROUP_COLOR[g],
+    all: [...GROUPS[g]],
+    ids: GROUPS[g].filter((id) => deeds.includes(id)),
+  })).filter((x) => x.ids.length > 0);
+
+  const others = deeds.filter((id) => !BOARD[id].group);
+  if (others.length > 0) {
+    groups.push({ key: 'other', label: 'Stations & utilities', color: 'var(--n-50)', all: others, ids: others });
+  }
+
   return (
     <section className="tradeSide">
       <h4 className="section__title">{title}</h4>
-      <label className="labelled">
-        <span className="switch__label">Cash (max {fmt(maxCash)})</span>
+
+      {deeds.length === 0 ? <Empty>No deeds to offer.</Empty> : (
+        <div className="tradeSide__sets">
+          {groups.map((g) => (
+            <div key={g.key} className="tradeSet">
+              <div className="tradeSet__head">
+                <span className="tradeSet__swatch" style={{ background: g.color }} />
+                <span className="tradeSet__name">{g.label}</span>
+                {g.key !== 'other' && (
+                  <span className="tradeSet__count num">{g.ids.length}/{g.all.length}</span>
+                )}
+              </div>
+              <ul className="tradeSide__list">
+                {g.ids.map((id) => {
+                  const space = BOARD[id];
+                  const st = state.properties[id];
+                  const grp = space.group;
+                  const built = grp ? GROUPS[grp].some((x) => state.properties[x].houses > 0) : false;
+                  const completes = completesFor(state, receiverId, id);
+                  return (
+                    <li key={id}>
+                      <button
+                        type="button"
+                        className="tradeSide__item"
+                        data-on={selected.includes(id) || undefined}
+                        data-key={completes || undefined}
+                        disabled={built}
+                        onClick={() => onToggle(id)}
+                      >
+                        <span className="truncate">{space.short}</span>
+                        {completes && <span className="tradeSide__tag">completes the set</span>}
+                        {st.mortgaged && <span className="tradeSide__tag tradeSide__tag--warn">mortgaged</span>}
+                        <span className="spacer" />
+                        <span className="num muted small">{fmt(space.price ?? 0)}</span>
+                      </button>
+                      {built && (
+                        <span className="tradeSide__why">
+                          Sell the buildings on this set before it can be traded.
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="tradeSide__cash">
+        <div className="tradeSide__cashHead">
+          <span className="switch__label">Cash</span>
+          <span className="num">{fmt(cash)}</span>
+        </div>
         <input
-          type="number"
-          className="field num"
+          type="range"
+          className="tradeSide__slider"
           min={0}
           max={maxCash}
-          value={cash}
-          onChange={(e) => onCash(Math.max(0, Math.min(maxCash, Number(e.target.value))))}
+          step={10}
+          value={Math.min(cash, maxCash)}
+          aria-label={`${title} cash`}
+          onChange={(e) => onCash(Number(e.target.value))}
         />
-      </label>
-      {deeds.length === 0 ? (
-        <Empty>No deeds to offer.</Empty>
-      ) : (
-        <ul className="tradeSide__list">
-          {deeds.map((id) => {
-            const space = BOARD[id];
-            const isBlocked = blocked(id);
-            return (
-              <li key={id}>
-                <button
-                  type="button"
-                  className="tradeSide__item"
-                  data-on={selected.includes(id) || undefined}
-                  disabled={isBlocked}
-                  title={isBlocked ? 'This set has buildings on it' : undefined}
-                  onClick={() => onToggle(id)}
-                >
-                  <span
-                    className="tradeSide__band"
-                    style={{ background: space.group ? GROUP_COLOR[space.group] : 'var(--n-50)' }}
-                  />
-                  <span className="truncate">{space.short}</span>
-                  <span className="num muted small">
-                    {state.properties[id].mortgaged ? 'M' : fmt(space.price ?? 0)}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+        <span className="tradeSide__max small muted">of {fmt(maxCash)}</span>
+      </div>
+
+      {maxCards > 0 && (
+        <button
+          type="button"
+          className="tradeSide__cards"
+          data-on={cards > 0 || undefined}
+          onClick={() => onCards(cards > 0 ? 0 : 1)}
+        >
+          Get out of jail free
+          <span className="num">{cards}/{maxCards}</span>
+        </button>
       )}
     </section>
   );

@@ -113,6 +113,7 @@ export function Game() {
           itself is out of the way in focus mode, so something has to be
           left behind to bring it back. */}
       {focused && <div className="game__reveal" aria-hidden />}
+      {focused && <div className="game__revealLeft" aria-hidden />}
       <header className="game__top">
         <button type="button" className="btn btn--ghost btn--sm" onClick={leave}>Leave</button>
         <span className="game__turn overline">
