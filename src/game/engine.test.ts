@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BOARD, GROUPS, OWNABLE_IDS } from './board';
 import { createGame, reduce, type SeatSpec } from './engine';
 import { botDecide } from './ai';
-import { calculateRent, legalActions, netWorth, ownedBy } from './rules';
+import { calculateRent, canTrade, legalActions, netWorth, ownedBy } from './rules';
 import { rand } from './rng';
 import { CLASSIC } from './settings';
 import type { GameAction, GameSettings, GameState } from './types';
@@ -362,6 +362,154 @@ describe('trades', () => {
       },
     });
     expect(s.trades).toHaveLength(0);
+  });
+});
+
+describe('bots that trade', () => {
+  const botGame = (over: Partial<GameSettings> = {}, n = 2): GameState => {
+    const s = createGame({ ...CLASSIC, seed: 999, botLevel: 'hard', ...over }, seats(n, true));
+    return reduce(s, { type: 'START_GAME', playerId: 'p0' }).state;
+  };
+
+  /** The classic table deadlock: each side holds the one deed the other
+   *  needs, and neither set can ever be built without a deal. p0 has two
+   *  light blues and the last pink; p1 has two pinks and the last light
+   *  blue. */
+  const deadlock = (over: Partial<GameSettings> = {}, n = 2): GameState => {
+    const s = botGame(over, n);
+    s.properties[6].owner = 'p0';
+    s.properties[8].owner = 'p0';
+    s.properties[14].owner = 'p0';
+    s.properties[9].owner = 'p1';
+    s.properties[11].owner = 'p1';
+    s.properties[13].owner = 'p1';
+    return s;
+  };
+
+  it('opens with the deed it needs and the deed the other side needs', () => {
+    const s = deadlock();
+    const a = botDecide(s, 'p0');
+    expect(a?.type).toBe('PROPOSE_TRADE');
+    if (a?.type !== 'PROPOSE_TRADE') return;
+    expect(a.offer.wantProperties).toEqual([9]);
+    expect(a.offer.giveProperties).toEqual([14]);
+    expect(canTrade(s, a.offer)).toBe(true);
+  });
+
+  it('closes the deal from the other chair', () => {
+    let s = deadlock();
+    const open = botDecide(s, 'p0');
+    expect(open?.type).toBe('PROPOSE_TRADE');
+    s = apply(s, open!);
+    expect(s.trades).toHaveLength(1);
+
+    const answer = botDecide(s, 'p1');
+    expect(answer?.type).toBe('ACCEPT_TRADE');
+    s = apply(s, answer!);
+
+    for (const id of GROUPS.lightblue) expect(s.properties[id].owner).toBe('p0');
+    for (const id of GROUPS.pink) expect(s.properties[id].owner).toBe('p1');
+  });
+
+  it('buys a set-completing deed for cash when it has nothing to swap', () => {
+    const s = botGame({ botLevel: 'normal' });
+    s.properties[6].owner = 'p0';
+    s.properties[8].owner = 'p0';
+    s.properties[9].owner = 'p1';
+    const a = botDecide(s, 'p0');
+    expect(a?.type).toBe('PROPOSE_TRADE');
+    if (a?.type !== 'PROPOSE_TRADE') return;
+    expect(a.offer.wantProperties).toEqual([9]);
+    expect(a.offer.giveProperties).toEqual([]);
+    expect(a.offer.giveCash).toBeGreaterThan(BOARD[9].price!);
+    expect(a.offer.giveCash).toBeLessThanOrEqual(s.players.p0.cash);
+  });
+
+  it('does not re-send an offer that was just declined', () => {
+    let s = deadlock();
+    s = apply(s, botDecide(s, 'p0')!);
+    s = apply(s, { type: 'DECLINE_TRADE', playerId: 'p1', tradeId: s.trades[0].id });
+    expect(s.trades).toHaveLength(0);
+    expect(botDecide(s, 'p0')?.type).not.toBe('PROPOSE_TRADE');
+  });
+
+  it('talks again once the cooldown has run out', () => {
+    let s = deadlock();
+    s = apply(s, botDecide(s, 'p0')!);
+    s = apply(s, { type: 'DECLINE_TRADE', playerId: 'p1', tradeId: s.trades[0].id });
+    // The cooldown is measured in turns, not actions.
+    s = { ...s, turnNumber: s.turnNumber + 20 };
+    expect(botDecide(s, 'p0')?.type).toBe('PROPOSE_TRADE');
+  });
+
+  it('never opens on an easy bot, and never when trades are off', () => {
+    expect(botDecide(deadlock({ botLevel: 'easy' }), 'p0')?.type).not.toBe('PROPOSE_TRADE');
+    expect(botDecide(deadlock({ allowTrades: false }), 'p0')?.type).not.toBe('PROPOSE_TRADE');
+  });
+
+  it('holds only one offer open at a time', () => {
+    let s = deadlock({}, 3);
+    s.properties[16].owner = 'p2';
+    s.properties[18].owner = 'p0';
+    s.properties[19].owner = 'p0';
+    s = apply(s, botDecide(s, 'p0')!);
+    expect(s.trades).toHaveLength(1);
+    expect(botDecide(s, 'p0')?.type).not.toBe('PROPOSE_TRADE');
+  });
+
+  it('lets an unanswered offer lapse instead of pinning the table', () => {
+    let s = deadlock();
+    s = apply(s, botDecide(s, 'p0')!);
+    expect(s.trades).toHaveLength(1);
+    let expiry = 0;
+    for (let i = 0; i < 12 && s.trades.length > 0; i++) {
+      const pid = s.seats[s.seatIndex];
+      const { state, events } = reduce({ ...s, phase: 'turn_end' }, { type: 'END_TURN', playerId: pid });
+      s = state;
+      expiry += events.filter((e) => e.type === 'TRADE_EXPIRED').length;
+    }
+    expect(s.trades).toHaveLength(0);
+    expect(expiry).toBe(1);
+  });
+
+  it('composes nothing the engine will refuse, over four full bot games', () => {
+    let proposed = 0;
+    let accepted = 0;
+    for (const seed of [11, 4242, 90210, 777]) {
+      let s = createGame(
+        { ...CLASSIC, seed, winCondition: 'turn-limit', turnLimit: 120 },
+        seats(4, true),
+      );
+      s = apply(s, { type: 'START_GAME', playerId: 'p0' });
+      let guard = 0;
+      while (s.phase !== 'game_over' && guard++ < 40000) {
+        let acted = false;
+        for (const pid of s.seats) {
+          const a = botDecide(s, pid);
+          if (!a) continue;
+          if (a.type === 'PROPOSE_TRADE') {
+            proposed += 1;
+            // The engine drops an unsound offer silently, so a bot that
+            // composes one burns its turn and learns nothing.
+            if (!canTrade(s, a.offer)) throw new Error(`unsound offer from ${pid}`);
+          }
+          const { state, events } = reduce(s, a);
+          if (state.version === s.version) continue;
+          if (a.type === 'PROPOSE_TRADE' && state.trades.length === s.trades.length
+            && !s.trades.some((t) => t.from === pid)) {
+            throw new Error(`offer from ${pid} was dropped by the reducer`);
+          }
+          accepted += events.filter((e) => e.type === 'TRADE_ACCEPTED').length;
+          s = state;
+          acted = true;
+          break;
+        }
+        if (!acted) break;
+        assertInvariants(s, -2, guard);
+      }
+    }
+    expect(proposed).toBeGreaterThan(0);
+    expect(accepted).toBeGreaterThan(0);
   });
 });
 

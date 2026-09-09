@@ -1,9 +1,10 @@
 import { BOARD, GROUPS } from './board';
 import { rand } from './rng';
 import {
-  countRailroads, hasUnmortgagedMonopoly, legalActions, netWorth, ownedBy, ownsFullGroup,
+  canTrade, countRailroads, hasUnmortgagedMonopoly, legalActions, netWorth,
+  ownedBy, ownsFullGroup, tradeKey, unmortgageCost,
 } from './rules';
-import type { BotLevel, ColorGroup, GameAction, GameState } from './types';
+import type { BotLevel, ColorGroup, GameAction, GameState, TradeBody } from './types';
 
 /* ------------------------------------------------------------------ *
  * Bots choose from legalActions() and nothing else. They read only
@@ -59,7 +60,15 @@ function strategicValue(s: GameState, pid: string, spaceId: number): number {
 
     const mine = group.filter((id) => s.properties[id].owner === pid).length;
     const unowned = group.filter((id) => !s.properties[id].owner).length;
-    if (mine === group.length - 1) v *= 2.4;        // completes the set
+    const opposed = group.length - mine - unowned;
+    // A monopoly roughly triples unimproved rent and is the only thing that
+    // lets you build at all, so the deed that finishes a set is worth a
+    // multiple of its price - which is what makes it worth trading for.
+    if (mine === group.length - 1) v *= 3.0;
+    // A deed in a set an opponent otherwise owns can never earn: it is a
+    // blocker and nothing else. Worth holding, worth selling dearly, not
+    // worth pretending it is progress towards a set.
+    else if (opposed === group.length - 1) v *= 1.1;
     else if (mine > 0) v *= 1.5;
 
     // Denying an opponent who is one deed short is worth real money.
@@ -70,6 +79,181 @@ function strategicValue(s: GameState, pid: string, spaceId: number): number {
     }
   }
   return v;
+}
+
+/* ------------------------------- trades ----------------------------- *
+ * Valuing a deal and composing one are the same arithmetic run in
+ * opposite directions, so both sides of the table use the functions
+ * below. A bot never proposes something it would refuse from the other
+ * chair.
+ * ------------------------------------------------------------------- */
+
+/** What a deed is worth to `pid` across a table rather than at auction: a
+ *  mortgaged deed arrives dead, and costs interest to wake up. */
+function tradeValue(s: GameState, pid: string, spaceId: number): number {
+  const v = strategicValue(s, pid, spaceId);
+  if (!s.properties[spaceId].mortgaged) return v;
+  return v * 0.55 - unmortgageCost(s, spaceId);
+}
+
+/** A Get Out of Jail Free card is worth roughly what it saves. Valuing it
+ *  at zero is how a bot gets talked out of one for nothing. */
+const jailCardValue = (s: GameState): number => s.settings.jailFine * 1.5;
+
+/** One side's net gain from an offer. `give*` is always what the proposer
+ *  parts with, so the recipient reads the same object backwards. */
+function tradeGain(s: GameState, pid: string, o: TradeBody): number {
+  const receiving = pid === o.to;
+  const inProps = receiving ? o.giveProperties : o.wantProperties;
+  const outProps = receiving ? o.wantProperties : o.giveProperties;
+  const inCash = receiving ? o.giveCash : o.wantCash;
+  const outCash = receiving ? o.wantCash : o.giveCash;
+  const inCards = receiving ? o.giveJailCards : o.wantJailCards;
+  const outCards = receiving ? o.wantJailCards : o.giveJailCards;
+  const sum = (ids: number[]) => ids.reduce((n, id) => n + tradeValue(s, pid, id), 0);
+  const card = jailCardValue(s);
+  return (sum(inProps) + inCash + inCards * card)
+    - (sum(outProps) + outCash + outCards * card);
+}
+
+/** Turns a refusal keeps a pair from talking again. Without it a bot
+ *  re-sends the deal you just declined on the very next tick. */
+const TRADE_COOLDOWN = 8;
+
+/** Surplus handed to the other side on top of an even deal. It has to
+ *  clear what a bot on the other chair demands before it will accept, or
+ *  bots would negotiate at each other all game and never close. */
+const PREMIUM_FLOOR = 130;
+
+const TRADE_STYLE: Record<BotLevel, { propose: boolean; premium: number; minGain: number }> = {
+  // An easy bot answers offers but never opens with one - difficulty is
+  // judgement, and knowing when to start a negotiation is judgement.
+  easy: { propose: false, premium: 0, minGain: 0 },
+  // A normal bot overpays for what it wants and settles for a thin edge; a
+  // hard bot pays near the floor and holds out for a real one.
+  normal: { propose: true, premium: 0.3, minGain: 40 },
+  hard: { propose: true, premium: 0.05, minGain: 80 },
+};
+
+/** Deeds `pid` could hand over right now: owned, with nothing built
+ *  anywhere in the colour group. */
+function tradableOwned(s: GameState, pid: string): number[] {
+  return ownedBy(s, pid).filter((id) => {
+    const g = BOARD[id].group;
+    return !g || GROUPS[g].every((x) => s.properties[x].houses === 0);
+  });
+}
+
+/** True when this one deed finishes something for `who` - a colour set, or
+ *  the fourth railroad. Nothing smaller is worth opening a negotiation
+ *  over, and nothing smaller is worth an opponent's attention. */
+function completesFor(s: GameState, who: string, spaceId: number): boolean {
+  const space = BOARD[spaceId];
+  if (space.group) {
+    return GROUPS[space.group].every((id) => id === spaceId || s.properties[id].owner === who);
+  }
+  if (space.kind === 'railroad') return countRailroads(s, who) === 3;
+  return false;
+}
+
+const roundUp10 = (n: number): number => Math.ceil(n / 10) * 10;
+
+/** Price one shape of deal: settle the cash leg so the other side comes
+ *  out ahead by a premium, then check what is left is still worth doing
+ *  and is something the engine will actually take. */
+function balanced(
+  s: GameState, pid: string, them: string,
+  want: number, give: number | null,
+  style: { premium: number; minGain: number }, spare: number,
+): TradeBody | null {
+  const offer: TradeBody = {
+    from: pid,
+    to: them,
+    giveCash: 0,
+    giveProperties: give === null ? [] : [give],
+    giveJailCards: 0,
+    wantCash: 0,
+    wantProperties: [want],
+    wantJailCards: 0,
+  };
+
+  // Value it from their chair. Deeds and cash are on the table for
+  // everyone to see, so this is reading the board, not their hand.
+  const theirs = tradeGain(s, them, offer);
+  const premium = PREMIUM_FLOOR + style.premium * tradeValue(s, them, want);
+
+  if (theirs < premium) {
+    const short = roundUp10(premium - theirs);
+    if (short > spare) return null;
+    offer.giveCash = short;
+  } else if (theirs > premium) {
+    // I am handing over the better half. Take the difference back in cash,
+    // but never so much that they cannot pay the next rent - a deal that
+    // strips them is a deal they decline.
+    const ask = Math.min(roundUp10(theirs - premium), s.players[them].cash - 100);
+    offer.wantCash = Math.max(0, ask);
+  }
+
+  if (!canTrade(s, offer)) return null;
+  if (tradeGain(s, pid, offer) < style.minGain) return null;
+  return offer;
+}
+
+/**
+ * Compose the best offer this bot can make right now, or null.
+ *
+ * The search is deliberately narrow: one deed in, at most one deed out,
+ * cash to balance. Anything wider is either this deal plus noise or a deal
+ * no opponent would read, and the space of subsets is far too large to
+ * score honestly inside a turn.
+ */
+export function botTradeOffer(s: GameState, pid: string, level: BotLevel): TradeBody | null {
+  const style = TRADE_STYLE[level];
+  if (!style.propose || !s.settings.allowTrades) return null;
+  const me = s.players[pid];
+  if (!me || me.bankrupt) return null;
+
+  // One open offer at a time. A table of pending deals is noise, and the
+  // recipient can only answer them one at a time anyway.
+  if (s.trades.some((t) => t.from === pid)) return null;
+  // One refusal a turn is enough. A bot that works down the table
+  // proposing to everyone in turn reads as a machine, not an opponent.
+  if (s.seats.some((them) => s.tradeCooldowns[tradeKey(pid, them)] === s.turnNumber)) return null;
+
+  const floor = cashFloor(s, pid, level);
+  const spare = Math.max(0, me.cash - floor);
+  const myTradable = tradableOwned(s, pid);
+
+  let best: TradeBody | null = null;
+  let bestGain = style.minGain;
+
+  for (const them of s.seats) {
+    if (them === pid) continue;
+    const other = s.players[them];
+    if (!other || other.bankrupt) continue;
+    const cooled = s.tradeCooldowns[tradeKey(pid, them)];
+    if (cooled !== undefined && s.turnNumber - cooled < TRADE_COOLDOWN) continue;
+
+    const wants = tradableOwned(s, them).filter((id) => completesFor(s, pid, id));
+    if (wants.length === 0) continue;
+    // The only currency that reliably prises a deed out of an opponent's
+    // hand is a deed that finishes something of theirs. Cash alone works
+    // early, when nobody is close to a set yet.
+    const sweeteners: (number | null)[] = [
+      null,
+      ...myTradable.filter((id) => completesFor(s, them, id)),
+    ];
+
+    for (const want of wants) {
+      for (const give of sweeteners) {
+        const offer = balanced(s, pid, them, want, give, style, spare);
+        if (!offer) continue;
+        const gain = tradeGain(s, pid, offer);
+        if (gain > bestGain) { bestGain = gain; best = offer; }
+      }
+    }
+  }
+  return best;
 }
 
 function scoreAction(s: GameState, pid: string, a: GameAction, level: BotLevel): number {
@@ -151,15 +335,21 @@ function scoreAction(s: GameState, pid: string, a: GameAction, level: BotLevel):
     case 'DECLARE_BANKRUPTCY':
       return -500;
 
+    case 'PROPOSE_TRADE':
+      // Only ever composed when it already clears this bot's own bar, so
+      // it outranks rolling: the offer resolves while the turn goes on.
+      return 118 + Math.min(tradeGain(s, pid, a.offer), 400) / 10;
+
     case 'ACCEPT_TRADE': {
       const t = s.trades.find((x) => x.id === a.tradeId);
       if (!t) return -100;
-      const gain =
-        t.giveProperties.reduce((n, id) => n + strategicValue(s, pid, id), 0)
-        + t.giveCash
-        - t.wantProperties.reduce((n, id) => n + strategicValue(s, pid, id), 0)
-        - t.wantCash;
-      const demand = { easy: 0, normal: 40, hard: 120 }[level];
+      const gain = tradeGain(s, pid, t);
+      // Demanding a premium is what stops a human farming the bots with a
+      // stream of barely-positive deals.
+      let demand = { easy: 0, normal: 40, hard: 120 }[level];
+      // And no deal is worth being unable to pay the rent it walks into.
+      const cashOut = t.to === pid ? t.wantCash : t.giveCash;
+      if (me.cash - cashOut < floor) demand += 250;
       return gain > demand ? 90 : -60;
     }
 
@@ -235,6 +425,14 @@ export function botDecide(s: GameState, pid: string): GameAction | null {
       if (amount <= me.cash) extra.push({ type: 'BID', playerId: pid, amount });
     }
     options = [...options.filter((a) => a.type !== 'BID'), ...extra];
+  }
+
+  // Proposing does not consume the turn, so an offer is added alongside
+  // the roll rather than instead of it - and it is never generated off
+  // turn, where it would stall the seat whose turn it actually is.
+  if (isCurrent && (s.phase === 'preroll' || s.phase === 'jailed_choice' || s.phase === 'turn_end')) {
+    const offer = botTradeOffer(s, pid, level);
+    if (offer) options = [...options, { type: 'PROPOSE_TRADE', playerId: pid, offer }];
   }
 
   const scored = options.map((a) => ({ a, score: scoreAction(s, pid, a, level) }));

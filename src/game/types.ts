@@ -120,6 +120,10 @@ export interface TradeOffer {
   createdAt: number;
 }
 
+/** An offer before the engine has stamped it: what a proposer actually
+ *  composes. The UI, the bots and the reducer all speak this shape. */
+export type TradeBody = Omit<TradeOffer, 'id' | 'createdAt'>;
+
 export interface GameSettings {
   /* --- economy --- */
   startingCash: number;
@@ -205,6 +209,10 @@ export interface GameState {
   auction: Auction | null;
   debt: Debt | null;
   trades: TradeOffer[];
+  /** `"from>to"` -> the turn on which that pair's last offer was refused or
+   *  timed out. Bots read it, so a deal you turned down is not put back in
+   *  front of you on the next tick. */
+  tradeCooldowns: Record<string, number>;
 
   /** Card currently on screen, for the presentation layer. */
   activeCard: Card | null;
@@ -232,7 +240,7 @@ export type GameAction =
   | { type: 'PAY_JAIL_FINE'; playerId: string }
   | { type: 'USE_JAIL_CARD'; playerId: string }
   | { type: 'DECLARE_BANKRUPTCY'; playerId: string }
-  | { type: 'PROPOSE_TRADE'; playerId: string; offer: Omit<TradeOffer, 'id' | 'createdAt'> }
+  | { type: 'PROPOSE_TRADE'; playerId: string; offer: TradeBody }
   | { type: 'ACCEPT_TRADE'; playerId: string; tradeId: string }
   | { type: 'DECLINE_TRADE'; playerId: string; tradeId: string }
   | { type: 'END_TURN'; playerId: string }
@@ -268,6 +276,7 @@ export type GameEvent =
   | { type: 'TRADE_PROPOSED'; offer: TradeOffer }
   | { type: 'TRADE_ACCEPTED'; offer: TradeOffer }
   | { type: 'TRADE_DECLINED'; offer: TradeOffer }
+  | { type: 'TRADE_EXPIRED'; offer: TradeOffer }
   | { type: 'TURN_STARTED'; playerId: string; turnNumber: number }
   | { type: 'FREE_PARKING'; playerId: string; amount: number }
   | { type: 'GAME_OVER'; winnerId: string | null };

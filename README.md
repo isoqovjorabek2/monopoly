@@ -17,7 +17,9 @@ Share a link, pick your rules, play. No signup, no install, and no server.
   how far you have drifted from the printed rules.
 - **Peer-to-peer multiplayer.** The host's browser runs the game; everyone else
   connects straight to it over WebRTC. There is no backend to pay for or trust.
-- **Bots** at three difficulties that play by exactly the same rules you do.
+- **Bots** at three difficulties that play by exactly the same rules you do, and
+  that open trade negotiations for the deed they need instead of waiting to be
+  asked.
 - **Works on phones**, with the board as the hero and everything else in sheets.
 
 ## How multiplayer works
@@ -189,6 +191,54 @@ way. Three decisions carry most of that:
   invisible to a touch user and easy to miss on a mouse; the home screen now
   states what is missing instead.
 
+## The bots negotiate
+
+A Monopoly table where nobody trades is a dice game. Sets end up split three
+ways, no monopoly is ever completed, and the winner is whoever landed on the
+most railroads. So the bots open negotiations rather than only answering them.
+
+Valuing a deed properly is most of the work. A deed in a colour group an
+opponent otherwise owns is not two-thirds of a set — it is a **blocker**: it
+can never earn, and its whole worth is that it stops someone else's monopoly.
+The scoring used to read it as progress towards a set, which is exactly
+backwards, and it is why a bot could not see the deal sitting in front of it.
+The deed that *finishes* a set is priced at a multiple of its list price,
+because a monopoly roughly triples unimproved rent and is the only thing that
+lets you build at all.
+
+The search is deliberately narrow — one deed in, at most one deed out, cash to
+balance. The interesting deal in Monopoly is nearly always the same shape:
+*you hold the last deed of my set, I hold the last deed of yours.* Anything
+wider is that deal plus noise, and the space of subsets is far too large to
+score honestly inside a turn.
+
+Both chairs use the same arithmetic. `tradeGain(state, playerId, offer)` reads
+an offer from whichever side you hand it, so a bot never proposes a deal it
+would refuse sitting opposite. The proposer prices the cash leg so the *other*
+side comes out ahead by a premium, then checks what is left still clears its
+own bar: a hard bot pays near the floor and holds out for a real edge, a normal
+bot overpays and settles for a thin one, and an easy bot answers offers but
+never opens with one. Difficulty is judgement, never information — every bot
+reads only the deeds and cash that are face-up on the table anyway.
+
+Two things keep it from becoming spam. Both live in the engine rather than in
+the bot, because the bots are pure functions of the state: anything they
+remember has to be part of it, or it would not survive a reconnect.
+
+- **A refusal cools the pair off.** A decline is recorded in `tradeCooldowns`
+  against the turn number, and that bot will not put a deal in front of you
+  again for eight turns. Without it, the offer you just declined comes straight
+  back on the next tick.
+- **An unanswered offer lapses** after six turns. One left hanging used to pin
+  its author out of trading for the rest of the game — the recipient keeps a
+  modal they never asked for, and the proposer, which holds only one offer open
+  at a time, never composes another.
+
+One place they stop short on purpose: a bot facing a debt it cannot pay
+mortgages and sells rather than trading its way out. Raising money is a
+sequence with a deadline, and an offer that may never be answered is not a step
+you can put in the middle of one.
+
 ## Sound
 
 Eleven recorded cues in `public/audio`, mono and 77KB for the whole set, fetched
@@ -263,7 +313,7 @@ machine proves nothing about NAT traversal. Open the room on a phone on cellular
 
 ## Tests
 
-`npm test` runs 35 checks over the engine, including:
+`npm test` runs 44 checks over the engine, including:
 
 - every deed's rent ladder against the printed card
 - determinism: same seed + same action log ⇒ byte-identical state
@@ -275,6 +325,9 @@ machine proves nothing about NAT traversal. Open the room on a phone on cellular
 - hostile input: wrong player, unaffordable buys, bids above cash
 - a fuzz pass over 60 randomly-played games asserting invariants after every
   action (money never negative, houses conserved, colour groups built evenly)
+- trading bots: that a composed offer is always one the reducer will take, that
+  a declined deal is not re-sent, that an unanswered one lapses, and that four
+  full bot games close real deals rather than only proposing them
 - a full bot-vs-bot game played to completion
 
 ## Deliberate simplifications

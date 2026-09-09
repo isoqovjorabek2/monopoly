@@ -126,6 +126,9 @@ export function describe(s: GameState, e: GameEvent, seq: number): LogLine | nul
     case 'TRADE_DECLINED':
       return line(`${name(e.offer.to)} declined the trade.`, e.offer.to);
 
+    case 'TRADE_EXPIRED':
+      return line(`${name(e.offer.from)}'s offer to ${name(e.offer.to)} lapsed.`, e.offer.from);
+
     case 'FREE_PARKING':
       return line(`${name(e.playerId)} scooped ${money(e.amount)} off Free Parking.`, e.playerId, 'good');
 

@@ -2,7 +2,7 @@ import {
   BOARD, GROUPS, RAILROAD_IDS, RAILROAD_RENT, UTILITY_IDS,
   OWNABLE_IDS,
 } from './board';
-import type { GameAction, GameState, Player, Space } from './types';
+import type { GameAction, GameState, Player, Space, TradeBody } from './types';
 
 /* ------------------------------------------------------------------ *
  * Pure queries. Nothing here mutates. The reducer, the UI and the bots
@@ -293,6 +293,41 @@ function pushAssetActions(
     if (o.allowUnmortgage && canUnmortgage(s, playerId, id).ok)
       out.push({ type: 'UNMORTGAGE', playerId, spaceId: id });
   }
+}
+
+/** Key for `state.tradeCooldowns`. Directional: A refusing B says nothing
+ *  about whether B would refuse A. */
+export const tradeKey = (from: string, to: string): string => `${from}>${to}`;
+
+/**
+ * Everything that has to hold for an offer to be transferable: both sides
+ * present and solvent, every deed actually owned by the side offering it,
+ * and no buildings standing anywhere in a traded deed's colour group.
+ *
+ * The reducer checks this when an offer is made and again when it is
+ * accepted, because the board moves in between. The bots check it before
+ * proposing, so a bot can never burn its turn on an offer the engine will
+ * silently drop.
+ */
+export function canTrade(s: GameState, o: TradeBody): boolean {
+  const from = s.players[o.from];
+  const to = s.players[o.to];
+  if (!from || !to || from.bankrupt || to.bankrupt || o.from === o.to) return false;
+  if (!Number.isInteger(o.giveCash) || !Number.isInteger(o.wantCash)) return false;
+  if (o.giveCash < 0 || o.wantCash < 0) return false;
+  if (from.cash < o.giveCash || to.cash < o.wantCash) return false;
+  if (o.giveJailCards < 0 || o.wantJailCards < 0) return false;
+  if (from.getOutOfJailCards < o.giveJailCards || to.getOutOfJailCards < o.wantJailCards) return false;
+
+  const check = (ids: number[], ownerId: string) => ids.every((id) => {
+    const st = s.properties[id];
+    if (!st || st.owner !== ownerId) return false;
+    // Buildings must come off before a deed can change hands.
+    const g = BOARD[id].group;
+    if (g && GROUPS[g].some((x) => s.properties[x].houses > 0)) return false;
+    return true;
+  });
+  return check(o.giveProperties, o.from) && check(o.wantProperties, o.to);
 }
 
 /** Cheap membership test used by the reducer to reject spoofed intents. */

@@ -1,18 +1,21 @@
 import {
-  BOARD, BOARD_SIZE, GROUPS, JAIL_POSITION,
+  BOARD, BOARD_SIZE, JAIL_POSITION,
   OWNABLE_IDS, RAILROAD_IDS, UTILITY_IDS,
 } from './board';
 import { CHANCE, CHEST, cardById } from './cards';
 import { rollDice, shuffle } from './rng';
 import {
   buildingSellValue, calculateRent, canBuildHouse, canMortgage, canSellHouse,
-  canUnmortgage, currentPlayerId, isLegal, maxRaisable, netWorth, ownedBy,
-  unmortgageCost,
+  canTrade, canUnmortgage, currentPlayerId, isLegal, maxRaisable, netWorth,
+  ownedBy, tradeKey, unmortgageCost,
 } from './rules';
 import type {
   Card, GameAction, GameEvent, GameSettings, GameState, Player,
-  PropertyState, Reduction, TradeOffer,
+  PropertyState, Reduction, TradeBody, TradeOffer,
 } from './types';
+
+/** Turns an unanswered offer stays on the table before it lapses. */
+const TRADE_TTL = 6;
 
 /* ------------------------------------------------------------------ *
  * The reducer. Pure: no Date.now(), no Math.random(), no mutation of
@@ -76,6 +79,7 @@ export function createGame(settings: GameSettings, seats: SeatSpec[]): GameState
     auction: null,
     debt: null,
     trades: [],
+    tradeCooldowns: {},
     activeCard: null,
     turnNumber: 0,
     winnerId: null,
@@ -231,6 +235,7 @@ function doEndTurn(s: GameState, events: GameEvent[]): void {
   } while (s.players[s.seats[s.seatIndex]].bankrupt && guard <= s.seats.length);
 
   s.turnNumber += 1;
+  expireTrades(s, events);
   const pid = currentPlayerId(s);
   s.phase = s.players[pid].inJail ? 'jailed_choice' : 'preroll';
   events.push({ type: 'TURN_STARTED', playerId: pid, turnNumber: s.turnNumber });
@@ -717,29 +722,25 @@ function doUseJailCard(s: GameState, events: GameEvent[], pid: string): void {
 
 /* ------------------------------- trades ----------------------------- */
 
-function tradeIsValid(s: GameState, o: Omit<TradeOffer, 'id' | 'createdAt'>): boolean {
-  const from = s.players[o.from];
-  const to = s.players[o.to];
-  if (!from || !to || from.bankrupt || to.bankrupt || o.from === o.to) return false;
-  if (o.giveCash < 0 || o.wantCash < 0) return false;
-  if (from.cash < o.giveCash || to.cash < o.wantCash) return false;
-  if (from.getOutOfJailCards < o.giveJailCards || to.getOutOfJailCards < o.wantJailCards) return false;
-
-  const check = (ids: number[], ownerId: string) => ids.every((id) => {
-    const st = s.properties[id];
-    if (!st || st.owner !== ownerId) return false;
-    // Buildings must be sold before a deed can change hands.
-    const g = BOARD[id].group;
-    if (g && GROUPS[g].some((x) => s.properties[x].houses > 0)) return false;
-    return true;
-  });
-  return check(o.giveProperties, o.from) && check(o.wantProperties, o.to);
+/** An offer nobody answered lapses at a turn boundary. Without this a
+ *  proposal left hanging pins its author out of trading for good: the
+ *  recipient keeps a modal they never asked for, and a bot that always has
+ *  one outstanding never composes another. */
+function expireTrades(s: GameState, events: GameEvent[]): void {
+  const stale = s.trades.filter((t) => s.turnNumber - t.createdAt > TRADE_TTL);
+  if (stale.length === 0) return;
+  const dead = new Set(stale.map((t) => t.id));
+  s.trades = s.trades.filter((t) => !dead.has(t.id));
+  for (const offer of stale) {
+    s.tradeCooldowns[tradeKey(offer.from, offer.to)] = s.turnNumber;
+    events.push({ type: 'TRADE_EXPIRED', offer });
+  }
 }
 
 function doProposeTrade(
-  s: GameState, events: GameEvent[], o: Omit<TradeOffer, 'id' | 'createdAt'>,
+  s: GameState, events: GameEvent[], o: TradeBody,
 ): void {
-  if (!tradeIsValid(s, o)) return;
+  if (!canTrade(s, o)) return;
   const offer: TradeOffer = {
     ...o,
     id: `t${s.version}-${o.from}-${o.to}`,
@@ -754,7 +755,7 @@ function doAcceptTrade(s: GameState, events: GameEvent[], pid: string, tradeId: 
   const offer = s.trades.find((t) => t.id === tradeId);
   if (!offer || offer.to !== pid) return;
   // Re-validate at acceptance: the world moved since the offer was made.
-  if (!tradeIsValid(s, offer)) {
+  if (!canTrade(s, offer)) {
     s.trades = s.trades.filter((t) => t.id !== tradeId);
     return;
   }
@@ -779,6 +780,7 @@ function doDeclineTrade(s: GameState, events: GameEvent[], pid: string, tradeId:
   const offer = s.trades.find((t) => t.id === tradeId);
   if (!offer || offer.to !== pid) return;
   s.trades = s.trades.filter((t) => t.id !== tradeId);
+  s.tradeCooldowns[tradeKey(offer.from, offer.to)] = s.turnNumber;
   events.push({ type: 'TRADE_DECLINED', offer });
 }
 
