@@ -8,7 +8,9 @@ import type { LogLine } from '../game/describe';
 import type { ChatMessage, SeatInfo } from '../net/protocol';
 import { Avatar, Empty, Modal, Money, fmt } from './bits';
 import type { CashFloat } from '../store/store';
-import { STICKERS, parseSticker, stickerLabel, stickerToken, stickerUrl } from '../art/art';
+import {
+  STICKERS, groupArt, parseSticker, stickerLabel, stickerToken, stickerUrl, type GroupMotif,
+} from '../art/art';
 
 /* ============================ player rail ============================ */
 
@@ -463,6 +465,51 @@ export function AuctionPanel({
  * orange set" to a sendable offer.
  * ================================================================== */
 
+/**
+ * A deed, shown the way it looks on the board.
+ *
+ * Every trade surface used to render deeds as bare short names - "St.
+ * Charles, $140" - which asks the player to hold the whole board in their
+ * head to work out what is being offered. The chip carries the set's
+ * colour and its motif, so a deed in a list is recognisable as the same
+ * object you have been looking at on the board all game.
+ */
+export function motifOf(spaceId: number): GroupMotif | null {
+  const space = BOARD[spaceId];
+  if (space.group) return space.group;
+  if (space.kind === 'railroad') return 'railroad';
+  if (space.kind === 'utility') return 'utility';
+  return null;
+}
+
+function DeedChip({
+  state, id, badge,
+}: { state: GameState; id: number; badge?: string }) {
+  const space = BOARD[id];
+  const motif = motifOf(id);
+  const st = state.properties[id];
+  return (
+    <span
+      className="deedChip"
+      style={{ ['--dc' as string]: space.group ? GROUP_COLOR[space.group] : 'var(--brass-500)' }}
+    >
+      {motif && (
+        <span
+          className="deedChip__art"
+          style={{ backgroundImage: `url("${groupArt(motif)}")` }}
+          aria-hidden
+        />
+      )}
+      <span className="deedChip__band" aria-hidden />
+      <span className="deedChip__name truncate">{space.short}</span>
+      {badge && <span className="deedChip__badge">{badge}</span>}
+      {st?.mortgaged && <span className="deedChip__badge deedChip__badge--warn">mortgaged</span>}
+      <span className="spacer" />
+      <span className="deedChip__price num">{fmt(space.price ?? 0)}</span>
+    </span>
+  );
+}
+
 const EMPTY_OFFER = {
   give: [] as number[],
   want: [] as number[],
@@ -711,9 +758,7 @@ function TradeSide({
               </div>
               <ul className="tradeSide__list">
                 {g.ids.map((id) => {
-                  const space = BOARD[id];
-                  const st = state.properties[id];
-                  const grp = space.group;
+                  const grp = BOARD[id].group;
                   const built = grp ? GROUPS[grp].some((x) => state.properties[x].houses > 0) : false;
                   const completes = completesFor(state, receiverId, id);
                   return (
@@ -726,11 +771,11 @@ function TradeSide({
                         disabled={built}
                         onClick={() => onToggle(id)}
                       >
-                        <span className="truncate">{space.short}</span>
-                        {completes && <span className="tradeSide__tag">completes the set</span>}
-                        {st.mortgaged && <span className="tradeSide__tag tradeSide__tag--warn">mortgaged</span>}
-                        <span className="spacer" />
-                        <span className="num muted small">{fmt(space.price ?? 0)}</span>
+                        <DeedChip
+                          state={state}
+                          id={id}
+                          badge={completes ? 'completes the set' : undefined}
+                        />
                       </button>
                       {built && (
                         <span className="tradeSide__why">
@@ -779,7 +824,58 @@ function TradeSide({
   );
 }
 
-/* ========================= incoming offers ========================== */
+/* ========================= incoming offers ==========================
+ *
+ * The hardest thing to read in the whole game was somebody else's offer:
+ * two lines of bare short names, no colour, no indication of whether the
+ * deal was any good. You had to reconstruct the board from memory to
+ * answer a yes/no question with your money on it.
+ *
+ * Now it shows the deeds as they look on the board, badges the ones that
+ * finish a set for either side, and says plainly what the deal is worth
+ * to you - the same arithmetic the bot used to decide to send it.
+ * ================================================================== */
+
+function OfferSide({
+  state, label, viewerId, otherId, props, cash, cards, tone,
+}: {
+  state: GameState;
+  label: string;
+  /** Who ends up holding these - which decides whether a set is completed. */
+  viewerId: string;
+  otherId: string;
+  props: number[];
+  cash: number;
+  cards: number;
+  tone: 'get' | 'give';
+}) {
+  const nothing = props.length === 0 && cash === 0 && cards === 0;
+  return (
+    <div className="offer__side" data-tone={tone}>
+      <span className="overline">{label}</span>
+      {nothing ? <p className="muted">Nothing</p> : (
+        <div className="offer__items">
+          {props.map((id) => (
+            <DeedChip
+              key={id}
+              state={state}
+              id={id}
+              badge={completesFor(state, viewerId, id)
+                ? 'completes your set'
+                : completesFor(state, otherId, id) ? 'completes theirs' : undefined}
+            />
+          ))}
+          {cash > 0 && <span className="offer__cash num">{fmt(cash)}</span>}
+          {cards > 0 && (
+            <span className="offer__cash">
+              {cards} Get out of jail free
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function IncomingTrades({
   state, myId, dispatch,
@@ -788,24 +884,42 @@ export function IncomingTrades({
   if (mine.length === 0) return null;
   const offer = mine[0];
   const from = state.players[offer.from];
+  const gain = Math.round(tradeGain(state, myId, offer));
 
-  const list = (ids: number[], cash: number): string => {
-    const parts = ids.map((id) => BOARD[id].short);
-    if (cash > 0) parts.push(fmt(cash));
-    return parts.length > 0 ? parts.join(', ') : 'nothing';
-  };
+  const reading = gain > 150 ? 'That is a good deal for you.'
+    : gain > 0 ? 'That is slightly in your favour.'
+      : gain > -150 ? 'That is slightly against you.'
+        : 'That is a bad deal for you.';
 
   return (
     <Modal open onClose={() => {}} title={`${from.name} offers a trade`} dismissable={false}>
       <div className="offer">
-        <div className="offer__side">
-          <span className="overline">You receive</span>
-          <p>{list(offer.giveProperties, offer.giveCash)}</p>
-        </div>
-        <div className="offer__side">
-          <span className="overline">You give</span>
-          <p>{list(offer.wantProperties, offer.wantCash)}</p>
-        </div>
+        <OfferSide
+          state={state}
+          label="You receive"
+          viewerId={myId}
+          otherId={offer.from}
+          props={offer.giveProperties}
+          cash={offer.giveCash}
+          cards={offer.giveJailCards}
+          tone="get"
+        />
+        <OfferSide
+          state={state}
+          label="You give"
+          viewerId={offer.from}
+          otherId={myId}
+          props={offer.wantProperties}
+          cash={offer.wantCash}
+          cards={offer.wantJailCards}
+          tone="give"
+        />
+
+        <p className="offer__reading" data-sign={gain > 0 ? 'up' : gain < 0 ? 'down' : undefined}>
+          <span className="num">{gain > 0 ? '+' : gain < 0 ? '−' : ''}{fmt(Math.abs(gain))}</span>
+          {' '}in value to you. {reading}
+        </p>
+
         <footer className="offer__foot">
           <button
             type="button" className="btn btn--ghost"

@@ -945,14 +945,15 @@
 }
 .tradeSide__item {
   width: 100%;
-  display: flex; align-items: center; gap: var(--s-2);
-  padding: 6px 8px;
+  display: flex; align-items: stretch;
+  padding: 0;
   background: rgb(255 255 255 / 0.03);
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
   cursor: pointer;
   font-size: var(--t-sm);
   text-align: left;
+  overflow: hidden;
 }
 .tradeSide__item[data-on] { border-color: var(--accent); background: color-mix(in oklab, var(--accent) 14%, transparent); }
 .tradeSide__item:disabled { opacity: 0.35; cursor: not-allowed; }
@@ -1101,6 +1102,103 @@
 .trade__gain[data-sign='up'] .num { color: var(--success-400); }
 .trade__gain[data-sign='down'] .num { color: var(--danger-400); }
 .trade__reading { margin: 0; font-size: var(--t-sm); color: var(--text-muted); }
+
+/* --- the deed chip ---------------------------------------------------
+   A deed as it looks on the board: the set's colour down its edge and
+   the set's motif behind it. Every trade surface used to print bare
+   short names, which asks the player to hold the whole board in their
+   head to work out what is on the table.
+   -------------------------------------------------------------------- */
+
+.deedChip {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  padding: 7px 10px 7px 14px;
+  isolation: isolate;
+  overflow: hidden;
+}
+/* The motif, on the same terms it sits on the board: engraved on black,
+   screened over the surface, faint enough to stay behind the name. */
+.deedChip__art {
+  position: absolute;
+  inset: 0 0 0 6px;
+  z-index: -1;
+  background-position: 74% center;
+  background-repeat: no-repeat;
+  background-size: auto 190%;
+  mix-blend-mode: screen;
+  opacity: 0.38;
+  /* Faded off at both ends so it sits in the clear space between the name
+     and the price rather than under either of them - an ornament that
+     makes the number it covers unreadable is worse than no ornament. */
+  -webkit-mask-image: linear-gradient(90deg, transparent 8%, #000 42%, #000 74%, transparent 94%);
+  mask-image: linear-gradient(90deg, transparent 8%, #000 42%, #000 74%, transparent 94%);
+  pointer-events: none;
+}
+.deedChip__band {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  background: var(--dc);
+  box-shadow: inset -1px 0 0 rgb(0 0 0 / 0.4);
+}
+.deedChip__name { font-size: var(--t-sm); }
+.deedChip__price {
+  font-variant-numeric: tabular-nums;
+  color: var(--brass-200);
+  font-size: var(--t-xs);
+  flex: 0 0 auto;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.8);
+}
+.deedChip__badge {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  background: color-mix(in oklab, var(--brass-500) 30%, transparent);
+  color: var(--brass-100);
+  white-space: nowrap;
+}
+.deedChip__badge--warn {
+  background: color-mix(in oklab, var(--danger-600) 32%, transparent);
+  color: var(--ivory-100);
+}
+
+/* --- an offer somebody sent you -------------------------------------- */
+
+.offer__side[data-tone='get'] { border-left: 3px solid var(--success-400); }
+.offer__side[data-tone='give'] { border-left: 3px solid var(--danger-400); }
+.offer__items { display: flex; flex-direction: column; gap: 4px; }
+.offer__items .deedChip {
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: rgb(255 255 255 / 0.03);
+}
+.offer__cash {
+  align-self: flex-start;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  background: color-mix(in oklab, var(--brass-500) 18%, transparent);
+  color: var(--brass-100);
+  font-size: var(--t-sm);
+  font-variant-numeric: tabular-nums;
+}
+.offer__reading {
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--text-muted);
+}
+.offer__reading .num { font-variant-numeric: tabular-nums; font-weight: 600; }
+.offer__reading[data-sign='up'] .num { color: var(--success-400); }
+.offer__reading[data-sign='down'] .num { color: var(--danger-400); }
 
 .offer { display: flex; flex-direction: column; gap: var(--s-4); }
 .offer__side {

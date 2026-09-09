@@ -122,7 +122,9 @@
   background-repeat: no-repeat;
   background-size: 92% auto;
   mix-blend-mode: screen;
-  opacity: 0.3;
+  /* Screened over dark felt, an ornament loses most of its saturation, so
+     it needs more of itself than a corner emblem on bare board does. */
+  opacity: 0.42;
   pointer-events: none;
 }
 .tile--bottom .tile__motif { background-position: center 92%; }

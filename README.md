@@ -149,10 +149,18 @@ turns both to mush.
 **Colour-set motifs** are how a set reads as a set before you have read a single
 name: twelve squares share ten pictures rather than each carrying its own, which
 is what keeps this ten files instead of twenty-eight. Same contract as the
-corners - engraved on black, `screen`, no alpha - but far fainter, and anchored
-to the outer edge of the plaque, away from the name. The generated set varies in
-how much dark ground it leaves, and the outer half is the half the type does not
-use. They are the first thing dropped at phone board sizes.
+corners - engraved on black, `screen`, no alpha - anchored to the outer edge of
+the plaque, away from the name, and the first thing dropped at phone board sizes.
+
+They are **abstract deco ornament, in the set's own colour**, and that took two
+attempts. The first set was illustration - a trumpet for the oranges, a streetcar
+for the light blues - which is a fine idea at card size and noise at the ~47px a
+tile actually gets: too much detail to resolve, and literal enough to read as
+clip art pasted onto an engraved board. The replacements are ziggurats, chevrons,
+lattices and starbursts: one bold silhouette each, so what survives at tile size
+is a shape and a colour, which is exactly what you need to tell one set from
+another at a glance. Which is also why they carry the set's colour rather than
+plain brass - the same reason the printed board has a colour band.
 
 **Card illustrations** are one engraved vignette per card, keyed by card id, so
 "Speeding fine" and "Go to Jail" never share a picture. The generated ivory
@@ -357,6 +365,13 @@ any chance of being accepted.
 
 So the panel answers all three:
 
+- **A deed looks like it does on the board.** Every trade surface used to print
+  bare short names - "St. Charles, $140" - which asks the player to hold the
+  whole board in their head to work out what is on the table. Deeds are now
+  chips carrying the set's colour down one edge and the set's ornament behind
+  them, so a deed in a list is recognisably the same object you have been
+  staring at all game. The ornament is masked off at both ends: one that makes
+  the price it covers unreadable is worse than no ornament at all.
 - **Deeds are grouped into their sets** and counted (`2/3`), because "two of the
   three oranges" is the unit a player thinks in and an alphabetical list is not.
   A deed that would complete a set *for whoever receives it* is badged, on both
@@ -374,6 +389,13 @@ So the panel answers all three:
   deed from a set it says so rather than inventing something.
 - A deed that cannot move says why, under the control, rather than being greyed
   out with a tooltip a touch user never sees.
+
+**An offer somebody sends you** gets the same treatment, and needed it most: it
+was two lines of bare short names with no colour and no indication of whether
+the deal was any good, asking you to reconstruct the board from memory to answer
+a yes/no question with your money on it. It now shows the deeds as chips, badges
+the ones that finish a set for either side, marks the two halves as what you
+receive and what you give, and states what the deal is worth to you.
 
 The engine tests cover the join between the two: that a suggested deal is one
 the reducer accepts *and* the bot then takes, and that an offer predicted to be
