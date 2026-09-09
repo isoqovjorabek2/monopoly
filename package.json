@@ -9,6 +9,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "check:turn": "node --env-file-if-exists=.env scripts/turncheck.mjs",
     "test:watch": "vitest",
     "typecheck": "tsc -b"
   },

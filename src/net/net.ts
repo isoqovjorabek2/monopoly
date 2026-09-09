@@ -11,11 +11,48 @@ import {
  * broadcasts full snapshots. See ~/.claude/skills/p2p-netcode.
  * ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ *
+ * ICE.
+ *
+ * STUN is enough for most pairs: it tells each browser what its public
+ * address looks like from outside, and they meet in the middle. It cannot
+ * help the rest - symmetric NAT, and firewalls that allow no inbound UDP
+ * at all - because there is no middle to meet in. Those pairs need a relay
+ * that both sides can reach outbound, and there is nothing to discover at
+ * runtime on a static host, so one is configured at build time.
+ *
+ * Without VITE_TURN_URLS the game behaves exactly as it did before: STUN
+ * only, and the 8-15% of pairs that cannot form a direct path are told so
+ * rather than left spinning.
+ *
+ * A credential shipped in a static bundle is public - anyone who opens
+ * devtools can read it, and there is no backend here to mint short-lived
+ * ones. The defence is quotas and a restricted relay on the server side,
+ * not secrecy. docs/turn.md sets that up.
+ * ------------------------------------------------------------------ */
+
+const TURN_URLS = (import.meta.env.VITE_TURN_URLS ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+const TURN_USERNAME = import.meta.env.VITE_TURN_USERNAME ?? '';
+const TURN_CREDENTIAL = import.meta.env.VITE_TURN_CREDENTIAL ?? '';
+
+/** True when this build has a relay to fall back on. */
+export const hasRelay = TURN_URLS.length > 0 && Boolean(TURN_USERNAME) && Boolean(TURN_CREDENTIAL);
+
 const ICE = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:global.stun.twilio.com:3478' },
+    // Last resort, and only ever used when a direct path fails: ICE tries
+    // host and server-reflexive candidates first and picks a relay only if
+    // nothing else connects, so this costs no bandwidth for the pairs that
+    // would have worked anyway.
+    ...(hasRelay
+      ? [{ urls: TURN_URLS, username: TURN_USERNAME, credential: TURN_CREDENTIAL }]
+      : []),
   ],
 };
 
@@ -231,7 +268,9 @@ export class GuestNet {
       if (!conn.open && !this.closedByUs) {
         this.h.onStatus(
           'error',
-          'Could not open a direct connection. Your network may be blocking it - try a different network or a phone hotspot.',
+          hasRelay
+            ? 'Could not reach the host, directly or through the relay. Check the room code, and that the host still has the page open.'
+            : 'Could not open a direct connection. Your network may be blocking it - try a different network or a phone hotspot.',
         );
       }
     }, CONNECT_TIMEOUT_MS);

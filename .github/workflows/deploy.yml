@@ -38,6 +38,13 @@ jobs:
         env:
           # Pages serves this from /<repo>/, which vite.config.ts defaults to.
           BASE_PATH: /monopoly/
+          # The TURN relay, if one is set up. Absent secrets build a
+          # STUN-only client, which is exactly what shipped before.
+          # These end up readable in the bundle - see docs/turn.md - but
+          # keeping them in repo secrets keeps them out of git history.
+          VITE_TURN_URLS: ${{ secrets.TURN_URLS }}
+          VITE_TURN_USERNAME: ${{ secrets.TURN_USERNAME }}
+          VITE_TURN_CREDENTIAL: ${{ secrets.TURN_CREDENTIAL }}
 
       # SPA fallback: the app uses hash routing, but this keeps a stray
       # deep link from returning GitHub's 404 page.

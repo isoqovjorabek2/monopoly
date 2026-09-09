@@ -41,8 +41,19 @@ host-authoritative WebRTC star instead of a server:
   broadcasts the resulting state. A modified client cannot cheat.
 - PeerJS's free public broker is used for the handshake only; after that traffic
   is direct between browsers. It has no SLA, and roughly 8–15% of network pairs
-  (symmetric NAT, strict corporate firewalls) cannot form a direct connection at
-  all without a TURN relay. The UI says so plainly instead of spinning forever.
+  (symmetric NAT, strict corporate firewalls) have no direct path to each other
+  at all — behind symmetric NAT the address STUN reports is not the address the
+  other side will see, so there is no middle for the two to meet in.
+- Those pairs need a **relay** both ends can reach outbound, which is the one
+  thing a static host cannot provide. There is one: coturn on a small droplet,
+  reached over a bare IP because WebRTC does not apply mixed-content rules to
+  ICE, so no domain or certificate is involved. ICE only picks a relay
+  candidate when nothing direct works, so it costs nothing for everyone else.
+  [`docs/turn.md`](docs/turn.md) covers what runs, why the credential is public
+  on purpose, and the quotas and denied peer ranges that keep a public relay
+  from becoming somebody else's bandwidth. `npm run check:turn` proves it
+  allocates without needing a browser. With the three secrets unset the client
+  builds STUN-only and says so plainly instead of spinning forever.
 - Identity is a `playerId` in `sessionStorage`, not the connection, so a guest
   who drops reconnects into their own seat with their property intact.
 
@@ -304,6 +315,7 @@ so the UI can never offer a move the rules forbid.
 npm install
 npm run dev        # http://localhost:5173/monopoly/
 npm test           # the engine suite
+npm run check:turn # prove the TURN relay still allocates (reads .env)
 npm run build      # production build into dist/
 BASE_PATH=/ npm run build && npm run preview   # serve from the root instead
 ```
