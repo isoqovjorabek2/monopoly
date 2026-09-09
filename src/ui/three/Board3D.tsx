@@ -272,6 +272,63 @@ function Medallion() {
  */
 const ELEVATION = 1.0;
 
+const FOV = MathUtils.degToRad(38);
+
+/**
+ * How far back the camera has to sit for the whole board to be in frame.
+ *
+ * The first version of this framed to the raw span and left the board tiny.
+ * The second foreshortened it - `span * sin(elevation)` - which is the
+ * orthographic answer, and orthographic is exactly what a perspective
+ * camera is not: the near edge of the board is closer than the middle, so
+ * it subtends a much larger angle than the average. At a 1.8:1 window that
+ * approximation put the near edge 22 degrees off the view axis against a 19
+ * degree half-FOV, and the front row of the board was cropped off the
+ * bottom of the screen.
+ *
+ * So this asks the real question instead: place the four corners, and find
+ * the smallest distance at which all of them are inside the frustum. The
+ * angle shrinks monotonically as the camera retreats, which makes a bisection
+ * both correct and quick, and it runs once per resize.
+ */
+function fitDistance(aspect: number): number {
+  const tanHalf = Math.tan(FOV / 2);
+  // Padded past the board itself: the rig leans toward the active square,
+  // and an edge fitted exactly is an edge that clips the moment it moves.
+  const hs = HALF + 0.9;
+  const y = BASE_H / 2 + TILE_H;
+  const corners: [number, number, number][] = [
+    [-hs, y, -hs], [hs, y, -hs], [-hs, y, hs], [hs, y, hs],
+  ];
+
+  const fits = (d: number): boolean => {
+    const h = d * Math.sin(ELEVATION);
+    const z = d * Math.cos(ELEVATION);
+    // Camera looks at the origin from (0, h, z) with world up, which makes
+    // its basis exactly right = x, up = (0, z, -h)/d, forward = (0, -h, -z)/d.
+    for (const [px, py, pz] of corners) {
+      const dy = py - h;
+      const dz = pz - z;
+      const depth = (dy * -h + dz * -z) / d;
+      if (!(depth > 0)) return false;
+      const yCam = (dy * z - dz * h) / d;
+      if (Math.abs(yCam) > tanHalf * depth) return false;
+      if (Math.abs(px) > tanHalf * aspect * depth) return false;
+    }
+    return true;
+  };
+
+  let lo = 6;
+  let hi = 48;
+  if (!fits(hi)) return hi;
+  for (let i = 0; i < 34; i++) {
+    const mid = (lo + hi) / 2;
+    if (fits(mid)) hi = mid;
+    else lo = mid;
+  }
+  return MathUtils.clamp(hi * 1.03, 9, 48);
+}
+
 function Rig({ focus, cinematic }: { focus: [number, number, number] | null; cinematic: boolean }) {
   const { camera, size } = useThree();
   const target = useRef(new Vector3(0, 0, 0));
@@ -283,18 +340,7 @@ function Rig({ focus, cinematic }: { focus: [number, number, number] | null; cin
     if (!(size.width > 0) || !(size.height > 0)) return;
 
     const aspect = size.width / size.height;
-    const fov = MathUtils.degToRad(38);
-    const half = Math.tan(fov / 2);
-    const span = 13.2;
-
-    // Seen from above at ELEVATION, a flat board's on-screen depth is
-    // foreshortened by sin(elevation). Framing to the raw span - the
-    // mistake the first pass made - leaves the board tiny in the frame.
-    const projectedDepth = span * Math.sin(ELEVATION);
-    const distV = projectedDepth / 2 / half;
-    const distH = span / 2 / (half * aspect);
-    const dist = MathUtils.clamp(Math.max(distV, distH) * 1.06, 9, 48);
-
+    const dist = fitDistance(aspect);
     home.current.set(0, dist * Math.sin(ELEVATION), dist * Math.cos(ELEVATION));
   }, [size]);
 

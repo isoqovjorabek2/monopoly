@@ -253,9 +253,29 @@ to exit on its own.
 **In full screen the 3D board takes the whole window**, rather than the square
 the flat board needs. A square container is a requirement a Monopoly board has
 and the 3D scene only inherited by sharing a box with it: a camera fills
-whatever frame you give it, and the rig already frames on the limiting axis, so
-a 2.3:1 window is simply a wider shot of the same table with more of it either
-side of the board.
+whatever frame you give it, so a wide window is simply a wider shot of the same
+table. Full screen also drops the shell's centred 1560px column and its
+padding, which were otherwise 180px of dead black down either side of a 1920
+monitor, and floats the view controls instead of leaving them a 42px row the
+board does not get.
+
+### Framing the 3D board
+
+Fitting the board in the frame has been wrong twice, in opposite directions.
+Framing to the raw span left it tiny. Foreshortening it - `span x sin(elevation)`
+- is the orthographic answer, and orthographic is exactly what a perspective
+camera is not: the near edge is closer than the middle and subtends a much
+larger angle than the average. That put the near edge **20.1 degrees** off the
+view axis against a **19 degree** half-FOV on every landscape window, and the
+front row of the board was quietly cropped off the bottom of the screen.
+
+`fitDistance()` asks the real question instead: place the four corners, and
+bisect for the smallest distance at which all of them are inside the frustum.
+The angle shrinks monotonically as the camera retreats, so bisection is both
+correct and quick, and it runs once per resize. The corners are padded past the
+board itself, because the rig leans toward the active square and an edge fitted
+exactly is an edge that clips the moment it moves. Worst-case corner angle is
+now 15.6 degrees at 16:9, with the margin going to the lean.
 
 Two things the board answers without a modal now:
 

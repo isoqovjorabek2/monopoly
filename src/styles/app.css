@@ -1340,7 +1340,13 @@
   position: fixed;
   inset: 0;
   z-index: 60;
-  padding: var(--s-2);
+  /* The shell is normally a centred 1560px column with padding, which in
+     full screen is 180px of dead black down either side of a 1920 monitor
+     and a band under the board. Full screen means the window. */
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  gap: 0;
   background: var(--bg-deep);
 }
 /* The header carries nothing you need mid-turn: leaving, the renderer
@@ -1389,10 +1395,17 @@
    the row rather than sitting at its content size inside it. */
 .game[data-focus] .game__stage { align-self: stretch; }
 
-/* The view controls are chrome too. They stay hoverable - the padded
-   ::before is their hit area - and stay out of the picture until asked. */
+/* The view controls are chrome too. Floated rather than laid out, because
+   a 42px row that is transparent until hovered is still 42px the board
+   does not get. They stay hoverable - the padded ::before is their hit
+   area - and stay out of the picture until asked. */
 .game[data-focus] .boardTools {
-  position: relative;
+  position: fixed;
+  left: 50%;
+  bottom: var(--s-3);
+  transform: translateX(-50%);
+  z-index: 64;
+  margin: 0;
   opacity: 0;
   transition: opacity var(--dur-mid) var(--ease-out);
 }
@@ -1424,11 +1437,11 @@
 
 /* A flat board is square because a Monopoly board is square, so full screen
    can only give it more of the short axis. */
+/* Nothing is left holding height: the header is fixed, the controls float,
+   and the shell has no padding. The flat board gets the window's short
+   axis less a hair so its edge shadow is not clipped. */
 .game[data-focus] .game__boardWrap {
-  /* 16 for the shell's own padding, 42 for the view controls' row - they
-     are transparent until hovered but they still hold their space, and
-     without counting them the board runs into them. */
-  --chrome: 58px;
+  --chrome: 12px;
   width: min(
     calc(100% * var(--board-zoom, 1)),
     calc((100dvh - var(--chrome)) * var(--board-zoom, 1))
