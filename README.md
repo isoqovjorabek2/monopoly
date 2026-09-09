@@ -152,6 +152,16 @@ is what keeps this ten files instead of twenty-eight. Same contract as the
 corners - engraved on black, `screen`, no alpha - anchored to the outer edge of
 the plaque, away from the name, and the first thing dropped at phone board sizes.
 
+The 3D board carries the same set, drawn into its canvas tile faces rather than
+laid on as CSS. That needs one extra move: a face is drawn synchronously the
+moment its tile mounts, and the ornament is a raster file that is not there yet.
+So the faces are drawn once without it, the images load in the background, and
+`onFaceArtReady` tells the board to draw them again - a face that waits on a
+network image is a board that does not appear, and a 404 has to cost the
+ornament and nothing else. The corners take their emblems the same way, and the
+plaque tops gained a clearcoat so the board reads as a lacquered object rather
+than a texture on a box.
+
 They are **abstract deco ornament, in the set's own colour**, and that took two
 attempts. The first set was illustration - a trumpet for the oranges, a streetcar
 for the light blues - which is a fine idea at card size and noise at the ~47px a

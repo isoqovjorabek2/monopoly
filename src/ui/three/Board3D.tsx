@@ -13,7 +13,7 @@ import {
   BASE_H, HALF, TILE_H, TOTAL,
   buildingPositions, tileLayout, tokenPosition,
 } from './layout';
-import { makeTileFace } from './tileFace';
+import { makeTileFace, onFaceArtReady } from './tileFace';
 import { Building3D, Token3D } from './Token3D';
 import { Dice3D } from './Dice3D';
 
@@ -25,15 +25,22 @@ import { Dice3D } from './Dice3D';
  * interchangeable and the engine never learns that 3D exists.
  * ------------------------------------------------------------------ */
 
-function Tile({ space, ownerColor, mortgaged, highlight, onSelect }: {
+function Tile({ space, ownerColor, mortgaged, highlight, artRev, onSelect }: {
   space: Space;
   ownerColor: string | null;
   mortgaged: boolean;
   highlight: boolean;
+  /** Bumped when the generated ornament finishes loading; the face is a
+   *  canvas drawn once, so it has to be drawn again to pick the art up. */
+  artRev: number;
   onSelect: (id: number) => void;
 }) {
   const { x, z, sx, sz, edge } = useMemo(() => tileLayout(space.id), [space.id]);
-  const face = useMemo(() => makeTileFace(space, sx, sz, edge), [space, sx, sz, edge]);
+  const face = useMemo(
+    () => makeTileFace(space, sx, sz, edge),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [space, sx, sz, edge, artRev],
+  );
   useEffect(() => () => face.dispose(), [face]);
 
   const mesh = useRef<Mesh>(null);
@@ -63,11 +70,18 @@ function Tile({ space, ownerColor, mortgaged, highlight, onSelect }: {
         {/* Sides stay dark so the plaques read as separate inlays. */}
         <meshStandardMaterial attach="material-0" color="#0a1f15" roughness={0.85} />
         <meshStandardMaterial attach="material-1" color="#0a1f15" roughness={0.85} />
-        <meshStandardMaterial
+        {/* Physical rather than standard for the one face that catches the
+            light: a clear lacquer coat over the plaque is what makes the
+            board read as an object that was made rather than a texture on
+            a box, and it costs one material. */}
+        <meshPhysicalMaterial
           attach="material-2"
           map={face}
-          roughness={0.72}
-          metalness={0.04}
+          roughness={0.62}
+          metalness={0.05}
+          clearcoat={0.65}
+          clearcoatRoughness={0.24}
+          reflectivity={0.4}
           color={mortgaged ? '#6f6f6f' : '#ffffff'}
         />
         <meshStandardMaterial attach="material-3" color="#08170f" roughness={0.9} />
@@ -394,6 +408,11 @@ export default function Board3D({
     return map;
   }, [state, animPos]);
 
+  /* One subscription for the board rather than forty: every face rebuilds
+   * on the same tick when the ornament lands. */
+  const [artRev, setArtRev] = useState(0);
+  useEffect(() => onFaceArtReady(() => setArtRev((n) => n + 1)), []);
+
   const focus = useMemo<[number, number, number] | null>(() => {
     const pos = animPos[current] ?? state.players[current]?.position;
     if (pos == null) return null;
@@ -462,6 +481,7 @@ export default function Board3D({
               ownerColor={owner ? owner.color : null}
               mortgaged={st?.mortgaged ?? false}
               highlight={highlight === space.id}
+              artRev={artRev}
               onSelect={onInspect}
             />
           );

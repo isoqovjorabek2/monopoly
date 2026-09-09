@@ -1,5 +1,6 @@
 import { CanvasTexture, LinearFilter, LinearMipmapLinearFilter, SRGBColorSpace } from 'three';
 import { GROUP_COLOR } from '../../game/board';
+import { CORNER_EMBLEM, cornerArt, groupArt, type GroupMotif } from '../../art/art';
 import type { Space } from '../../game/types';
 import type { Edge } from './layout';
 
@@ -13,6 +14,69 @@ const FELT_TOP = '#17402c';
 const FELT_BOTTOM = '#0e2a1c';
 const INK = '#f2ede0';
 const GOLD = '#e0be76';
+
+/* ------------------------- generated art ---------------------------- *
+ * The set motifs and corner emblems are raster, and a face is drawn into
+ * its canvas synchronously the moment the tile mounts. So the faces are
+ * drawn once without them, the images load in the background, and the
+ * caller is told to draw again.
+ *
+ * That ordering is the point: a face that waits on a network image is a
+ * board that does not appear, and a 404 has to cost the ornament and
+ * nothing else. Same contract as useArtTexture, reached a different way
+ * because this side is a canvas rather than a three loader.
+ * -------------------------------------------------------------------- */
+
+const images = new Map<string, HTMLImageElement>();
+const listeners = new Set<() => void>();
+let pending = 0;
+
+function art(url: string): HTMLImageElement | null {
+  const known = images.get(url);
+  if (known) return known.naturalWidth > 0 ? known : null;
+
+  const img = new Image();
+  images.set(url, img);
+  pending += 1;
+  const done = () => {
+    pending -= 1;
+    // One notification for the whole set, not one per file: each costs a
+    // rebuild of all forty canvas textures.
+    if (pending === 0) listeners.forEach((f) => f());
+  };
+  img.onload = done;
+  img.onerror = done;
+  img.src = url;
+  return null;
+}
+
+/** Subscribe to "the generated art has landed, draw the faces again". */
+export function onFaceArtReady(cb: () => void): () => void {
+  listeners.add(cb);
+  return () => { listeners.delete(cb); };
+}
+
+function motifFor(space: Space): GroupMotif | null {
+  if (space.group) return space.group;
+  if (space.kind === 'railroad') return 'railroad';
+  if (space.kind === 'utility') return 'utility';
+  return null;
+}
+
+/** Draw generated art the way the rest of the board composites it: it is
+ *  engraved on black, so adding it leaves the felt underneath untouched
+ *  and only the metal lights up. No alpha channel anywhere. */
+function engrave(
+  c: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  cx: number, cy: number, size: number, alpha: number,
+) {
+  c.save();
+  c.globalCompositeOperation = 'lighter';
+  c.globalAlpha = alpha;
+  c.drawImage(img, cx - size / 2, cy - size / 2, size, size);
+  c.restore();
+}
 
 /** Draw a rounded-rect path (Safari lacks roundRect on older versions). */
 function rounded(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -212,6 +276,19 @@ export function makeTileFace(space: Space, sx: number, sz: number, edge: Edge): 
   const bodyH = h - top;
   c.translate(0, top);
 
+  /* The set's ornament, under everything the player has to read. The
+   * corners take their own emblem instead: they have no name worth
+   * protecting and the whole square to give it. */
+  const emblem = CORNER_EMBLEM[space.id];
+  if (emblem) {
+    const img = art(cornerArt(emblem));
+    if (img) engrave(c, img, w / 2, bodyH * 0.44, Math.min(w, bodyH) * 0.92, 0.85);
+  } else {
+    const motif = motifFor(space);
+    const img = motif && art(groupArt(motif));
+    if (img) engrave(c, img, w / 2, bodyH * 0.52, Math.min(w * 1.25, bodyH * 0.95), 0.44);
+  }
+
   // Glyph
   const glyphKey = ID_GLYPH[space.id] ?? KIND_GLYPH[space.kind];
   let textTop = bodyH * (isCorner ? 0.5 : 0.3);
@@ -245,12 +322,14 @@ export function makeTileFace(space: Space, sx: number, sz: number, edge: Edge): 
   }
   if (line) lines.push(line);
 
-  c.shadowColor = 'rgba(0,0,0,0.6)';
+  // Heavier than it was: the type now sits over engraved ornament rather
+  // than flat felt, and a thin shadow is not enough to lift it off.
+  c.shadowColor = 'rgba(0,0,0,0.85)';
+  c.shadowBlur = 4;
   c.shadowOffsetY = 1;
   lines.forEach((l, i) => {
     c.fillText(l, w / 2, textTop + i * size * 1.12);
   });
-  c.shadowColor = 'transparent';
 
   // Price
   if (space.price != null || space.taxAmount != null) {
@@ -259,6 +338,8 @@ export function makeTileFace(space: Space, sx: number, sz: number, edge: Edge): 
     const label = space.taxAmount != null ? `PAY ${space.taxAmount}` : `${space.price}`;
     c.fillText(label, w / 2, bodyH * 0.86);
   }
+  c.shadowColor = 'transparent';
+  c.shadowBlur = 0;
 
   // Inner keyline, so each plaque reads as a separate inlay.
   c.translate(0, -top);
