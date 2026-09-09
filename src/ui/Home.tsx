@@ -1,11 +1,12 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { motion } from 'framer-motion';
 import { ART } from '../art/art';
+import { BOARD, GROUP_COLOR } from '../game/board';
 import { TOKENS } from '../game/settings';
 import type { TokenId } from '../game/types';
 import { useStore } from '../store/store';
 import { normaliseCode } from '../net/protocol';
-import { Avatar } from './bits';
+import { Avatar, fmt } from './bits';
 
 /** Reads a #/join/CODE deep link once on mount. */
 function useJoinCodeFromUrl(): string {
@@ -42,38 +43,63 @@ export function Home() {
 
   const go = (fn: () => void) => { commit(); fn(); };
 
+  /* The backdrop is set as a variable rather than in the stylesheet
+   * because its path depends on the deploy base and on which version is
+   * selected; CSS owns the scrim that keeps the type readable over it. */
   return (
-    // The backdrop is set as a variable rather than in the stylesheet
-    // because its path depends on the deploy base and on which version is
-    // selected; CSS owns the scrim that keeps the type readable over it.
     <div className="home" style={{ '--hero-img': `url("${ART.hero}")` } as CSSProperties}>
       <motion.div
         className="home__inner"
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.4 }}
       >
-        <header className="hero">
-          <p className="overline">A private table for you and your friends</p>
-          <h1 className="hero__title">
-            Monopoly<span className="hero__title-accent">Royale</span>
-          </h1>
-          <p className="hero__lead">
-            The full rules, the ones nobody plays, and the ones everybody actually plays -
-            all switchable. Share a link and start. No signup, no server, no install.
-          </p>
-        </header>
+        <div className="home__spread">
+          <motion.header
+            className="masthead"
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <h1 className="masthead__title">
+              <span className="masthead__word">Monopoly</span>
+              <span className="masthead__sub">Royale</span>
+            </h1>
 
-        {netError && (
-          <div className="banner banner--bad" role="alert">{netError}</div>
-        )}
+            <p className="masthead__lead">
+              The whole game, not the half everybody plays. Auctions on every declined
+              purchase, mortgages and the interest on them, even building, and the
+              thirty-two houses the bank actually owns &mdash; so a housing shortage is a
+              strategy again.
+            </p>
+            <p className="masthead__note">
+              It runs in the browsers of the people playing it. One of you hosts, the rest
+              connect straight to that tab. Nothing to install, nothing to sign up for, and
+              nowhere else your game is kept.
+            </p>
+          </motion.header>
 
-        <div className="home__grid">
-          <section className="card home__identity">
-            <h2 className="section__title">Your table identity</h2>
+          <motion.div
+            className="deedWrap"
+            initial={{ opacity: 0, y: 26, rotate: -7 }}
+            animate={{ opacity: 1, y: 0, rotate: -3.2 }}
+            transition={{ duration: 0.7, delay: 0.12, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <TitleDeed />
+          </motion.div>
+
+          <motion.section
+            className="seat"
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.55, delay: 0.06, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <h2 className="seat__title">Take a seat</h2>
+
+            {netError && <div className="banner banner--bad" role="alert">{netError}</div>}
 
             <label className="labelled">
-              <span className="switch__label">Display name</span>
+              <span className="switch__label">Your name at the table</span>
               <input
                 className="field"
                 value={name}
@@ -86,13 +112,13 @@ export function Home() {
               />
               {!nameOk && (
                 <span id="name-hint" className="hint">
-                  Pick a name and the three buttons on the right come alive.
+                  A name is all it takes to start.
                 </span>
               )}
             </label>
 
             <div className="labelled">
-              <span className="switch__label">Playing piece</span>
+              <span className="switch__label">Your piece</span>
               <div className="tokenPicker" role="radiogroup" aria-label="Playing piece">
                 {TOKENS.map((t) => (
                   <button
@@ -111,82 +137,109 @@ export function Home() {
                 ))}
               </div>
             </div>
-          </section>
 
-          <div className="home__actions">
-            <section className="card action-card action-card--hero">
-              <h2 className="section__title">Host a table</h2>
-              <p className="muted">
-                You get a shareable room code and full control of the rules. Your browser
-                runs the game - everyone else connects straight to you.
-              </p>
-              <button
-                type="button"
-                className="btn btn--primary btn--block"
-                disabled={!nameOk}
-                title={nameOk ? undefined : 'Pick a display name first'}
-                onClick={() => go(() => hostRoom())}
-              >
-                Create a room
-              </button>
-            </section>
+            <hr className="seat__rule" />
 
-            <section className="card action-card">
-              <h2 className="section__title">Join a friend</h2>
-              <form
-                onSubmit={(e) => { e.preventDefault(); if (code.trim()) go(() => joinRoom(code)); }}
-              >
-                <div className="joinRow">
-                  <input
-                    className="field num joinRow__code"
-                    value={code}
-                    placeholder="GOLD-FALCON-42"
-                    onChange={(e) => setCode(normaliseCode(e.target.value))}
-                    aria-label="Room code"
-                    spellCheck={false}
-                    autoCapitalize="characters"
-                  />
-                  <button
-                    type="submit"
-                    className="btn"
-                    disabled={!nameOk || code.trim().length < 3}
-                    title={nameOk ? undefined : 'Pick a display name first'}
-                  >
-                    Join
-                  </button>
-                </div>
-              </form>
+            {/* One primary way in. Hosting, joining and solo used to sit in
+                three identical cards, which turned an invitation into a menu
+                and left the player deciding which box to read first. */}
+            <button
+              type="button"
+              className="btn btn--primary btn--block btn--lg"
+              disabled={!nameOk}
+              title={nameOk ? undefined : 'Pick a name first'}
+              onClick={() => go(() => hostRoom())}
+            >
+              Open a table
+            </button>
+            <p className="seat__under">
+              You get a code to share and the whole rulebook to set.
+            </p>
+
+            <form
+              className="seat__join"
+              onSubmit={(e) => { e.preventDefault(); if (code.trim()) go(() => joinRoom(code)); }}
+            >
+              <span className="switch__label">Been invited?</span>
+              <div className="joinRow">
+                <input
+                  className="field num joinRow__code"
+                  value={code}
+                  placeholder="GOLD-FALCON-42"
+                  onChange={(e) => setCode(normaliseCode(e.target.value))}
+                  aria-label="Room code"
+                  spellCheck={false}
+                  autoCapitalize="characters"
+                />
+                <button
+                  type="submit"
+                  className="btn"
+                  disabled={!nameOk || code.trim().length < 3}
+                  title={nameOk ? undefined : 'Pick a name first'}
+                >
+                  Join
+                </button>
+              </div>
               {urlCode && (
                 <p className="muted small">
                   You followed an invite to <strong className="num">{urlCode}</strong>.
                 </p>
               )}
-            </section>
+            </form>
 
-            <section className="card action-card">
-              <h2 className="section__title">Play solo</h2>
-              <p className="muted">
-                Learn the board against bots. Three difficulties, same rules, no cheating.
-              </p>
-              <button
-                type="button"
-                className="btn btn--block"
-                disabled={!nameOk}
-                onClick={() => go(playSolo)}
-              >
-                Start a practice game
-              </button>
-            </section>
-          </div>
+            <button
+              type="button"
+              className="seat__solo"
+              disabled={!nameOk}
+              onClick={() => go(playSolo)}
+            >
+              Or learn the board against bots
+            </button>
+          </motion.section>
         </div>
-
-        <footer className="home__foot">
-          <span className="chip">Peer to peer</span>
-          <span className="chip">Official rules included</span>
-          <span className="chip">Auctions, trades, mortgages</span>
-          <span className="chip">Works on phones</span>
-        </footer>
       </motion.div>
     </div>
+  );
+}
+
+/**
+ * The artefact, rather than a description of it.
+ *
+ * A landing page for a board game that shows only type is a landing page
+ * for anything. This is a real title deed, built from the same board data
+ * the game is played with - the rent ladder on it is the rent you will
+ * actually pay - propped at an angle as an object lying on the table
+ * rather than squared up as a card in a grid.
+ */
+function TitleDeed() {
+  const space = BOARD[39];
+  const rent = space.rent ?? [];
+  const rows: [string, number][] = [
+    ['Rent', rent[0] ?? 0],
+    ['With one house', rent[1] ?? 0],
+    ['With three houses', rent[3] ?? 0],
+    ['With a hotel', rent[5] ?? 0],
+  ];
+
+  return (
+    <article className="deedPlate" aria-label={`Title deed for ${space.name}`}>
+      <div className="deedPlate__head" style={{ background: GROUP_COLOR.darkblue }}>
+        <span className="deedPlate__kicker">Title Deed</span>
+        <span className="deedPlate__name">{space.name}</span>
+      </div>
+      <dl className="deedPlate__rows">
+        {rows.map(([label, value]) => (
+          <div key={label} className="deedPlate__row">
+            <dt>{label}</dt>
+            <dd className="num">{fmt(value)}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="deedPlate__foot">
+        Houses <span className="num">{fmt(space.houseCost ?? 0)}</span> each
+        <span aria-hidden> &middot; </span>
+        Mortgage <span className="num">{fmt(space.mortgage ?? 0)}</span>
+      </p>
+    </article>
   );
 }

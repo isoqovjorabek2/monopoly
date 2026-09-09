@@ -78,6 +78,50 @@ function engrave(
   c.restore();
 }
 
+/**
+ * The colour band as an emissive map: its colour on black, nothing else.
+ *
+ * A printed board's colour bands are ink, and ink in a dimly lit room goes
+ * dark. These are inlay - they hold their colour in shadow, which is what
+ * lets you read the sets from across the table at an angle where the
+ * lights are not helping. Everything black in this map emits nothing, so
+ * one texture lights exactly the strip that should be lit.
+ *
+ * Deliberately tiny: it is one flat rectangle, not type, so it costs a few
+ * hundred bytes of GPU memory per tile rather than a few hundred KB.
+ */
+export function makeTileEmissive(
+  space: Space, sx: number, sz: number, edge: Edge,
+): CanvasTexture | null {
+  if (!space.group) return null;
+
+  const canvas = document.createElement('canvas');
+  const W = Math.max(8, Math.round(sx * 24));
+  const H = Math.max(8, Math.round(sz * 24));
+  canvas.width = W;
+  canvas.height = H;
+  const c = canvas.getContext('2d')!;
+  c.fillStyle = '#000000';
+  c.fillRect(0, 0, W, H);
+
+  // Same upright space and rotation the face uses, so the strip lands on
+  // the same pixels the band was painted on.
+  const upright = edge === 'bottom' || edge === 'top';
+  const w = upright ? W : H;
+  const h = upright ? H : W;
+  c.save();
+  c.translate(W / 2, H / 2);
+  c.rotate(edge === 'top' ? Math.PI : edge === 'left' ? Math.PI / 2 : edge === 'right' ? -Math.PI / 2 : 0);
+  c.translate(-w / 2, -h / 2);
+  c.fillStyle = GROUP_COLOR[space.group];
+  c.fillRect(0, 0, w, Math.round(h * 0.22));
+  c.restore();
+
+  const tex = new CanvasTexture(canvas);
+  tex.colorSpace = SRGBColorSpace;
+  return tex;
+}
+
 /** Draw a rounded-rect path (Safari lacks roundRect on older versions). */
 function rounded(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   c.beginPath();
@@ -262,10 +306,13 @@ export function makeTileFace(space: Space, sx: number, sz: number, edge: Edge): 
   if (space.group) {
     c.fillStyle = GROUP_COLOR[space.group];
     c.fillRect(0, 0, w, bandH);
+    // A lighter hand than before: a 38% white highlight over the whole top
+    // half of the band is most of why the colours read washed out in 3D
+    // next to the same colours on the flat board.
     const gloss = c.createLinearGradient(0, 0, 0, bandH);
-    gloss.addColorStop(0, 'rgba(255,255,255,0.38)');
-    gloss.addColorStop(0.5, 'rgba(255,255,255,0.04)');
-    gloss.addColorStop(1, 'rgba(0,0,0,0.22)');
+    gloss.addColorStop(0, 'rgba(255,255,255,0.20)');
+    gloss.addColorStop(0.45, 'rgba(255,255,255,0.02)');
+    gloss.addColorStop(1, 'rgba(0,0,0,0.26)');
     c.fillStyle = gloss;
     c.fillRect(0, 0, w, bandH);
     c.fillStyle = 'rgba(0,0,0,0.45)';
@@ -286,7 +333,7 @@ export function makeTileFace(space: Space, sx: number, sz: number, edge: Edge): 
   } else {
     const motif = motifFor(space);
     const img = motif && art(groupArt(motif));
-    if (img) engrave(c, img, w / 2, bodyH * 0.52, Math.min(w * 1.25, bodyH * 0.95), 0.44);
+    if (img) engrave(c, img, w / 2, bodyH * 0.52, Math.min(w * 1.25, bodyH * 0.95), 0.52);
   }
 
   // Glyph

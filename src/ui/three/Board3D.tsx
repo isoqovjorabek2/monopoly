@@ -1,8 +1,8 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
-  AdditiveBlending, CanvasTexture, DoubleSide, MathUtils, PMREMGenerator, SRGBColorSpace,
-  Vector3, type Mesh,
+  AdditiveBlending, CanvasTexture, DoubleSide, MathUtils, NeutralToneMapping,
+  PMREMGenerator, SRGBColorSpace, Vector3, type Mesh,
 } from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { ART, TABLE } from '../../art/art';
@@ -13,7 +13,7 @@ import {
   BASE_H, HALF, TILE_H, TOTAL,
   buildingPositions, tileLayout, tokenPosition,
 } from './layout';
-import { makeTileFace, onFaceArtReady } from './tileFace';
+import { makeTileEmissive, makeTileFace, onFaceArtReady } from './tileFace';
 import { Building3D, Token3D } from './Token3D';
 import { Dice3D } from './Dice3D';
 
@@ -42,6 +42,9 @@ function Tile({ space, ownerColor, mortgaged, highlight, artRev, onSelect }: {
     [space, sx, sz, edge, artRev],
   );
   useEffect(() => () => face.dispose(), [face]);
+
+  const glow = useMemo(() => makeTileEmissive(space, sx, sz, edge), [space, sx, sz, edge]);
+  useEffect(() => () => glow?.dispose(), [glow]);
 
   const mesh = useRef<Mesh>(null);
   const [hovered, setHovered] = useState(false);
@@ -83,6 +86,11 @@ function Tile({ space, ownerColor, mortgaged, highlight, artRev, onSelect }: {
           clearcoatRoughness={0.24}
           reflectivity={0.4}
           color={mortgaged ? '#6f6f6f' : '#ffffff'}
+          emissiveMap={glow ?? undefined}
+          emissive={glow ? '#ffffff' : '#000000'}
+          // A mortgaged deed is out of play; its band should read as dead
+          // ink rather than lit inlay.
+          emissiveIntensity={glow ? (mortgaged ? 0.08 : 0.55) : 0}
         />
         <meshStandardMaterial attach="material-3" color="#08170f" roughness={0.9} />
         <meshStandardMaterial attach="material-4" color="#0a1f15" roughness={0.85} />
@@ -424,7 +432,17 @@ export default function Board3D({
     <Canvas
       shadows={quality === 'high'}
       dpr={quality === 'high' ? [1, 2] : 1}
-      gl={{ antialias: quality === 'high', powerPreference: 'high-performance' }}
+      /* ACES Filmic - what r3f reaches for by default - is a film curve,
+         and film curves desaturate saturated colour on purpose. On a board
+         whose whole legibility rests on eight flat colours being told
+         apart, that is the wrong trade: the same eight read vividly on the
+         flat board and washed out here. Khronos PBR Neutral tone maps the
+         highlights without taking the chroma with them. */
+      gl={{
+        antialias: quality === 'high',
+        powerPreference: 'high-performance',
+        toneMapping: NeutralToneMapping,
+      }}
       camera={{ fov: 38, position: [0, 12.2, 12.6], near: 0.1, far: 90 }}
       style={{ width: '100%', height: '100%', touchAction: 'pan-y' }}
       onCreated={({ gl, scene }) => {

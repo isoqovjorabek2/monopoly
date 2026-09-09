@@ -230,6 +230,31 @@ of them can be previewed without a rebuild:
 A choice made in the URL is remembered; the committed defaults live in
 `DEFAULTS` in `src/art/art.ts`.
 
+## The front door
+
+The shape a generated landing page takes is well enough known to be a tell, and
+this one had five of them: a centred hero under an all-caps badge, a lead
+paragraph, three identical action cards, a row of chips, and grey body text on
+dark. Every one of those is on the published lists of
+[what marks a page as vibe-coded](https://www.developersdigest.tech/blog/ai-design-slop-and-how-to-spot-it),
+and the fix those lists converge on is the one thing a template cannot do:
+commit to decisions that are specific to *this* product.
+
+So the page is asymmetric and has one subject. The masthead is ranged left and
+set as a printed plate - the second word hanging off the first on a rule, the
+way a plate on a door does - rather than a headline with a label floating above
+it. There is **one** primary action, because hosting, joining and playing alone
+are not three products; joining is a field under it and solo is an aside.
+
+And it shows the artefact. A real **title deed** lies at an angle across the
+lower half, built from the same `BOARD` data the game is played with, so the
+rent ladder printed on it is the rent you will actually pay. A board game whose
+front page is only type is a front page for anything.
+
+The lead copy carries full ink rather than `--text-muted`: body text in medium
+grey on a dark ground is the contrast failure those same lists call out, and the
+lead is where the argument is made.
+
 ## Playing it
 
 The board is the thing you look at; everything else tries to stay out of the
@@ -273,9 +298,14 @@ Once you are in it, the chrome goes with the rails. The header carries nothing
 you need mid-turn - leaving, the renderer toggle, sound, the rules - so it
 leaves the layout entirely and slides back when the pointer goes looking along
 the top edge, or when anything in it takes keyboard focus. The view controls do
-the same at the bottom, and the **player rail** does it off the left edge: who
-is winning and who is nearly broke is the thing you look up most often, so full
-screen hiding it outright took away the one panel worth glancing at. `Esc` leaves, and it is handled directly for the case
+the same at the bottom.
+
+The **player rail** does not, and that took two goes to get right. It was hidden
+outright in full screen, then put behind a hover, and both were wrong for the
+same reason: who is winning and who is nearly broke is not chrome, it is the
+state of the game, checked between every roll. Information you consult that
+often should not cost a gesture. It floats over the felt instead, which costs
+the board a strip it has plenty of. `Esc` leaves, and it is handled directly for the case
 where the fullscreen request was refused and there is no fullscreen for `Esc`
 to exit on its own.
 
@@ -287,6 +317,25 @@ table. Full screen also drops the shell's centred 1560px column and its
 padding, which were otherwise 180px of dead black down either side of a 1920
 monitor, and floats the view controls instead of leaving them a 42px row the
 board does not get.
+
+### Colour on the 3D board
+
+The same eight colours that carry the sets read vividly on the flat board and
+washed out in 3D, for two reasons that both had to go.
+
+The first is the tone map. `@react-three/fiber` reaches for **ACES Filmic** by
+default, which is a film curve, and film curves desaturate saturated colour on
+purpose - it is what stops highlights clipping in a photograph. On a board whose
+whole legibility rests on eight flat colours being told apart that is the wrong
+trade, so this uses **Khronos PBR Neutral**, which tone maps the highlights
+without taking the chroma with them. The second was self-inflicted: a 38% white
+highlight painted across the top half of every colour band.
+
+The bands also carry a tiny **emissive map** now - their own colour on black,
+twenty pixels wide, everything black emitting nothing. A printed board's bands
+are ink, and ink in a dimly lit room goes dark; these are inlay, and hold their
+colour in shadow, which is what lets you read the sets at an angle where the
+lights are not helping.
 
 ### Framing the 3D board
 
