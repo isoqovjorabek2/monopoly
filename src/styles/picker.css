@@ -1,0 +1,118 @@
+/* ==================================================================
+   The game picker on the front door, and Cashflow's artefact.
+   Two photographs of two tables in one room: the choice reads as
+   walking over to a table, not as a form field.
+   ================================================================== */
+
+.home__spread.home__spread--pick {
+  grid-template-areas:
+    'picker   join'
+    'masthead join'
+    'deed     join';
+}
+.picker { grid-area: picker; display: flex; flex-direction: column; gap: var(--s-2); }
+.picker__title { margin: 0; color: var(--brass-300); }
+.picker__row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-3); }
+
+.picker__card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--e-2);
+  transition:
+    transform var(--dur-mid) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-mid) var(--ease-out);
+}
+.picker__card:hover { transform: translateY(-2px); }
+.picker__card:focus-visible { outline: none; box-shadow: var(--ring-focus); }
+.picker__card[data-on] {
+  border-color: var(--accent);
+  box-shadow: var(--e-3), var(--ring-accent);
+}
+/* The unpicked table sits a little further into the dark. */
+.picker__card:not([data-on]) .picker__cover { filter: saturate(0.6) brightness(0.62); }
+
+.picker__cover {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  transition: filter var(--dur-mid) var(--ease-out);
+}
+.picker__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--s-3) var(--s-3) var(--s-3);
+  background: linear-gradient(180deg, rgb(6 12 9 / 0.2), var(--bg-surface) 40%);
+  margin-top: -1.8rem;
+  position: relative;
+}
+.picker__name {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  font-family: var(--font-display);
+  font-size: 1.32rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--brass-200);
+}
+.picker__sub {
+  font-weight: 300;
+  font-size: var(--t-2xs);
+  letter-spacing: 0.3em;
+  color: var(--brass-400);
+}
+.picker__pitch { font-size: var(--t-sm); line-height: 1.45; color: var(--ivory-100); }
+.picker__meta { font-size: var(--t-2xs); color: var(--text-muted); }
+
+/* Cashflow's lead is longer, and the board it introduces is money, not brass. */
+.home[data-game='cashflow'] .masthead__word { letter-spacing: 0.01em; }
+
+/* --- the dealt professions ---------------------------------------- */
+
+.jobPlate__head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--s-3) var(--s-3) var(--s-2);
+  text-align: center;
+  color: #e9f3ea;
+  background:
+    radial-gradient(90% 120% at 50% 0%, #1e4d38, #0b2016 70%);
+  border-bottom: 2px solid rgb(0 0 0 / 0.55);
+}
+.jobPlate__art {
+  width: 72px;
+  height: 72px;
+  margin-bottom: 4px;
+  border-radius: 50%;
+  object-fit: cover;
+  mix-blend-mode: screen;
+}
+.jobPlate .deedPlate__foot { font-size: var(--t-2xs); line-height: 1.35; }
+
+@media (max-width: 900px) {
+  .home__spread.home__spread--pick {
+    grid-template-areas: 'picker' 'masthead' 'join' 'deed';
+  }
+}
+@media (max-width: 520px) {
+  .picker__row { grid-template-columns: minmax(0, 1fr); }
+  .picker__cover { aspect-ratio: 21 / 9; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .picker__card, .picker__cover { transition: none; }
+  .picker__card:hover { transform: none; }
+}

@@ -1,0 +1,580 @@
+/* ==================================================================
+   The Cashflow table.
+
+   Same room as Monopoly - the felt, the brass, the ivory card stock -
+   but its own material: banknote engraving. The board is two rings of
+   squares on a dark green disc, their emblems composited with `screen`
+   so the black ground they were engraved on drops out, and the one
+   number that matters (how close you are to getting out) is a bar on
+   every seat and on your own statement.
+   ================================================================== */
+
+.cfLoading { min-height: 100dvh; display: grid; place-items: center; }
+
+.cfGame {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(80% 60% at 50% 30%, #0b2016, var(--bg-app) 70%);
+}
+
+.cfGame__top {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-4);
+  border-bottom: 1px solid var(--border);
+}
+.cfGame__title { color: var(--brass-300); }
+
+.cfGame__layout {
+  flex: 1;
+  width: 100%;
+  max-width: 1760px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(230px, 270px) minmax(0, 1fr) minmax(320px, 380px);
+  gap: var(--s-4);
+  padding: var(--s-4);
+  align-items: start;
+}
+.cfGame__rail,
+.cfGame__side { display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; }
+.cfGame__side {
+  position: sticky;
+  top: var(--s-3);
+  max-height: calc(100dvh - 84px);
+  overflow: auto;
+  padding-right: 2px;
+}
+.cfGame__stage { min-width: 0; display: flex; justify-content: center; }
+.cfGame__tabbar { display: none; }
+
+/* ------------------------------ the board ------------------------------ */
+
+.cfBoardWrap {
+  width: min(100%, calc(100dvh - 130px));
+  min-width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.cfBoard {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  container-type: inline-size;
+}
+.cfBoard__svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 30px 40px rgb(0 0 0 / 0.6));
+}
+.cfBoard__rule {
+  fill: none;
+  stroke: color-mix(in oklab, var(--brass-400) 45%, transparent);
+  stroke-width: 1.5;
+}
+.cfBoard__medal { opacity: 0.14; mix-blend-mode: screen; pointer-events: none; }
+
+/* One hue per kind of square, warmed toward the felt. Deals are money
+   green, bills are wine, the pay cheque is the gold everyone waits for. */
+.cfTile { --tile: #1d6b4a; }
+.cfTile[data-kind='opportunity'] { --tile: #1f7a52; }
+.cfTile[data-kind='payday'] { --tile: #c49632; }
+.cfTile[data-kind='market'] { --tile: #2f6a9e; }
+.cfTile[data-kind='doodad'] { --tile: #9a3048; }
+.cfTile[data-kind='charity'] { --tile: #7552a6; }
+.cfTile[data-kind='baby'] { --tile: #bd5b88; }
+.cfTile[data-kind='downsized'] { --tile: #6b5642; }
+.cfTile[data-kind='cashflowDay'] { --tile: #c49632; }
+.cfTile[data-kind='business'] { --tile: #23875a; }
+.cfTile[data-kind='venture'] { --tile: #b0772a; }
+.cfTile[data-kind='dream'] { --tile: #a8448a; }
+.cfTile[data-kind='audit'],
+.cfTile[data-kind='lawsuit'],
+.cfTile[data-kind='divorce'] { --tile: #8a2d2d; }
+
+.cfTile__plate {
+  fill: color-mix(in oklab, var(--tile) 56%, #04100a);
+  stroke: rgb(255 255 255 / 0.07);
+  stroke-width: 1.2;
+  transition: fill var(--dur-fast) var(--ease-out);
+}
+.cfTile:hover .cfTile__plate { fill: color-mix(in oklab, var(--tile) 78%, #04100a); }
+.cfTile[data-here] .cfTile__plate { stroke: var(--brass-200); stroke-width: 3.5; }
+.cfTile[data-mine] .cfTile__plate { stroke: var(--brass-300); stroke-width: 2.5; stroke-dasharray: 7 4; }
+.cfTile__art { mix-blend-mode: screen; opacity: 0.92; pointer-events: none; }
+.cfTile__label {
+  fill: var(--ivory-100);
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: rgb(0 0 0 / 0.55);
+  stroke-width: 2.5px;
+}
+.cfTile__label--fast {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+.cfTile__sub {
+  fill: var(--brass-200);
+  font-family: var(--font-num);
+  font-size: 10px;
+  font-weight: 500;
+}
+.cfTile__owner { stroke: #000; stroke-width: 1.5; }
+
+.cfBoard__tokens { position: absolute; inset: 0; pointer-events: none; }
+.cfToken {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  transition: left 140ms linear, top 140ms linear;
+  filter: drop-shadow(0 3px 4px rgb(0 0 0 / 0.6));
+  z-index: 2;
+}
+.cfToken[data-active] { z-index: 3; }
+.cfToken .avatar {
+  width: clamp(16px, 3.4cqi, 28px) !important;
+  height: clamp(16px, 3.4cqi, 28px) !important;
+}
+
+/* The middle of the board: the dice, and the card on the table. */
+.cfCenter {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 33%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6em;
+  font-size: clamp(9px, 1.45cqi, 14px);
+  text-align: center;
+}
+.cfCenter__hud { margin: 0; color: var(--ivory-100); font-size: 1.15em; line-height: 1.4; }
+.cfCenter__card { width: 100%; }
+.cfDice { display: flex; gap: 0.3em; }
+.cfDie {
+  font-size: 2.6em;
+  line-height: 1;
+  color: var(--ivory-50);
+  text-shadow: 0 2px 6px rgb(0 0 0 / 0.6);
+}
+.cfDice[data-rolling] .cfDie { animation: cfShake 0.55s var(--ease-out); }
+@keyframes cfShake {
+  0% { transform: rotate(0) translateY(0); }
+  25% { transform: rotate(-24deg) translateY(-6px); }
+  50% { transform: rotate(18deg) translateY(2px); }
+  75% { transform: rotate(-8deg) translateY(-2px); }
+  100% { transform: rotate(0) translateY(0); }
+}
+
+.cfPeek {
+  margin: 0;
+  min-height: 2.6em;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: baseline;
+  gap: 0.3em 0.9em;
+  font-size: var(--t-sm);
+  color: var(--text-muted);
+  text-align: center;
+}
+.cfPeek strong {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--brass-200);
+}
+
+/* On a phone the board is too small to carry the card; the action panel
+   carries it instead. */
+@media (max-width: 899px) { .cfCenter__card { display: none; } }
+@media (min-width: 900px) { .cfActions__card { display: none; } }
+
+/* ------------------------------- a card ------------------------------- */
+
+.cfCard {
+  position: relative;
+  overflow: hidden;
+  text-align: left;
+  color: var(--paper-ink);
+  background: linear-gradient(180deg, var(--ivory-50), var(--ivory-200));
+  border-radius: var(--r-md);
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.5) inset,
+    0 14px 30px -12px rgb(0 0 0 / 0.8),
+    0 2px 5px rgb(0 0 0 / 0.45);
+}
+.cfCard__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.4em 0.7em;
+  color: #e9f3ea;
+  background: radial-gradient(120% 160% at 0% 0%, #1e5a3e, #0b2016 70%);
+}
+.cfCard[data-deck='big'] .cfCard__head { background: radial-gradient(120% 160% at 0% 0%, #6b5520, #1d1606 70%); }
+.cfCard[data-deck='market'] .cfCard__head { background: radial-gradient(120% 160% at 0% 0%, #25507a, #08162a 70%); }
+.cfCard[data-deck='doodad'] .cfCard__head { background: radial-gradient(120% 160% at 0% 0%, #7a2638, #1f0810 70%); }
+.cfCard__emblem { width: 2.4em; height: 2.4em; border-radius: 50%; mix-blend-mode: screen; }
+.cfCard__deck {
+  font-family: var(--font-display);
+  font-size: 0.95em;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.cfCard__body { display: flex; flex-direction: column; gap: 0.3em; padding: 0.6em 0.8em 0.35em; }
+.cfCard__title { margin: 0; font-size: 1.08em; font-weight: 700; line-height: 1.25; }
+.cfCard__symbol { font-family: var(--font-num); font-size: 1.6em; letter-spacing: 0.06em; }
+.cfCard__sub { margin: 0; font-size: 0.9em; color: #4b443a; }
+.cfCard__big { margin: 0; font-size: 1.4em; font-weight: 700; }
+.cfCard__rows { margin: 0; display: flex; flex-direction: column; gap: 0.1em; }
+.cfCard__rows > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6em;
+  padding: 0.1em 0;
+  font-size: 0.95em;
+  border-bottom: 1px dotted rgb(0 0 0 / 0.2);
+}
+.cfCard__rows dt { color: #4b443a; }
+.cfCard__rows dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.cfCard__rows > div[data-neg] dd { color: #a12b2b; }
+.cfCard__note { margin: 0; font-size: 0.82em; line-height: 1.35; color: #4b443a; }
+.cfCard__note--bad { color: #a12b2b; font-weight: 600; }
+.cfCard__by { padding: 0.25em 0.8em 0.5em; font-size: 0.8em; font-weight: 700; }
+.cfCard[data-used]::after {
+  content: '✓';
+  position: absolute;
+  right: 0.55em;
+  top: 0.3em;
+  font-size: 1.3em;
+  color: var(--brass-200);
+}
+.cfActions__card { font-size: 13px; margin: var(--s-2) 0; }
+
+/* ------------------------------ actions ------------------------------- */
+
+.cfActions__stack { display: flex; flex-direction: column; gap: 6px; margin: var(--s-2) 0; }
+.cfStepper { display: flex; flex-direction: column; gap: 6px; margin: var(--s-2) 0; }
+.cfStepper__row { display: flex; align-items: center; gap: 6px; }
+.cfStepper__field { width: 6.5em; text-align: center; }
+
+/* ------------------------------ the rail ------------------------------ */
+
+.cfRail { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-2); }
+.cfSeat__btn {
+  position: relative;
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'av    who   cash'
+    'bar   bar   bar'
+    'meta  meta  meta'
+    'chips chips chips';
+  gap: 6px 10px;
+  align-items: center;
+  padding: 10px 12px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--e-1);
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-mid) var(--ease-out);
+}
+.cfSeat__btn:hover { border-color: var(--border-strong); }
+.cfSeat[data-active] .cfSeat__btn { border-color: var(--accent); box-shadow: var(--ring-accent); }
+.cfSeat[data-out] .cfSeat__btn { opacity: 0.5; }
+.cfSeat__btn > .avatar { grid-area: av; }
+.cfSeat__who { grid-area: who; display: flex; flex-direction: column; min-width: 0; }
+.cfSeat__name { font-size: var(--t-sm); font-weight: 600; }
+.cfSeat__job { font-size: var(--t-2xs); color: var(--text-muted); }
+.cfSeat__cash { grid-area: cash; font-size: var(--t-md); font-weight: 600; color: var(--brass-200); }
+.cfSeat__bar,
+.cfProgress__bar {
+  grid-area: bar;
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--r-pill);
+  background: rgb(255 255 255 / 0.07);
+}
+.cfSeat__bar > span,
+.cfProgress__bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #3aa477, #b6e8c9);
+  transition: width var(--dur-slow) var(--ease-out);
+}
+.cfSeat__bar[data-fast] > span,
+.cfProgress__bar--fast > span { background: linear-gradient(90deg, var(--brass-500), var(--brass-200)); }
+.cfSeat__meta {
+  grid-area: meta;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-2xs);
+  color: var(--text-muted);
+}
+.cfSeat__chips { grid-area: chips; display: flex; flex-wrap: wrap; gap: 4px; }
+.cfFloat {
+  position: absolute;
+  right: 12px;
+  top: -8px;
+  font-weight: 700;
+  color: var(--success-400);
+  pointer-events: none;
+  animation: cfFloat 1.5s var(--ease-out) forwards;
+}
+.cfFloat[data-neg] { color: var(--danger-400); }
+@keyframes cfFloat {
+  0% { opacity: 0; transform: translateY(6px); }
+  15% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-20px); }
+}
+
+/* ---------------------------- the statement --------------------------- */
+
+.cfStatement {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--e-1);
+}
+.cfStatement__head { display: flex; align-items: center; gap: var(--s-3); }
+.cfStatement__portrait {
+  width: 52px;
+  height: 52px;
+  flex: none;
+  border-radius: 50%;
+  object-fit: cover;
+  mix-blend-mode: screen;
+}
+.cfStatement__who { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.cfStatement__job {
+  font-family: var(--font-display);
+  font-size: var(--t-lg);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--brass-200);
+}
+.cfStatement__title,
+.cfStatement__cashLabel {
+  font-size: var(--t-2xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.cfStatement__cash { display: flex; flex-direction: column; align-items: flex-end; font-size: var(--t-lg); color: var(--brass-100); }
+
+.cfProgress__bar { height: 8px; }
+.cfProgress__label {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-2);
+  margin: 5px 0 0;
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+}
+
+.cfSheet { margin: 0; display: flex; flex-direction: column; gap: 2px; }
+.cfSheet__head {
+  margin: var(--s-2) 0 2px;
+  font-size: var(--t-2xs);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--brass-400);
+}
+.cfRow { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; font-size: var(--t-sm); }
+.cfRow dt {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+}
+.cfRow dd { margin: 0; font-variant-numeric: tabular-nums; }
+.cfRow[data-strong] { margin-top: 2px; padding-top: 5px; border-top: 1px solid var(--border); }
+.cfRow[data-strong] dt,
+.cfRow[data-strong] dd { color: var(--text); font-weight: 600; }
+.cfRow[data-neg] dd { color: var(--danger-400); }
+.cfRow--pay {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: color-mix(in oklab, var(--success-400) 12%, transparent);
+}
+.cfRow--pay dt { color: var(--text); font-weight: 600; }
+.cfRow--pay dd { font-size: var(--t-lg); font-weight: 700; color: var(--success-400); }
+.cfRow--pay[data-neg] { background: color-mix(in oklab, var(--danger-400) 14%, transparent); }
+.cfRow--pay[data-neg] dd { color: var(--danger-400); }
+.cfRow--debt { align-items: center; }
+.cfLoan { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+
+.cfDream { display: flex; align-items: center; gap: var(--s-3); margin: 0; }
+.cfDream__art { width: 72px; height: 72px; flex: none; border-radius: 50%; mix-blend-mode: screen; }
+.cfDream figcaption { display: flex; flex-direction: column; gap: 2px; font-size: var(--t-sm); }
+.cfDream__name { font-weight: 600; color: var(--ivory-100); }
+
+/* ------------------------------ modals -------------------------------- */
+
+.dreamGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--s-3);
+  margin-top: var(--s-3);
+}
+.dreamCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: var(--s-3) var(--s-2);
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  background: #000;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  transition: transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.dreamCard:hover,
+.dreamCard:focus-visible { transform: translateY(-2px); border-color: var(--accent); outline: none; }
+.dreamCard__art { width: 110px; height: 110px; mix-blend-mode: screen; }
+.dreamCard__name { font-size: var(--t-sm); font-weight: 600; text-align: center; }
+.dreamCard__price { color: var(--brass-300); }
+.dreamCard__takers { display: flex; gap: 4px; }
+.dreamCard__dot { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 0 1px #000; }
+
+.cfOver__headline {
+  margin: 0 0 var(--s-3);
+  font-family: var(--font-display);
+  font-size: var(--t-xl);
+  color: var(--brass-200);
+}
+.cfOver__list { list-style: none; margin: 0 0 var(--s-4); padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.cfOver__row {
+  display: grid;
+  grid-template-columns: 1.5em auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: rgb(255 255 255 / 0.03);
+}
+.cfOver__row[data-me] { border-color: var(--border-brass); }
+.cfOver__rank { color: var(--brass-300); }
+.cfOver__who { display: flex; flex-direction: column; min-width: 0; }
+
+.cfHelp { display: flex; flex-direction: column; gap: var(--s-3); }
+.cfHelp__head {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-size: var(--t-md);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brass-300);
+}
+.cfHelp ul { margin: 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 4px; font-size: var(--t-sm); line-height: 1.5; }
+
+/* ----------------------------- responsive ----------------------------- */
+
+@media (max-width: 1180px) {
+  .cfGame__layout { grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); }
+  .cfGame__rail { grid-column: 1 / -1; order: -1; }
+  .cfRail { flex-direction: row; overflow-x: auto; padding-bottom: 4px; }
+  .cfSeat { flex: 0 0 230px; }
+  /* The strip scrolls, so it clips anything above a card: the float rises
+     from the foot of the card instead. */
+  .cfFloat { top: auto; bottom: 8px; }
+  /* The seats now sit above the board, so the board gives them the height. */
+  .cfBoardWrap { width: min(100%, calc(100dvh - 300px)); }
+}
+
+@media (max-width: 900px) {
+  .cfGame__layout { grid-template-columns: minmax(0, 1fr); padding: var(--s-2) var(--s-2) 72px; }
+  .cfGame__rail,
+  .cfGame__side { display: none; }
+  /* A phone header has room for what you tap, not for a title. */
+  .cfGame__top { gap: 6px; padding: var(--s-2); }
+  .cfGame__top .btn { white-space: nowrap; }
+  .cfGame__title,
+  .cfGame__helpLabel { display: none; }
+
+  .cfGame__rail[data-open],
+  .cfGame__side[data-open] {
+    display: flex;
+    position: fixed;
+    /* The desktop column is sticky with a top offset; a bottom sheet with
+       both top and bottom set sticks to the top of the screen instead. */
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 56px;
+    z-index: 30;
+    max-height: 74dvh;
+    overflow: auto;
+    padding: var(--s-3);
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border-brass);
+    box-shadow: var(--e-3);
+  }
+  .cfRail { flex-direction: column; overflow: visible; }
+  .cfSeat { flex: none; }
+  .cfBoardWrap { width: 100%; min-width: 0; }
+  .cfGame__tabbar {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 31;
+    height: 56px;
+    background: var(--bg-raised);
+    border-top: 1px solid var(--border);
+  }
+  .cfGame__tabbar .tabbar__item {
+    flex: 1;
+    font: inherit;
+    font-size: var(--t-sm);
+    color: var(--text-muted);
+    background: none;
+    border: 0;
+    cursor: pointer;
+  }
+  .cfGame__tabbar .tabbar__item[data-on] { color: var(--accent-strong); box-shadow: inset 0 2px 0 var(--accent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cfToken { transition: none; }
+  .cfDice[data-rolling] .cfDie,
+  .cfFloat { animation: none; }
+  .cfSeat__bar > span,
+  .cfProgress__bar > span,
+  .dreamCard { transition: none; }
+}

@@ -1,5 +1,6 @@
 import Peer, { type DataConnection } from 'peerjs';
 import type { GameEvent } from '../game/types';
+import type { CFEvent } from '../cashflow/types';
 import {
   type ChatMessage, type Down, type RoomSnapshot, type Up,
   localSecret, redactForGuests, toPeerId, unwrap, wrap,
@@ -107,6 +108,11 @@ export class HostNet {
    * has to match, so knowing another player's id (it is in every snapshot)
    * is not enough to take their seat or reconnect as them. */
   private secrets = new Map<string, string>();
+  /* Seats that never arrive over the wire - the host's own and every bot's.
+   * Their ids are in every snapshot too, and with no secret on file the
+   * first HELLO claiming one would have been accepted: a guest could then
+   * play the host's turns, change the rules, kick players, or drive a bot. */
+  private reserved = new Set<string>();
   private lastSeen = new Map<string, number>();
   private pings = new Map<string, number>();
   private pingSent = new Map<string, number>();
@@ -114,6 +120,16 @@ export class HostNet {
   private seq = 0;
 
   constructor(private code: string, private h: HostHandlers) {}
+
+  /** Mark a seat as one no connection may ever claim. */
+  reserve(playerId: string): void {
+    this.reserved.add(playerId);
+  }
+
+  broadcastCfEvents(rev: number, events: CFEvent[]): void {
+    if (events.length === 0) return;
+    this.broadcast({ t: 'CF_EVENTS', rev, events });
+  }
 
   start(): void {
     this.h.onStatus('starting');
@@ -145,6 +161,12 @@ export class HostNet {
       const bound = this.idOf(conn);
       if (msg.t === 'HELLO') {
         const claimed = msg.playerId;
+        // The host's own seat and every bot's are never claimable.
+        if (typeof claimed !== 'string' || this.reserved.has(claimed)) {
+          try { conn.send(wrap({ t: 'BYE', reason: 'seat_taken' })); } catch { /* gone */ }
+          try { conn.close(); } catch { /* already gone */ }
+          return;
+        }
         const known = this.secrets.get(claimed);
         // Someone already holds this seat with a different secret: this is a
         // takeover attempt, not the seat's owner reconnecting. Turn it away

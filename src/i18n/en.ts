@@ -3,6 +3,7 @@ import { BOARD, GROUP_LABEL } from '../game/board';
 import { CHANCE, CHEST } from '../game/cards';
 import { PRESETS, TOKENS } from '../game/settings';
 import type { BotLevel, ColorGroup, TokenId } from '../game/types';
+import { cfEn } from './cf-en';
 
 /* ------------------------------------------------------------------ *
  * English, and the shape every other language has to fill in.
@@ -546,6 +547,9 @@ export const en = {
     Record<string, { name: string; blurb: string; minutes: string }>,
   tokens: Object.fromEntries(TOKENS.map((t) => [t.id, t.label])) as Record<TokenId, string>,
   stickers: Object.fromEntries(STICKERS.map((st) => [st.id, st.label])) as Record<string, string>,
+
+  /** Everything the second game says. Its own file, because it is its own game. */
+  cf: cfEn,
 };
 
 export type Dict = typeof en;

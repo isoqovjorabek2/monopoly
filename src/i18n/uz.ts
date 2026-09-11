@@ -1,4 +1,5 @@
 import type { Dict } from './en';
+import { cfUz } from './cf-uz';
 
 /* Uzbek, in the Latin alphabet. Oʻ and gʻ are written with ‘ (U+2018) and
  * the tutuq belgisi with ’ (U+2019) rather than the modifier letters: every
@@ -691,4 +692,5 @@ export const uz: Dict = {
     bolt: 'Shok',
     luck: 'Omad',
   },
+  cf: cfUz,
 };

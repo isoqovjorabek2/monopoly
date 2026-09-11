@@ -1,4 +1,5 @@
 import type { Dict } from './en';
+import { cfRu } from './cf-ru';
 
 /* Russian. Log lines are in the present tense on purpose: the past tense
  * agrees with the speaker's gender ("заплатил" / "заплатила"), and a player
@@ -692,4 +693,5 @@ export const ru: Dict = {
     bolt: 'Шок',
     luck: 'Везёт',
   },
+  cf: cfRu,
 };

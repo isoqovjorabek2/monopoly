@@ -1,13 +1,18 @@
-import { useEffect } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useStore } from './store/store';
 import { Home } from './ui/Home';
 import { Lobby } from './ui/Lobby';
 import { Game } from './ui/Game';
 
+/* The Cashflow table is its own chunk: a Monopoly player never downloads
+ * it, and the front door does not wait on it either. */
+const CashflowGame = lazy(() => import('./ui/cashflow/CashflowGame'));
+
 export default function App() {
   const screen = useStore((s) => s.screen);
   const code = useStore((s) => s.code);
+  const kind = useStore((s) => s.room?.kind ?? 'monopoly');
 
   // Keep the address bar in step so a refresh, a back button, or a copied
   // URL all land somewhere sensible.
@@ -40,7 +45,12 @@ export default function App() {
     >
       {screen === 'home' && <Home />}
       {screen === 'lobby' && <Lobby />}
-      {screen === 'game' && <Game />}
+      {screen === 'game' && kind === 'monopoly' && <Game />}
+      {screen === 'game' && kind === 'cashflow' && (
+        <Suspense fallback={<div className="cfLoading"><div className="spinner" aria-hidden /></div>}>
+          <CashflowGame />
+        </Suspense>
+      )}
     </motion.div>
   );
 }

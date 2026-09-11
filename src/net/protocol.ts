@@ -1,10 +1,16 @@
+import type { CFAction, CFRules, CFState } from '../cashflow/types';
 import type { BotLevel, GameAction, GameEvent, GameSettings, GameState, TokenId } from '../game/types';
 
-export const PROTOCOL_VERSION = 1;
+/** 2: a room carries which game it plays. A tab still on 1 cannot read a
+ *  Cashflow table, so it is refused at the envelope rather than half-drawn. */
+export const PROTOCOL_VERSION = 2;
 
 /** PeerJS ids are shared across every app on the public broker, so we
  *  namespace ours. Players only ever see the readable half. */
 export const ROOM_PREFIX = 'mply-v1-';
+
+/** The two games this table can play. */
+export type GameKind = 'monopoly' | 'cashflow';
 
 export interface SeatInfo {
   playerId: string;
@@ -23,9 +29,16 @@ export interface SeatInfo {
 export interface RoomSnapshot {
   roomId: string;
   hostId: string;
+  /** Chosen on the front door when the room is opened, and fixed after. */
+  kind: GameKind;
   seats: SeatInfo[];
+  /** The table's shared settings. Cashflow reads its seat count, bot level
+   *  and bot fill from here too, so the lobby has one set of those. */
   settings: GameSettings;
+  /** Cashflow's own rules. */
+  cfRules: CFRules;
   game: GameState | null;
+  cf: CFState | null;
   /** Bumped on every host-side change; clients drop stale snapshots. */
   rev: number;
 }
@@ -43,10 +56,10 @@ export interface ChatMessage {
 export type Up =
   | { t: 'HELLO'; playerId: string; name: string; token: TokenId; secret: string }
   | { t: 'PROFILE'; playerId: string; name: string; token: TokenId }
-  | { t: 'SETTINGS'; playerId: string; settings: GameSettings }
+  | { t: 'SETTINGS'; playerId: string; settings: GameSettings; cfRules?: CFRules }
   | { t: 'ADD_BOT'; playerId: string }
   | { t: 'REMOVE_SEAT'; playerId: string; target: string }
-  | { t: 'INTENT'; playerId: string; action: GameAction }
+  | { t: 'INTENT'; playerId: string; action: GameAction | CFAction }
   | { t: 'CHAT'; playerId: string; text: string }
   | { t: 'PONG'; playerId: string; seq: number };
 
@@ -55,6 +68,7 @@ export type Down =
   | { t: 'WELCOME'; you: string; snapshot: RoomSnapshot }
   | { t: 'ROOM'; snapshot: RoomSnapshot }
   | { t: 'EVENTS'; rev: number; events: GameEvent[] }
+  | { t: 'CF_EVENTS'; rev: number; events: import('../cashflow/types').CFEvent[] }
   | { t: 'CHAT'; message: ChatMessage }
   | { t: 'REJECT'; reason: string }
   | { t: 'PING'; seq: number }
@@ -145,17 +159,23 @@ export function localSecret(): string {
  * predict every future roll and card. Guests never run the engine, so they
  * never need any of it; stripping it is what stops a guest from reading the
  * future out of the snapshot they receive. The host keeps the full copy.
+ * Both games keep their future in the same two places, and lose it the same way.
  */
 export function redactForGuests(snapshot: RoomSnapshot): RoomSnapshot {
-  if (!snapshot.game) return snapshot;
+  if (!snapshot.game && !snapshot.cf) return snapshot;
   return {
     ...snapshot,
     settings: { ...snapshot.settings, seed: 0 },
-    game: {
+    game: snapshot.game && {
       ...snapshot.game,
       settings: { ...snapshot.game.settings, seed: 0 },
       chanceOrder: [],
       chestOrder: [],
+    },
+    cf: snapshot.cf && {
+      ...snapshot.cf,
+      settings: { ...snapshot.cf.settings, seed: 0 },
+      decks: { small: [], big: [], market: [], doodad: [] },
     },
   };
 }

@@ -1,12 +1,14 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { motion } from 'framer-motion';
-import { ART } from '../art/art';
+import '../styles/picker.css';
+import { ART, GAME_COVER, cfJobArt } from '../art/art';
+import { professionById } from '../cashflow/data';
 import { BOARD, GROUP_COLOR } from '../game/board';
 import { TOKENS } from '../game/settings';
 import type { TokenId } from '../game/types';
 import { spaceName, useT } from '../i18n';
 import { useStore } from '../store/store';
-import { normaliseCode } from '../net/protocol';
+import { normaliseCode, type GameKind } from '../net/protocol';
 import { Avatar, fmt } from './bits';
 import { LangSwitch } from './LangSwitch';
 import { PublicRooms } from './PublicRooms';
@@ -30,6 +32,8 @@ export function Home() {
   const t = useT();
   const me = useStore((s) => s.me);
   const netError = useStore((s) => s.netError);
+  const pick = useStore((s) => s.pick);
+  const setPick = useStore((s) => s.setPick);
   const setProfile = useStore((s) => s.setProfile);
   const hostRoom = useStore((s) => s.hostRoom);
   const joinRoom = useStore((s) => s.joinRoom);
@@ -48,12 +52,16 @@ export function Home() {
   const go = (fn: () => void) => { commit(); fn(); };
 
   const [inviteBefore, inviteAfter] = t.home.followedInvite;
+  const cashflow = pick === 'cashflow';
+  const P = t.cf.picker;
 
   /* The backdrop is set as a variable rather than in the stylesheet
-   * because its path depends on the deploy base and on which version is
-   * selected; CSS owns the scrim that keeps the type readable over it. */
+   * because its path depends on the deploy base and on which game is
+   * picked; CSS owns the scrim that keeps the type readable over it. */
+  const hero = cashflow ? GAME_COVER.cashflow : ART.hero;
+
   return (
-    <div className="home" style={{ '--hero-img': `url("${ART.hero}")` } as CSSProperties}>
+    <div className="home" data-game={pick} style={{ '--hero-img': `url("${hero}")` } as CSSProperties}>
       <LangSwitch className="home__lang" />
       <motion.div
         className="home__inner"
@@ -61,41 +69,42 @@ export function Home() {
         animate={{ opacity: 1 }}
         transition={{ duration: 0.4 }}
       >
-        <div className="home__spread">
+        <div className="home__spread home__spread--pick">
+          <GamePicker pick={pick} onPick={setPick} />
+
           <motion.header
+            key={pick}
             className="masthead"
-            initial={{ opacity: 0, y: 14 }}
+            initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
           >
-            {/* The name is a brand, so it stays as it is in every language. */}
+            {/* The names are brands, so they stay as they are in every language. */}
             <h1 className="masthead__title">
-              <span className="masthead__word">Monopoly</span>
-              <span className="masthead__sub">Royale</span>
+              <span className="masthead__word">{cashflow ? P.cashflow.name : P.monopoly.name}</span>
+              <span className="masthead__sub">{cashflow ? P.cashflow.sub : P.monopoly.sub}</span>
             </h1>
 
-            <p className="masthead__lead">{t.home.lead}</p>
-            <p className="masthead__note">{t.home.note}</p>
+            <p className="masthead__lead">{cashflow ? P.lead : t.home.lead}</p>
+            <p className="masthead__note">{cashflow ? P.note : t.home.note}</p>
           </motion.header>
 
-          {/* Three deeds dropped on the table, not one card floating in
-              space. The overlap and the differing angles are what make it
-              read as objects that were put down rather than a graphic that
-              was placed - and they fill a corner that was empty. */}
-          <div className="deedWrap">
-            {[
-              { id: 5, cls: 'deedFan__back', from: { y: 30, rotate: -4 }, to: { y: 0, rotate: -20 }, delay: 0.10 },
-              { id: 24, cls: 'deedFan__mid', from: { y: 26, rotate: -2 }, to: { y: 0, rotate: -1 }, delay: 0.17 },
-              { id: 39, cls: 'deedFan__front', from: { y: 22, rotate: 2 }, to: { y: 0, rotate: 18 }, delay: 0.24 },
-            ].map((d) => (
+          {/* The artefact for whichever game is picked: three title deeds for
+              Monopoly, three dealt professions for Cashflow - each built from
+              the same data the game is played with. */}
+          <div className="deedWrap" key={`fan-${pick}`}>
+            {(cashflow
+              ? [{ id: 'janitor', cls: 'deedFan__back' }, { id: 'teacher', cls: 'deedFan__mid' }, { id: 'doctor', cls: 'deedFan__front' }]
+              : [{ id: '5', cls: 'deedFan__back' }, { id: '24', cls: 'deedFan__mid' }, { id: '39', cls: 'deedFan__front' }]
+            ).map((d, i) => (
               <motion.div
                 key={d.id}
                 className={`deedFan ${d.cls}`}
-                initial={{ opacity: 0, ...d.from }}
-                animate={{ opacity: 1, ...d.to }}
-                transition={{ duration: 0.72, delay: d.delay, ease: [0.22, 1, 0.36, 1] }}
+                initial={{ opacity: 0, y: 30 - i * 4, rotate: -4 + i * 3 }}
+                animate={{ opacity: 1, y: 0, rotate: [-20, -1, 18][i] }}
+                transition={{ duration: 0.72, delay: 0.1 + i * 0.07, ease: [0.22, 1, 0.36, 1] }}
               >
-                <TitleDeed id={d.id} />
+                {cashflow ? <JobCard id={d.id} /> : <TitleDeed id={Number(d.id)} />}
               </motion.div>
             ))}
           </div>
@@ -152,19 +161,18 @@ export function Home() {
 
             <hr className="joinCard__rule" />
 
-            {/* One primary way in. Hosting, joining and solo used to sit in
-                three identical cards, which turned an invitation into a menu
-                and left the player deciding which box to read first. */}
+            {/* One primary way in. It opens a table for whichever game is
+                picked above; a code joins whatever game its host is playing. */}
             <button
               type="button"
               className="btn btn--primary btn--block btn--lg"
               disabled={!nameOk}
               title={nameOk ? undefined : t.home.pickName}
-              onClick={() => go(() => hostRoom())}
+              onClick={() => go(() => hostRoom(undefined, pick))}
             >
-              {t.home.open}
+              {t.home.open} · {cashflow ? P.cashflow.name : P.monopoly.name}
             </button>
-            <p className="joinCard__under">{t.home.openUnder}</p>
+            <p className="joinCard__under">{cashflow ? P.cashflow.meta : t.home.openUnder}</p>
 
             <form
               className="joinCard__form"
@@ -197,13 +205,13 @@ export function Home() {
               )}
             </form>
 
-            <PublicRooms onJoin={(id) => go(() => joinRoom(id))} />
+            {!cashflow && <PublicRooms onJoin={(id) => go(() => joinRoom(id))} />}
 
             <button
               type="button"
               className="joinCard__solo"
               disabled={!nameOk}
-              onClick={() => go(playSolo)}
+              onClick={() => go(() => playSolo(pick))}
             >
               {t.home.solo}
             </button>
@@ -211,6 +219,43 @@ export function Home() {
         </div>
       </motion.div>
     </div>
+  );
+}
+
+/**
+ * The choice of game. Two photographs of two tables in the same room, so
+ * picking one reads as walking over to it rather than filling in a form.
+ */
+function GamePicker({ pick, onPick }: { pick: GameKind; onPick: (k: GameKind) => void }) {
+  const t = useT();
+  const P = t.cf.picker;
+  return (
+    <section className="picker" aria-label={P.aria}>
+      <p className="picker__title overline">{P.title}</p>
+      <div className="picker__row" role="radiogroup" aria-label={P.aria}>
+        {(['monopoly', 'cashflow'] as const).map((k) => (
+          <button
+            key={k}
+            type="button"
+            role="radio"
+            aria-checked={pick === k}
+            className="picker__card"
+            data-on={pick === k || undefined}
+            onClick={() => onPick(k)}
+          >
+            <img className="picker__cover" src={GAME_COVER[k]} alt="" width={600} height={343} decoding="async" />
+            <span className="picker__text">
+              <span className="picker__name">
+                {P[k].name}
+                <span className="picker__sub">{P[k].sub}</span>
+              </span>
+              <span className="picker__pitch">{P[k].pitch}</span>
+              <span className="picker__meta num">{P[k].meta}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -259,6 +304,31 @@ function TitleDeed({ id = 39, className = '' }: { id?: number; className?: strin
         <span aria-hidden> &middot; </span>
         {d.mortgage} <span className="num">{fmt(space.mortgage ?? 0)}</span>
       </p>
+    </article>
+  );
+}
+
+/** Cashflow's artefact: a dealt profession, with the pay cheque and the
+ *  bills printed from the same table the game deals from. */
+function JobCard({ id }: { id: string }) {
+  const t = useT();
+  const S = t.cf.statement;
+  const p = professionById(id);
+  const payments = Object.values(p.debts).reduce((n, d) => n + d.payment, 0);
+  const expenses = p.taxes + p.other + payments;
+  return (
+    <article className="deedPlate jobPlate" aria-label={t.cf.professions[id]}>
+      <div className="jobPlate__head">
+        <img className="jobPlate__art" src={cfJobArt(id)} alt="" width={96} height={96} decoding="async" />
+        <span className="deedPlate__kicker">{t.cf.name}</span>
+        <span className="deedPlate__name">{t.cf.professions[id]}</span>
+      </div>
+      <dl className="deedPlate__rows">
+        <div className="deedPlate__row"><dt>{S.salary}</dt><dd className="num">{fmt(p.salary)}</dd></div>
+        <div className="deedPlate__row"><dt>{S.totalExpenses}</dt><dd className="num">{fmt(expenses)}</dd></div>
+        <div className="deedPlate__row"><dt>{S.payCheck}</dt><dd className="num">{fmt(p.salary - expenses)}</dd></div>
+      </dl>
+      <p className="deedPlate__foot">{S.escapeGoal}</p>
     </article>
   );
 }

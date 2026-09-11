@@ -219,3 +219,32 @@ export type FxName = 'coins' | 'victory' | 'ash';
  */
 export const FX_FRAMES = 16;
 export const fxStrip = (name: FxName): string => base(`fx/${name}.jpg`);
+
+/* ----------------------------- the picker ----------------------------- */
+
+/** One photograph per game for the front door, lit and dressed as a pair
+ *  so the choice reads as two tables in the same room. */
+export const GAME_COVER = {
+  monopoly: base('cover-monopoly.jpg'),
+  cashflow: base('cashflow/cover.jpg'),
+} as const;
+
+/* ------------------------------ Cashflow ------------------------------ */
+
+/**
+ * Cashflow's set is banknote engraving rather than deco brass: mint and
+ * champagne linework on pure black, composited with `screen` exactly like
+ * the Monopoly corners, so the ground drops out and no alpha is needed.
+ */
+export type CFSpaceArt =
+  | 'payday' | 'small' | 'big' | 'market' | 'doodad' | 'charity' | 'baby'
+  | 'downsized' | 'cashflowDay' | 'business' | 'venture' | 'dream'
+  | 'audit' | 'lawsuit' | 'divorce';
+
+export const cfSpaceArt = (name: CFSpaceArt): string => base(`cashflow/space/${name}.jpg`);
+
+/** Eight dreams, keyed like the Fast Track squares they sit on. */
+export const cfDreamArt = (key: string): string => base(`cashflow/dream/${key}.jpg`);
+
+/** One engraved portrait per profession, for the player's statement. */
+export const cfJobArt = (id: string): string => base(`cashflow/job/${id}.jpg`);

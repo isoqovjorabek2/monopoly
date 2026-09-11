@@ -182,6 +182,33 @@ export function LogFeed({
   onSend: (text: string) => void;
 }) {
   const t = useT();
+  const lines: FeedLine[] = log.map((l) => ({
+    id: l.id,
+    tone: l.tone,
+    color: l.actor ? state?.players[l.actor]?.color : undefined,
+    text: state ? describe(state, l.event, t) : '',
+  }));
+  return <FeedView lines={lines} chat={chat} onSend={onSend} />;
+}
+
+/** A log line with its words already chosen. Both games' logs reduce to
+ *  this, so one feed - and one chat with its stickers - serves both. */
+export interface FeedLine {
+  id: string;
+  tone: string;
+  color?: string;
+  text: string;
+}
+
+export function FeedView({
+  lines, chat, onSend,
+}: {
+  lines: FeedLine[];
+  chat: ChatMessage[];
+  onSend: (text: string) => void;
+}) {
+  const t = useT();
+  const log = lines;
   const [tab, setTab] = useState<'log' | 'chat'>('log');
   const [draft, setDraft] = useState('');
   const [stickersOpen, setStickersOpen] = useState(false);
@@ -224,10 +251,8 @@ export function LogFeed({
             ? <Empty>{t.feed.emptyLog}</Empty>
             : log.map((l) => (
               <p key={l.id} className="logLine" data-tone={l.tone}>
-                {l.actor && state?.players[l.actor] && (
-                  <span className="logLine__dot" style={{ background: state.players[l.actor].color }} />
-                )}
-                {state ? describe(state, l.event, t) : ''}
+                {l.color && <span className="logLine__dot" style={{ background: l.color }} />}
+                {l.text}
               </p>
             ))
         ) : (

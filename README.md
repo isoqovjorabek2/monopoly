@@ -1,7 +1,9 @@
 # Monopoly Royale
 
-A browser Monopoly you can actually play with friends who are somewhere else.
-Share a link, pick your rules, play. No signup, no install, and no server.
+Two board games you can actually play with friends who are somewhere else:
+Monopoly, and **Cashflow** - the one about getting out of the Rat Race. Pick
+one on the front door, share a link, play. No signup, no install, and no
+server.
 
 **Play:** https://isoqovjorabek2.github.io/monopoly/
 
@@ -67,9 +69,11 @@ a diagram of one. Perspective, brass that actually reflects, dice that tumble
 and land, pieces that hop in arcs, and a camera that leans toward whatever the
 game is drawing attention to.
 
-It is **lazy-loaded**: three.js is a 227KB gzipped chunk that only downloads
-when the 3D board is actually used, so the main bundle stays at ~144KB and a
+It is **lazy-loaded**: three.js is a ~230KB gzipped chunk that only downloads
+when the 3D board is actually used, so the main bundle stays at ~208KB and a
 player who prefers the flat board pays nothing for the one they don't use.
+(~178KB before Cashflow; its rules and three dictionaries are the difference,
+and its table is a separate chunk on top.)
 
 There is a **flat board toggle in the game header**, and the flat board is
 selected automatically when WebGL is unavailable or the reader has
@@ -489,10 +493,89 @@ next frame throws deep in the renderer and takes the whole game with it.
 An error boundary around the 3D tree backs all of that up: any throw out of
 three costs the board, never the game everyone is in the middle of.
 
+## Cashflow
+
+The second table. Pick it on the front door and everything else - room
+codes, invite links, bots, chat, the three languages - works exactly as it
+does for Monopoly. The structure follows the published game (a Rat Race you
+go round and round, a Fast Track you earn your way onto); the cards, the
+numbers and the art are this project's own.
+
+**How it plays**
+
+- Everyone is dealt one of **twelve professions** at random - a salary, taxes,
+  a mortgage, loans, a per-child cost - and opens with savings plus one pay
+  cheque. The janitor is often out first: a big salary comes with big bills.
+- **The Rat Race** is 24 squares on one die. *Opportunity* draws a Small Deal
+  (≤ $5,000 in) or a Big Deal (≥ $6,000); *Pay Check* pays monthly cash flow
+  for passing as well as landing; *The Market* brings a buyer for what somebody
+  holds, and **everyone** holding it may sell (you keep the price less the
+  mortgage); *Doodads* are bills you cannot refuse; *Charity* gives 10% of
+  income for a second die on three turns; *Baby* adds a child (three at most);
+  *Downsized* costs a month of expenses and two turns.
+- **Bank loans** come in $1,000s at 10% a month. With *strict lending* (on by
+  default, a lobby switch) the bank lends only while monthly cash flow stays
+  at or above zero - otherwise a player borrows into every deal and the Rat
+  Race stops being one. A bill that has to be paid borrows the shortfall
+  regardless.
+- You leave the Rat Race at the start of any turn on which **passive income
+  beats total expenses**, with a hundred times your passive income as your
+  CASHFLOW Day income, paid on the way out.
+- **The Fast Track** is 40 squares on two dice: businesses (one owner each),
+  ventures (stake cash on a roll), audits and lawsuits (half your cash),
+  divorce (all of it), and eight dreams. A rival landing on your dream adds
+  100% of its price.
+- **You win** by buying your dream, or by building CASHFLOW Day income to your
+  starting figure plus $50,000 (a lobby slider). An optional round limit ends
+  it early for whoever got furthest.
+
+**Where it deliberately differs from the printed rules**
+
+1. **Bankruptcy is automatic.** The printed rule lets you choose what to sell;
+   here it is one deterministic sequence - sell whatever earns nothing at half
+   its down payment, pay the dearest debts first, halve car, card and retail
+   debt - so a bankruptcy never waits on a menu. Still negative and you are out.
+2. **An Opportunity card cannot be sold to another player.** The printed game
+   lets you sell the option; that is a negotiation with no clock on it.
+3. **Cashflow tables are invite-only.** The public directory only knows
+   Monopoly's presets, so a Cashflow room on it would be listed as a Monopoly
+   one. The lobby says so instead of pretending.
+
+**How it is built.** `src/cashflow/` keeps the Monopoly engine's contract to
+the letter: a pure `reduce(state, action)`, dice from the seeded counter in
+the state, JSON-only state, and one `legalActions()` that the buttons, the
+bots and the reducer all read. The room carries a `kind`, the protocol went
+to version 2 for it, and guests receive Cashflow snapshots with the seed and
+the undrawn decks stripped, the same as Monopoly's. The bots are rules
+rather than a scoring search - buy what clears a cash-on-cash return, borrow
+only when the deal out-earns the loan payment, sell into a buyer who doubles
+the money - and a bot that turns over a card a human could sell into holds
+the turn open for five seconds so the human gets the chance.
+
+**The board** is two concentric rings of SVG sectors on a 1000-unit square,
+so every screen gets the same geometry; labels run along the spokes and turn
+over on the left half so nothing is read upside down. Beside it sits the
+financial statement - income, expenses, the pay cheque, assets, liabilities -
+because that, not the board, is what the game is about. Pay off a debt or
+take a loan from it on your own turn.
+
+**The art** is 37 images generated with FLUX.2 [klein] 9B on fal.ai: two
+covers that pair as the front door's choice, fifteen square emblems, eight
+dreams and twelve profession portraits. Where the Monopoly set is deco brass,
+this one is banknote engraving - mint and champagne linework on pure black,
+black point graded to true zero and composited with `screen`, the same trick
+the Monopoly corners use. About 1.9 MB, and only the cover loads before you
+sit down at a Cashflow table; the table itself is a separate 9 KB chunk.
+
 ## Architecture
 
 ```
 src/
+  cashflow/      the second game: same contract - pure, seeded, one legalActions()
+    data.ts        professions, both tracks, all four decks
+    rules.ts       the financial statement maths + legalActions()
+    engine.ts      reduce(state, action) -> { state, events }
+    ai.ts          bots that buy what pays for itself
   game/          the rules engine — pure, deterministic, no DOM, no network
     types.ts       state and action shapes (all JSON-serialisable)
     board.ts       the 40 spaces and every title deed
@@ -553,6 +636,20 @@ machine proves nothing about NAT traversal. Open the room on a phone on cellular
   full bot games close real deals rather than only proposing them
 - a full bot-vs-bot game played to completion
 
+Cashflow has its own 24, in `src/cashflow/cashflow.test.ts`: the tables (every
+profession starts cash-positive, Small Deals stay small), pay cheques for
+passing, strict lending and the loan maths, a doodad that forces a loan, the
+hundred-times buyout onto the Fast Track, dream pricing and both Fast Track
+wins, hostile and malformed intents, determinism and the JSON round trip, a
+fuzz pass over 40 random games, and six full bot games that must all escape
+the Rat Race and finish.
+
+The netcode tests include the seat takeover this project used to allow: the
+host's own seat and every bot's are reserved, because they never connect and
+so never had a secret on file - the first HELLO claiming one used to simply
+get it, and with it the host's turns and powers. In all, `npm test` runs 96
+checks.
+
 ## Deliberate simplifications
 
 Two places where this differs from the printed rules, on purpose:
@@ -569,12 +666,20 @@ Monopoly is a trademark of Hasbro, Inc. This is a non-commercial hobby
 implementation of the public-domain rules for playing with friends, and is not
 affiliated with or endorsed by Hasbro.
 
+CASHFLOW is a registered trademark of CASHFLOW Technologies, Inc. The
+Cashflow table follows the structure of that game for playing with friends,
+non-commercially; its cards, figures, text and art are original to this
+project, and it is not affiliated with or endorsed by CASHFLOW Technologies
+or The Rich Dad Company.
+
 Built with React, TypeScript, Vite, Zustand, Framer Motion and PeerJS.
 
 Everything in `public/art` was generated via fal.ai: stills with FLUX.2
 [klein], the three effect clips with MiniMax H3, and the sticker cutouts
-through `rembg`. They are original material, ornament and illustration - no
-trademarked mark, character or board design is reproduced in any of them.
+through `rembg`. The Cashflow set (`public/art/cashflow`, and the two picker
+covers) is FLUX.2 [klein] 9B. They are original material, ornament and
+illustration - no trademarked mark, character or board design is reproduced
+in any of them.
 
 The eleven table cues in `public/audio` were generated with CassetteAI's sound
 effects model. The synthesised WebAudio cues they replaced are still in

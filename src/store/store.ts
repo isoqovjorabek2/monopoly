@@ -8,18 +8,38 @@ import { legalActions } from '../game/rules';
 import { randomSeed } from '../game/rng';
 import { BOT_NAMES, PLAYER_COLORS, TOKENS, defaultSettings } from '../game/settings';
 import type { GameAction, GameEvent, GameSettings, GameState, TokenId } from '../game/types';
+import { botDecide as cfBotDecide, botDelay as cfBotDelay } from '../cashflow/ai';
+import { cfLogLine, type CFLogLine } from '../cashflow/describe';
+import { CF_DEFAULTS, createCashflow, reduce as cfReduce } from '../cashflow/engine';
+import { currentId as cfCurrentId } from '../cashflow/rules';
+import type { CFAction, CFEvent, CFRules, CFSettings, CFState } from '../cashflow/types';
 import { GuestNet, HostNet, type NetStatus } from '../net/net';
 import { announce as announceRoom, close as closeRoom } from '../net/directory';
 import {
-  type ChatMessage, type Down, type RoomSnapshot, type SeatInfo, type Up,
+  type ChatMessage, type Down, type GameKind, type RoomSnapshot, type SeatInfo, type Up,
   cleanText, generateRoomCode, localPlayerId,
 } from '../net/protocol';
 
 export type Screen = 'home' | 'lobby' | 'game';
 export type Role = 'host' | 'guest' | 'local';
+export type AnyAction = GameAction | CFAction;
 
 /** A floating +$200 / -$450 over a player's card. */
 export interface CashFloat { id: string; playerId: string; delta: number }
+
+/** Cashflow has room for six: its player rail and its board are drawn
+ *  for that many, and there are only so many professions to go round. */
+export const CF_MAX_SEATS = 6;
+
+export const CF_RULES_DEFAULT: CFRules = {
+  strictLoans: CF_DEFAULTS.strictLoans,
+  turnLimit: CF_DEFAULTS.turnLimit,
+  fastGoal: CF_DEFAULTS.fastGoal,
+};
+
+/** Seats a room can hold, which depends on the game it plays. */
+export const seatLimit = (room: RoomSnapshot): number =>
+  (room.kind === 'cashflow' ? Math.min(room.settings.maxPlayers, CF_MAX_SEATS) : room.settings.maxPlayers);
 
 interface Store {
   screen: Screen;
@@ -28,9 +48,12 @@ interface Store {
   /** Whether this room is announced in the public directory. Host only. */
   listed: boolean;
   me: { playerId: string; name: string; token: TokenId };
+  /** Which game the front door has selected. Remembered between visits. */
+  pick: GameKind;
 
   room: RoomSnapshot | null;
   log: LogLine[];
+  cfLog: CFLogLine[];
   chat: ChatMessage[];
   floats: CashFloat[];
 
@@ -47,20 +70,22 @@ interface Store {
   sheet: 'none' | 'players' | 'log' | 'manage' | 'trade';
   soundOn: boolean;
 
+  setPick: (kind: GameKind) => void;
   setProfile: (name: string, token: TokenId) => void;
-  hostRoom: (settings?: GameSettings) => void;
+  hostRoom: (settings?: GameSettings, kind?: GameKind) => void;
   /** List this room publicly, or take it off the list. Host only. */
   setListed: (on: boolean) => void;
   joinRoom: (code: string) => void;
-  playSolo: () => void;
+  playSolo: (kind?: GameKind) => void;
   leave: () => void;
 
   updateSettings: (patch: Partial<GameSettings>) => void;
+  updateCfRules: (patch: Partial<CFRules>) => void;
   addBot: () => void;
   removeSeat: (playerId: string) => void;
   startGame: () => void;
 
-  dispatch: (action: GameAction) => void;
+  dispatch: (action: AnyAction) => void;
   sendChat: (text: string) => void;
 
   inspect: (spaceId: number | null) => void;
@@ -94,6 +119,9 @@ const savedToken = (): TokenId => {
 const savedSound = (): boolean => {
   try { return localStorage.getItem('mply.sound') !== 'off'; } catch { return true; }
 };
+const savedPick = (): GameKind => {
+  try { return localStorage.getItem('mply.game') === 'cashflow' ? 'cashflow' : 'monopoly'; } catch { return 'monopoly'; }
+};
 
 const emptySeat = (
   playerId: string, name: string, token: TokenId, index: number, isHost: boolean,
@@ -107,6 +135,21 @@ const emptySeat = (
   isHost,
   connected: true,
   ping: 0,
+});
+
+/** A room with no game in it yet, of either kind. */
+const freshRoom = (
+  code: string, hostSeat: SeatInfo, kind: GameKind, settings: GameSettings,
+): RoomSnapshot => ({
+  roomId: code,
+  hostId: hostSeat.playerId,
+  kind,
+  seats: [hostSeat],
+  settings,
+  cfRules: { ...CF_RULES_DEFAULT },
+  game: null,
+  cf: null,
+  rev: 0,
 });
 
 export const useStore = create<Store>((set, get) => {
@@ -130,6 +173,45 @@ export const useStore = create<Store>((set, get) => {
     }
   };
 
+  const cfCueFor = (e: CFEvent, myId: string): SfxName | null => {
+    const mine = 'playerId' in e && e.playerId === myId;
+    switch (e.type) {
+      case 'ROLLED': return 'dice';
+      case 'CARD': return 'card';
+      case 'BOUGHT_STOCK':
+      case 'BOUGHT_HOLDING':
+      case 'BUSINESS': return 'buy';
+      case 'ESCAPED':
+      case 'DREAM_BOUGHT':
+      case 'GAME_OVER': return 'win';
+      case 'TURN_STARTED': return mine ? 'turn' : null;
+      case 'PAYDAY': return mine ? (e.amount >= 0 ? 'cash' : 'pay') : null;
+      case 'CASHFLOW_DAY':
+      case 'SOLD_STOCK':
+      case 'SOLD_HOLDING': return mine ? 'cash' : null;
+      case 'DOODAD':
+      case 'LOSS':
+      case 'DOWNSIZED':
+      case 'REPAIR': return mine ? 'pay' : null;
+      case 'BANKRUPT': return mine ? 'error' : null;
+      default: return null;
+    }
+  };
+
+  const spin = (speed: number): void => {
+    set({ rolling: true });
+    window.setTimeout(() => set({ rolling: false }), 700 / Math.max(speed, 0.25));
+  };
+
+  const addFloats = (floats: CashFloat[]): void => {
+    if (floats.length === 0) return;
+    set((s) => ({ floats: [...s.floats, ...floats] }));
+    window.setTimeout(() => {
+      const ids = new Set(floats.map((f) => f.id));
+      set((s) => ({ floats: s.floats.filter((f) => !ids.has(f.id)) }));
+    }, 1600);
+  };
+
   const pushEvents = (state: GameState, events: GameEvent[]): void => {
     const lines: LogLine[] = [];
     const floats: CashFloat[] = [];
@@ -143,22 +225,37 @@ export const useStore = create<Store>((set, get) => {
         floats.push({ id: `f${logSeq++}`, playerId: e.playerId, delta: e.delta });
       }
       if (e.type === 'MOVED') queueWalk(e.playerId, e.from, e.to, e.direct, state);
-      if (e.type === 'DICE_ROLLED') {
-        set({ rolling: true });
-        window.setTimeout(
-          () => set({ rolling: false }),
-          700 / Math.max(state.settings.animationSpeed, 0.25),
-        );
-      }
+      if (e.type === 'DICE_ROLLED') spin(state.settings.animationSpeed);
     }
     if (lines.length > 0) set((s) => ({ log: [...s.log, ...lines].slice(-160) }));
-    if (floats.length > 0) {
-      set((s) => ({ floats: [...s.floats, ...floats] }));
-      window.setTimeout(() => {
-        const ids = new Set(floats.map((f) => f.id));
-        set((s) => ({ floats: s.floats.filter((f) => !ids.has(f.id)) }));
-      }, 1600);
+    addFloats(floats);
+  };
+
+  /** Cashflow's log and sounds. Its money floats come from comparing the
+   *  two snapshots instead (see cfFloats), which works the same for a
+   *  guest, whose events and snapshot arrive as separate messages. */
+  const pushCfEvents = (events: CFEvent[]): void => {
+    if (events.length === 0) return;
+    const lines: CFLogLine[] = [];
+    const { soundOn, me } = get();
+    for (const e of events) {
+      const cue = cfCueFor(e, me.playerId);
+      if (cue) play(cue, soundOn);
+      const l = cfLogLine(e, logSeq++);
+      if (l) lines.push(l);
+      if (e.type === 'ROLLED') spin(1);
     }
+    if (lines.length > 0) set((s) => ({ cfLog: [...s.cfLog, ...lines].slice(-200) }));
+  };
+
+  const cfFloats = (prev: CFState | null, next: CFState | null): void => {
+    if (!prev || !next) return;
+    const floats: CashFloat[] = [];
+    for (const id of next.seats) {
+      const delta = (next.players[id]?.cash ?? 0) - (prev.players[id]?.cash ?? 0);
+      if (delta !== 0) floats.push({ id: `f${logSeq++}`, playerId: id, delta });
+    }
+    addFloats(floats);
   };
 
   /** Walk a token space by space. Teleports (cards) jump straight there. */
@@ -188,17 +285,20 @@ export const useStore = create<Store>((set, get) => {
 
   const snapshot = (): RoomSnapshot | null => get().room;
 
-  const publish = (next: RoomSnapshot, events: GameEvent[] = []): void => {
+  const publish = (next: RoomSnapshot, events: GameEvent[] = [], cfEvents: CFEvent[] = []): void => {
+    const prevCf = get().room?.cf ?? null;
     const withRev = { ...next, rev: next.rev + 1 };
     set({ room: withRev });
     if (withRev.game) pushEvents(withRev.game, events);
+    if (withRev.cf) { pushCfEvents(cfEvents); cfFloats(prevCf, withRev.cf); }
     if (get().role === 'host' && host) {
       host.broadcastEvents(withRev.rev, events);
+      host.broadcastCfEvents(withRev.rev, cfEvents);
       host.broadcastRoom(withRev);
       // Somebody sat down or left. Twenty seconds of a wrong seat count is
       // how a lobby list earns its reputation for lying, and the fix costs
       // one request per actual change rather than per publish.
-      if (get().listed && !withRev.game && withRev.seats.length !== listedSeats) beat();
+      if (get().listed && !withRev.game && !withRev.cf && withRev.seats.length !== listedSeats) beat();
     }
     scheduleBots();
   };
@@ -208,7 +308,29 @@ export const useStore = create<Store>((set, get) => {
   const scheduleBots = (): void => {
     if (botTimer) { window.clearTimeout(botTimer); botTimer = null; }
     const { role, room } = get();
-    if (role === 'guest' || !room?.game) return;
+    if (role === 'guest' || !room) return;
+
+    if (room.cf) {
+      const s = room.cf;
+      if (s.phase === 'game_over' || s.phase === 'lobby') return;
+      // Seats whose turn it is not go first: a bot selling into a card on
+      // the table should not be beaten to it by the bot ending its turn.
+      const cur = cfCurrentId(s);
+      const order = [...room.seats.filter((x) => x.playerId !== cur), ...room.seats.filter((x) => x.playerId === cur)];
+      for (const seat of order) {
+        if (!seat.isBot) continue;
+        const action = cfBotDecide(s, seat.playerId);
+        if (!action) continue;
+        botTimer = window.setTimeout(() => {
+          botTimer = null;
+          applyIntent(seat.playerId, action);
+        }, cfBotDelay(s, seat.playerId));
+        return;
+      }
+      return;
+    }
+
+    if (!room.game) return;
     const game = room.game;
     if (game.phase === 'game_over' || game.phase === 'lobby') return;
 
@@ -227,11 +349,21 @@ export const useStore = create<Store>((set, get) => {
   /** The single funnel every action goes through on the authority. The
    *  host's own clicks take this path too, so there is exactly one code
    *  path and no chance of the host diverging from everyone else. */
-  const applyIntent = (playerId: string, action: GameAction): void => {
+  const applyIntent = (playerId: string, action: AnyAction): void => {
     const room = snapshot();
-    if (!room?.game) return;
-    if (action.playerId !== playerId) return;             // spoofed actor
-    const { state, events } = reduce(room.game, action);
+    if (!room) return;
+    if (!action || typeof action !== 'object' || action.playerId !== playerId) return; // spoofed actor
+
+    if (room.kind === 'cashflow') {
+      if (!room.cf) return;
+      const { state, events } = cfReduce(room.cf, action as CFAction);
+      if (state.version === room.cf.version) return;      // rejected, no-op
+      publish({ ...room, cf: state }, [], events);
+      return;
+    }
+
+    if (!room.game) return;
+    const { state, events } = reduce(room.game, action as GameAction);
     if (state.version === room.game.version) return;      // rejected, no-op
     publish({ ...room, game: state }, events);
   };
@@ -256,8 +388,8 @@ export const useStore = create<Store>((set, get) => {
           host?.broadcastRoom(next);
           return;
         }
-        if (room.game) { host?.send(from, { t: 'BYE', reason: 'in_progress' }); return; }
-        if (room.seats.length >= room.settings.maxPlayers) {
+        if (room.game || room.cf) { host?.send(from, { t: 'BYE', reason: 'in_progress' }); return; }
+        if (room.seats.length >= seatLimit(room)) {
           host?.send(from, { t: 'BYE', reason: 'room_full' });
           return;
         }
@@ -276,6 +408,7 @@ export const useStore = create<Store>((set, get) => {
       }
 
       case 'PROFILE': {
+        if (room.game || room.cf) return;
         const name = cleanText(msg.name, 18) || tr().defaults.player;
         const taken = new Set(room.seats.filter((x) => x.playerId !== from).map((x) => x.token));
         const token = taken.has(msg.token)
@@ -290,7 +423,7 @@ export const useStore = create<Store>((set, get) => {
 
       case 'SETTINGS':
         if (from !== room.hostId) return;
-        publish({ ...room, settings: msg.settings });
+        publish({ ...room, settings: msg.settings, cfRules: msg.cfRules ?? room.cfRules });
         return;
 
       case 'ADD_BOT':
@@ -331,18 +464,21 @@ export const useStore = create<Store>((set, get) => {
 
   /* ------------------------ guest: host output --------------------- */
 
+  const inGame = (snap: RoomSnapshot): boolean => Boolean(snap.game || snap.cf);
+
   const handleDown = (msg: Down): void => {
     switch (msg.t) {
       case 'WELCOME':
-        set({ room: msg.snapshot, screen: msg.snapshot.game ? 'game' : 'lobby' });
+        set({ room: msg.snapshot, screen: inGame(msg.snapshot) ? 'game' : 'lobby' });
         return;
 
       case 'ROOM': {
         const cur = get().room;
         // Out-of-order arrival is real; never go backwards.
         if (cur && msg.snapshot.rev <= cur.rev) return;
-        const wasInGame = Boolean(cur?.game);
-        set({ room: msg.snapshot, screen: msg.snapshot.game ? 'game' : 'lobby' });
+        const wasInGame = Boolean(cur && inGame(cur));
+        set({ room: msg.snapshot, screen: inGame(msg.snapshot) ? 'game' : 'lobby' });
+        cfFloats(cur?.cf ?? null, msg.snapshot.cf);
         if (msg.snapshot.game && !wasInGame) {
           const pos: Record<string, number> = {};
           for (const id of msg.snapshot.game.seats) pos[id] = msg.snapshot.game.players[id].position;
@@ -356,6 +492,10 @@ export const useStore = create<Store>((set, get) => {
         if (room?.game) pushEvents(room.game, msg.events);
         return;
       }
+
+      case 'CF_EVENTS':
+        pushCfEvents(msg.events);
+        return;
 
       case 'CHAT':
         set((s) => ({ chat: [...s.chat, msg.message].slice(-80) }));
@@ -384,8 +524,8 @@ export const useStore = create<Store>((set, get) => {
 
   const addBotSeat = (): void => {
     const room = snapshot();
-    if (!room || room.game) return;
-    if (room.seats.length >= room.settings.maxPlayers) return;
+    if (!room || inGame(room)) return;
+    if (room.seats.length >= seatLimit(room)) return;
     const used = new Set(room.seats.map((s) => s.name));
     const name = BOT_NAMES.find((n) => !used.has(n)) ?? tr().defaults.bot(room.seats.length + 1);
     const usedTokens = new Set(room.seats.map((s) => s.token));
@@ -395,12 +535,14 @@ export const useStore = create<Store>((set, get) => {
       isBot: true,
       botLevel: room.settings.botLevel,
     };
+    // A bot never connects, so nobody else may ever connect as it.
+    host?.reserve(seat.playerId);
     publish({ ...room, seats: [...room.seats, seat] });
   };
 
   const removeSeatById = (playerId: string): void => {
     const room = snapshot();
-    if (!room || room.game) return;
+    if (!room || inGame(room)) return;
     if (playerId === room.hostId) return;
     const seat = room.seats.find((s) => s.playerId === playerId);
     if (seat && !seat.isBot) host?.kick(playerId);
@@ -436,7 +578,7 @@ export const useStore = create<Store>((set, get) => {
     if (!room || !listed || role !== 'host') return;
     // A started game cannot be joined, so it does not belong on a list of
     // rooms you can join.
-    if (room.game) { stopListing(); return; }
+    if (inGame(room)) { stopListing(); return; }
     listedSeats = room.seats.length;
     void announceRoom({
       id: room.roomId,
@@ -461,9 +603,11 @@ export const useStore = create<Store>((set, get) => {
     code: '',
     listed: false,
     me: { playerId: localPlayerId(), name: savedName(), token: savedToken() },
+    pick: savedPick(),
 
     room: null,
     log: [],
+    cfLog: [],
     chat: [],
     floats: [],
 
@@ -476,6 +620,11 @@ export const useStore = create<Store>((set, get) => {
     sheet: 'none',
     soundOn: savedSound(),
 
+    setPick: (kind) => {
+      try { localStorage.setItem('mply.game', kind); } catch { /* private mode */ }
+      set({ pick: kind });
+    },
+
     setProfile: (name, token) => {
       const clean = cleanText(name, 18) || tr().defaults.player;
       try {
@@ -486,7 +635,7 @@ export const useStore = create<Store>((set, get) => {
 
       const { role, room, me } = get();
       if (role === 'guest') guest?.send({ t: 'PROFILE', playerId: me.playerId, name: clean, token });
-      else if (room && !room.game) {
+      else if (room && !inGame(room)) {
         publish({
           ...room,
           seats: room.seats.map((s) => (s.playerId === me.playerId ? { ...s, name: clean, token } : s)),
@@ -494,21 +643,19 @@ export const useStore = create<Store>((set, get) => {
       }
     },
 
-    hostRoom: (settings) => {
+    hostRoom: (settings, kind = get().pick) => {
       teardown();
       const me = get().me;
       const code = generateRoomCode();
-      const room: RoomSnapshot = {
-        roomId: code,
-        hostId: me.playerId,
-        seats: [emptySeat(me.playerId, me.name || tr().defaults.host, me.token, 0, true)],
-        settings: { ...(settings ?? defaultSettings()), seed: randomSeed() },
-        game: null,
-        rev: 0,
-      };
+      const room = freshRoom(
+        code,
+        emptySeat(me.playerId, me.name || tr().defaults.host, me.token, 0, true),
+        kind,
+        { ...(settings ?? defaultSettings()), seed: randomSeed() },
+      );
       set({
         role: 'host', code, room, screen: 'lobby',
-        log: [], chat: [], netError: null,
+        log: [], cfLog: [], chat: [], netError: null,
         // A new room is private until its host says otherwise.
         listed: false,
       });
@@ -525,6 +672,9 @@ export const useStore = create<Store>((set, get) => {
         },
         onStatus: (status, detail) => set({ netStatus: status, netError: detail ?? null }),
       });
+      // The host plays from this tab and never connects to itself, so its
+      // seat can only ever be claimed by somebody pretending to be it.
+      host.reserve(me.playerId);
       host.start();
     },
 
@@ -534,7 +684,7 @@ export const useStore = create<Store>((set, get) => {
       const code = rawCode.trim().toUpperCase();
       set({
         role: 'guest', code, room: null, screen: 'lobby',
-        log: [], chat: [], netError: null, netStatus: 'connecting',
+        log: [], cfLog: [], chat: [], netError: null, netStatus: 'connecting',
       });
       guest = new GuestNet(code, { playerId: me.playerId, name: me.name || tr().defaults.player, token: me.token }, {
         onDown: handleDown,
@@ -543,20 +693,18 @@ export const useStore = create<Store>((set, get) => {
       guest.start();
     },
 
-    playSolo: () => {
+    playSolo: (kind = get().pick) => {
       teardown();
       const me = get().me;
-      const room: RoomSnapshot = {
-        roomId: 'LOCAL',
-        hostId: me.playerId,
-        seats: [emptySeat(me.playerId, me.name || tr().defaults.you, me.token, 0, true)],
-        settings: { ...defaultSettings(), fillWithBots: true },
-        game: null,
-        rev: 0,
-      };
+      const room = freshRoom(
+        'LOCAL',
+        emptySeat(me.playerId, me.name || tr().defaults.you, me.token, 0, true),
+        kind,
+        { ...defaultSettings(), fillWithBots: true },
+      );
       set({
         role: 'local', code: '', room, screen: 'lobby',
-        log: [], chat: [], netError: null, netStatus: 'idle',
+        log: [], cfLog: [], chat: [], netError: null, netStatus: 'idle',
       });
       addBotSeat();
       addBotSeat();
@@ -566,23 +714,35 @@ export const useStore = create<Store>((set, get) => {
       teardown();
       set({
         screen: 'home', role: 'local', room: null, code: '', listed: false,
-        log: [], chat: [], floats: [], animPos: {},
+        log: [], cfLog: [], chat: [], floats: [], animPos: {},
         netStatus: 'idle', netError: null, sheet: 'none', inspecting: null,
       });
     },
 
     setListed: (on) => {
-      if (get().role !== 'host') return;
+      const { role, room } = get();
+      if (role !== 'host') return;
+      // The directory only knows Monopoly's presets; a Cashflow table on it
+      // would be listed as a Monopoly one. Invite-only until it learns.
+      if (on && room?.kind !== 'monopoly') return;
       if (on) { set({ listed: true }); startListing(); }
       else { stopListing(); set({ listed: false }); }
     },
 
     updateSettings: (patch) => {
       const { role, room, me } = get();
-      if (!room || room.game) return;
+      if (!room || inGame(room)) return;
       const settings = { ...room.settings, ...patch };
       if (role === 'guest') guest?.send({ t: 'SETTINGS', playerId: me.playerId, settings });
       else publish({ ...room, settings });
+    },
+
+    updateCfRules: (patch) => {
+      const { role, room, me } = get();
+      if (!room || inGame(room)) return;
+      const cfRules = { ...room.cfRules, ...patch };
+      if (role === 'guest') guest?.send({ t: 'SETTINGS', playerId: me.playerId, settings: room.settings, cfRules });
+      else publish({ ...room, cfRules });
     },
 
     addBot: () => {
@@ -599,7 +759,7 @@ export const useStore = create<Store>((set, get) => {
 
     startGame: () => {
       const { role, room, me } = get();
-      if (!room || room.game) return;
+      if (!room || inGame(room)) return;
       if (role === 'guest') {
         guest?.send({ t: 'INTENT', playerId: me.playerId, action: { type: 'START_GAME', playerId: me.playerId } });
         return;
@@ -626,12 +786,29 @@ export const useStore = create<Store>((set, get) => {
         isBot: s.isBot,
         botLevel: s.botLevel,
       }));
+      const base = snapshot() ?? room;
+
+      if (room.kind === 'cashflow') {
+        const settings: CFSettings = {
+          ...CF_DEFAULTS,
+          ...room.cfRules,
+          seed: room.settings.seed || randomSeed(),
+          maxPlayers: seatLimit(room),
+          botLevel: room.settings.botLevel,
+          fillWithBots: room.settings.fillWithBots,
+        };
+        const started = cfReduce(createCashflow(settings, specs), { type: 'START_GAME', playerId: me.playerId });
+        set({ screen: 'game', cfLog: [], log: [] });
+        publish({ ...base, seats, cf: started.state }, [], started.events);
+        return;
+      }
+
       const fresh = createGame({ ...room.settings, seed: room.settings.seed || randomSeed() }, specs);
       const started = reduce(fresh, { type: 'START_GAME', playerId: me.playerId });
       const pos: Record<string, number> = {};
       for (const id of started.state.seats) pos[id] = 0;
       set({ screen: 'game', animPos: pos, log: [] });
-      publish({ ...room, seats, game: started.state }, started.events);
+      publish({ ...base, seats, game: started.state }, started.events);
     },
 
     dispatch: (action) => {
@@ -678,6 +855,8 @@ if (import.meta.env.DEV) {
 /* ------------------------- derived selectors ------------------------ */
 
 export const useGame = (): GameState | null => useStore((s) => s.room?.game ?? null);
+
+export const useCF = (): CFState | null => useStore((s) => s.room?.cf ?? null);
 
 export const useMyId = (): string => useStore((s) => s.me.playerId);
 
