@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { BOARD, GROUPS, OWNABLE_IDS } from './board';
 import { createGame, reduce, type SeatSpec } from './engine';
 import { acceptMargin, botDecide, suggestTrade } from './ai';
-import { calculateRent, canTrade, legalActions, netWorth, ownedBy } from './rules';
+import {
+  autopilotAction, calculateRent, canTrade, legalActions, netWorth, ownedBy, waitingOn,
+} from './rules';
 import { rand } from './rng';
-import { CLASSIC } from './settings';
+import { CLASSIC, PRESETS } from './settings';
 import type { GameAction, GameSettings, GameState } from './types';
 
 const seats = (n: number, bots = false): SeatSpec[] =>
@@ -324,6 +326,281 @@ describe('debt and bankruptcy', () => {
     expect(s.phase).toBe('game_over');
     expect(s.winnerId).toBe('p1');
   });
+
+  it('lets a card that caused a debt be put down, then buildings sold to pay it', () => {
+    let s = game();
+    s.properties[1].owner = 'p0';
+    s.properties[3].owner = 'p0';
+    s.properties[1].houses = 4;
+    s.properties[3].houses = 4;
+    s.housesRemaining -= 8;
+    s.players.p0.cash = 50;
+    s.players.p0.position = 3;
+    s.phase = 'preroll';
+    s.chanceOrder = ['ch11', ...s.chanceOrder.filter((id) => id !== 'ch11')];
+    s.chanceCursor = 0;
+    s.rngCursor = findCursorForTotal(s.settings.seed, 4); // 3 -> Chance at 7
+    s = apply(s, { type: 'ROLL', playerId: 'p0' });
+
+    // General repairs: 8 houses at $25 is $200 against $50 in hand.
+    expect(s.phase).toBe('must_raise');
+    expect(s.debt?.amount).toBe(200);
+    expect(s.activeCard?.id).toBe('ch11');
+
+    s = apply(s, { type: 'DISMISS_CARD', playerId: 'p0' });
+    expect(s.activeCard).toBeNull();
+    expect(s.phase).toBe('must_raise');
+
+    for (let guard = 0; s.phase === 'must_raise' && guard < 10; guard++) {
+      const sell = legalActions(s, 'p0').find((a) => a.type === 'SELL_HOUSE');
+      expect(sell).toBeDefined();
+      s = apply(s, sell!);
+    }
+    expect(s.debt).toBeNull();
+    expect(s.players.p0.cash).toBe(0);
+    expect(s.properties[1].houses + s.properties[3].houses).toBe(2);
+  });
+});
+
+describe('rules that used to go wrong', () => {
+  /** A dice cursor that throws `total` without doubles, which would hand
+   *  out another roll and change the phase the test expects. */
+  const noDouble = (seed: number, total: number): number => {
+    for (let c = 0; c < 20000; c += 2) {
+      const d1 = 1 + Math.floor(rand(seed, c) * 6);
+      const d2 = 1 + Math.floor(rand(seed, c + 1) * 6);
+      if (d1 + d2 === total && d1 !== d2) return c;
+    }
+    throw new Error('no such throw in the stream');
+  };
+  const onTop = (order: string[], id: string): string[] => [id, ...order.filter((c) => c !== id)];
+
+  it('adds a tax raised through must_raise to the Free Parking pot once', () => {
+    let s = game({ freeParkingJackpot: true, freeParkingSeed: 0 });
+    s.players.p0.cash = 10;
+    s.properties[39].owner = 'p0';
+    s.properties[37].owner = 'p0';
+    s.rngCursor = noDouble(s.settings.seed, 4); // GO -> Income Tax
+    s = apply(s, { type: 'ROLL', playerId: 'p0' });
+    expect(s.phase).toBe('must_raise');
+    const owed = s.debt!.amount;
+    expect(s.freeParkingPot).toBe(0);
+    s = apply(s, { type: 'MORTGAGE', playerId: 'p0', spaceId: 39 });
+    s = apply(s, { type: 'MORTGAGE', playerId: 'p0', spaceId: 37 });
+    expect(s.debt).toBeNull();
+    expect(s.freeParkingPot).toBe(owed);
+  });
+
+  it('returns a Community Chest jail card to the bottom of Community Chest', () => {
+    let s = game();
+    s.chestOrder = onTop(s.chestOrder, 'cc05');
+    s.chestCursor = 0;
+    s.rngCursor = findCursorForTotal(s.settings.seed, 2); // GO -> Community Chest
+    s = apply(s, { type: 'ROLL', playerId: 'p0' });
+    expect(s.players.p0.getOutOfJailCards).toBe(1);
+    expect(s.chestOrder).not.toContain('cc05');
+    Object.assign(s.players.p0, { inJail: true, position: 10 });
+    s.phase = 'jailed_choice';
+    s = apply(s, { type: 'USE_JAIL_CARD', playerId: 'p0' });
+    expect(s.chanceOrder.filter((c) => c === 'ch08')).toHaveLength(1);
+    const n = s.chestOrder.length;
+    expect(n).toBe(16);
+    expect(s.chestOrder[(s.chestCursor + n - 1) % n]).toBe('cc05');
+  });
+
+  it('moves the roll once a third-turn jail fine has been raised', () => {
+    let s = game();
+    Object.assign(s.players.p0, { inJail: true, jailTurns: 2, position: 10, cash: 10 });
+    s.properties[39].owner = 'p0';
+    s.phase = 'jailed_choice';
+    s.rngCursor = noDouble(s.settings.seed, 6); // jail -> St. James Place
+    s = apply(s, { type: 'ROLL', playerId: 'p0' });
+    expect(s.phase).toBe('must_raise');
+    expect(s.players.p0.position).toBe(10);
+    s = apply(s, { type: 'MORTGAGE', playerId: 'p0', spaceId: 39 });
+    expect(s.debt).toBeNull();
+    expect(s.players.p0.position).toBe(16);
+    expect(s.phase).toBe('awaiting_buy');
+  });
+
+  it('owes every player their share when short on "pay each player"', () => {
+    let s = game();
+    s.players.p0.cash = 60;
+    s.properties[39].owner = 'p0';
+    s.chanceOrder = onTop(s.chanceOrder, 'ch14');
+    s.chanceCursor = 0;
+    s.rngCursor = findCursorForTotal(s.settings.seed, 7); // GO -> Chance
+    s = apply(s, { type: 'ROLL', playerId: 'p0' });
+    expect(s.phase).toBe('must_raise');
+    expect(s.debt).toMatchObject({ amount: 150, to: null, split: ['p1', 'p2', 'p3'] });
+    s = apply(s, { type: 'MORTGAGE', playerId: 'p0', spaceId: 39 });
+    expect(s.debt).toBeNull();
+    for (const id of ['p1', 'p2', 'p3']) expect(s.players[id].cash).toBe(1550);
+    expect(s.players.p0.cash).toBe(110);
+  });
+
+  it('shares out what is left between them if that bankrupts the payer', () => {
+    let s = game();
+    s.players.p0.cash = 60;
+    s.chanceOrder = onTop(s.chanceOrder, 'ch14');
+    s.chanceCursor = 0;
+    s.rngCursor = findCursorForTotal(s.settings.seed, 7);
+    s = apply(s, { type: 'ROLL', playerId: 'p0' });
+    s = apply(s, { type: 'DECLARE_BANKRUPTCY', playerId: 'p0' });
+    expect(s.players.p0.bankrupt).toBe(true);
+    for (const id of ['p1', 'p2', 'p3']) expect(s.players[id].cash).toBe(1520);
+  });
+
+  it('puts the card away when a deed it moved you to goes to auction', () => {
+    let s = game();
+    s.chanceOrder = onTop(s.chanceOrder, 'ch03');
+    s.chanceCursor = 0;
+    s.rngCursor = findCursorForTotal(s.settings.seed, 7); // GO -> Chance -> St. Charles
+    s = apply(s, { type: 'ROLL', playerId: 'p0' });
+    expect(s.phase).toBe('awaiting_buy');
+    expect(s.activeCard?.id).toBe('ch03');
+    s = apply(s, { type: 'DECLINE_PROPERTY', playerId: 'p0' });
+    expect(s.phase).toBe('auction');
+    expect(s.activeCard).toBeNull();
+  });
+
+  it('throws fresh dice for the "nearest utility" card', () => {
+    let s = game();
+    s.properties[12].owner = 'p1';
+    s.chanceOrder = onTop(s.chanceOrder, 'ch04');
+    s.chanceCursor = 0;
+    s.rngCursor = findCursorForTotal(s.settings.seed, 7); // GO -> Chance -> Electric Company
+    const r = reduce(s, { type: 'ROLL', playerId: 'p0' });
+    const throws = r.events.flatMap((e) => (e.type === 'DICE_ROLLED' ? [e.dice] : []));
+    expect(throws).toHaveLength(2);
+    const [a, b] = throws[1];
+    expect(r.events.find((e) => e.type === 'RENT_PAID')).toMatchObject({ amount: (a + b) * 10 });
+  });
+
+  it('gives every player the same number of turns under a turn limit', () => {
+    let s = game({ winCondition: 'turn-limit', turnLimit: 3 }, 3);
+    const turns: Record<string, number> = { p0: 1, p1: 0, p2: 0 };
+    for (let guard = 0; s.phase !== 'game_over' && guard < 3000; guard++) {
+      const [pid] = waitingOn(s);
+      if (!pid) break;
+      const r = reduce(s, autopilotAction(s, pid)!);
+      for (const e of r.events) if (e.type === 'TURN_STARTED') turns[e.playerId] += 1;
+      s = r.state;
+    }
+    expect(s.phase).toBe('game_over');
+    expect(turns).toEqual({ p0: 3, p1: 3, p2: 3 });
+  });
+
+  it('plays out the turn of a player who timed out, and nobody else', () => {
+    const s = game();
+    expect(reduce(s, { type: 'TIME_OUT', playerId: 'p1' }).state).toBe(s);
+    const r = reduce(s, { type: 'TIME_OUT', playerId: 'p0' });
+    expect(r.events[0]).toEqual({ type: 'TIMED_OUT', playerId: 'p0' });
+    expect(r.state.version).toBeGreaterThan(s.version);
+    expect(waitingOn(r.state)).not.toContain('p0');
+    expect(r.events.some((e) => e.type === 'BOUGHT' || e.type === 'AUCTION_BID')).toBe(false);
+  });
+
+  it('lets a player short of a price mortgage to raise it', () => {
+    let s = game();
+    s.players.p0.cash = 100;
+    s.players.p0.position = 39;
+    s.phase = 'awaiting_buy';
+    s.properties[37].owner = 'p0';
+    s.properties[34].owner = 'p0';
+    expect(legalActions(s, 'p0').some((a) => a.type === 'BUY_PROPERTY')).toBe(false);
+    s = apply(s, { type: 'MORTGAGE', playerId: 'p0', spaceId: 37 });
+    s = apply(s, { type: 'MORTGAGE', playerId: 'p0', spaceId: 34 });
+    s = apply(s, { type: 'BUY_PROPERTY', playerId: 'p0' });
+    expect(s.properties[39].owner).toBe('p0');
+  });
+
+  it('lets a player in debt take a trade that pays it off', () => {
+    let s = game();
+    s.properties[1].owner = 'p0';
+    s.players.p0.cash = 0;
+    s.debt = { from: 'p0', to: 'p1', amount: 100, reason: 'rent' };
+    s.phase = 'must_raise';
+    s = apply(s, {
+      type: 'PROPOSE_TRADE',
+      playerId: 'p2',
+      offer: {
+        from: 'p2', to: 'p0',
+        giveCash: 150, giveProperties: [], giveJailCards: 0,
+        wantCash: 0, wantProperties: [1], wantJailCards: 0,
+      },
+    });
+    s = apply(s, { type: 'ACCEPT_TRADE', playerId: 'p0', tradeId: s.trades[0].id });
+    expect(s.properties[1].owner).toBe('p2');
+    expect(s.debt).toBeNull();
+    expect(s.players.p0.cash).toBe(50);
+  });
+
+  it('sells a hotel the bank cannot break by bringing the set down evenly', () => {
+    let s = game();
+    for (const id of [16, 18, 19]) s.properties[id].owner = 'p0';
+    s.properties[16].houses = 5;
+    s.properties[18].houses = 4;
+    s.properties[19].houses = 4;
+    s.hotelsRemaining = 11;
+    s.housesRemaining = 2;
+    const cash = s.players.p0.cash;
+    s = apply(s, { type: 'SELL_HOUSE', playerId: 'p0', spaceId: 16 });
+    expect([16, 18, 19].map((id) => s.properties[id].houses)).toEqual([3, 3, 3]);
+    expect(s.housesRemaining).toBe(1);
+    expect(s.hotelsRemaining).toBe(12);
+    expect(s.players.p0.cash).toBe(cash + 4 * 50);
+  });
+
+  it('auctions a bankrupt estate the bank takes, deed by deed', () => {
+    let s = game();
+    s.properties[1].owner = 'p0';
+    s.properties[3].owner = 'p0';
+    s.players.p0.cash = 0;
+    s.debt = { from: 'p0', to: null, amount: 900, reason: 'Income Tax' };
+    s.phase = 'must_raise';
+    s = apply(s, { type: 'DECLARE_BANKRUPTCY', playerId: 'p0' });
+    expect(s.phase).toBe('auction');
+    expect(s.auction).toMatchObject({ spaceId: 1, origin: 'bankruptcy' });
+    s = apply(s, { type: 'BID', playerId: 'p2', amount: 20 });
+    s = apply(s, { type: 'PASS_BID', playerId: 'p1' });
+    s = apply(s, { type: 'PASS_BID', playerId: 'p3' });
+    expect(s.properties[1].owner).toBe('p2');
+    expect(s.auction?.spaceId).toBe(3);
+    for (const id of ['p1', 'p2', 'p3']) s = apply(s, { type: 'PASS_BID', playerId: id });
+    expect(s.properties[3].owner).toBeNull();
+    expect(s.phase).toBe('preroll');
+    expect(s.seats[s.seatIndex]).toBe('p1');
+  });
+
+  it('charges interest to whoever takes over a mortgaged deed', () => {
+    let s = game();
+    s.properties[1].owner = 'p0';
+    s.properties[1].mortgaged = true;
+    s = apply(s, {
+      type: 'PROPOSE_TRADE',
+      playerId: 'p0',
+      offer: {
+        from: 'p0', to: 'p1',
+        giveCash: 0, giveProperties: [1], giveJailCards: 0,
+        wantCash: 0, wantProperties: [], wantJailCards: 0,
+      },
+    });
+    s = apply(s, { type: 'ACCEPT_TRADE', playerId: 'p1', tradeId: s.trades[0].id });
+    expect(s.properties[1].owner).toBe('p1');
+    expect(s.players.p1.cash).toBe(1500 - 3); // 10% of the $30 mortgage
+  });
+
+  it('never lets the high bidder raise their own bid', () => {
+    let s = game();
+    s.players.p0.position = 1;
+    s.phase = 'awaiting_buy';
+    s = apply(s, { type: 'DECLINE_PROPERTY', playerId: 'p0' });
+    s = apply(s, { type: 'BID', playerId: 'p1', amount: 20 });
+    expect(legalActions(s, 'p1')).toEqual([]);
+    expect(apply(s, { type: 'BID', playerId: 'p1', amount: 30 }).auction?.currentBid).toBe(20);
+    expect(waitingOn(s)).not.toContain('p1');
+  });
 });
 
 describe('trades', () => {
@@ -536,7 +813,8 @@ describe('bots that trade', () => {
     let accepted = 0;
     for (const seed of [11, 4242, 90210, 777]) {
       let s = createGame(
-        { ...CLASSIC, seed, winCondition: 'turn-limit', turnLimit: 120 },
+        // 30 rounds of four: the same 120 turns this always played.
+        { ...CLASSIC, seed, winCondition: 'turn-limit', turnLimit: 30 },
         seats(4, true),
       );
       s = apply(s, { type: 'START_GAME', playerId: 'p0' });
@@ -613,7 +891,10 @@ function step(s: GameState): GameState {
 describe('fuzz', () => {
   it('plays 60 random games without breaking an invariant', () => {
     for (let g = 0; g < 60; g++) {
-      let s = game({ seed: g * 7919 + 1, winCondition: 'turn-limit', turnLimit: 30 });
+      // Every preset in turn: the jackpot, no-auction and no-shortage rules
+      // each reach code the classic rules never do.
+      const preset = PRESETS[g % PRESETS.length].patch;
+      let s = game({ ...preset, seed: g * 7919 + 1, winCondition: 'turn-limit', turnLimit: 30 });
       for (let i = 0; i < 800 && s.phase !== 'game_over'; i++) {
         const before = s.version;
         s = step(s);
@@ -682,6 +963,12 @@ function assertInvariants(s: GameState, g: number, i: number): void {
       if (Math.max(...counts) - Math.min(...counts) > 1) bad(`uneven build in ${grp}`);
     }
   }
+
+  if (!(s.freeParkingPot >= 0)) bad(`pot is ${s.freeParkingPot}`);
+  if (s.phase !== 'auction' && s.phase !== 'game_over' && s.auctionQueue.length > 0) {
+    bad(`estate auctions left queued in ${s.phase}`);
+  }
+  if (s.debt && s.phase !== 'must_raise') bad(`debt left standing in ${s.phase}`);
 
   if (s.settings.buildingShortage) {
     if (houses + s.housesRemaining !== 32) bad(`houses not conserved (${houses} + ${s.housesRemaining})`);

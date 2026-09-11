@@ -231,6 +231,7 @@ export const en = {
     raise: 'Mortgage deeds or sell buildings from the board to raise it.',
     bankruptcy: 'Declare bankruptcy',
     tapHint: 'Tap any deed you own on the board to mortgage it or sell its buildings.',
+    raiseToBuy: 'Short of the price? Tap your deeds on the board to mortgage them or sell buildings first.',
     theirTurn: (name: string) => `${name}'s turn`,
     waitNote: 'You can still manage your own property and offer trades while you wait.',
     yourTurn: 'Your turn',
@@ -313,6 +314,7 @@ export const en = {
     tradeDeclined: (to: string) => `${to} declined the trade.`,
     tradeExpired: (from: string, to: string) => `${from}'s offer to ${to} lapsed.`,
     freeParking: (p: string, x: string) => `${p} scooped ${x} off Free Parking.`,
+    timedOut: (p: string) => `${p} ran out of time - the table moved on for them.`,
     wins: (p: string) => `${p} wins.`,
     draw: 'The game ended in a draw.',
   },
@@ -330,6 +332,7 @@ export const en = {
     title: (space: string) => `Auction: ${space}`,
     /** Text either side of the list price, which is set in bold. */
     intro: (space: string) => [`${space} went unsold, so it goes to the highest bidder. List price is `, '.'] as [string, string],
+    introBank: (space: string) => [`The bank took ${space} from a bankrupt estate and sells it to the highest bidder. List price is `, '.'] as [string, string],
     currentBid: 'Current bid',
     noBids: 'No bids',
     passed: 'passed',
@@ -337,6 +340,7 @@ export const en = {
     customAria: 'Custom bid',
     bid: 'Bid',
     out: 'You are out of this auction. Waiting for the others.',
+    leading: 'You hold the high bid. Waiting for the others to raise or pass.',
   },
 
   trade: {
@@ -434,6 +438,7 @@ export const en = {
     sellBuilding: (x: string) => `Sell building +${x}`,
     liftMortgage: (x: string) => `Lift mortgage ${x}`,
     mortgageFor: (x: string) => `Mortgage +${x}`,
+    notNow: 'Not allowed right now',
   },
 
   help: {

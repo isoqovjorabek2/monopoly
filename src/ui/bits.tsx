@@ -7,6 +7,20 @@ import { Piece } from './Pieces';
 export const fmt = (n: number): string =>
   `$${Math.round(n).toLocaleString('en-US')}`;
 
+/** Seconds left on a clock that restarts whenever `key` changes. Display
+ *  only - the host decides when time is actually up. Null when there is no
+ *  clock at all. */
+export function useCountdown(limit: number, key: string): number | null {
+  const [left, setLeft] = useState(limit);
+  useEffect(() => {
+    if (limit <= 0) return;
+    setLeft(limit);
+    const timer = window.setInterval(() => setLeft((v) => Math.max(0, v - 1)), 1000);
+    return () => window.clearInterval(timer);
+  }, [limit, key]);
+  return limit > 0 ? left : null;
+}
+
 /** Money that counts to its new value instead of snapping - the delta is
  *  the information, and a snapping number throws it away. */
 export function Money({ value, className = '' }: { value: number; className?: string }) {

@@ -1,13 +1,13 @@
 import {
-  BOARD, BOARD_SIZE, JAIL_POSITION,
+  BOARD, BOARD_SIZE, GROUPS, JAIL_POSITION,
   OWNABLE_IDS, RAILROAD_IDS, UTILITY_IDS,
 } from './board';
 import { CHANCE, CHEST, cardById } from './cards';
 import { rollDice, shuffle } from './rng';
 import {
-  buildingSellValue, calculateRent, canBuildHouse, canMortgage, canSellHouse,
-  canTrade, canUnmortgage, currentPlayerId, isLegal, maxRaisable, netWorth,
-  ownedBy, tradeKey, unmortgageCost,
+  autopilotAction, buildingSellValue, calculateRent, canBuildHouse, canMortgage,
+  canSellHouse, canTrade, canUnmortgage, currentPlayerId, isLegal, maxRaisable,
+  netWorth, ownedBy, tradeKey, transferFee, unmortgageCost, waitingOn,
 } from './rules';
 import type {
   Card, GameAction, GameEvent, GameSettings, GameState, Player,
@@ -77,11 +77,13 @@ export function createGame(settings: GameSettings, seats: SeatSpec[]): GameState
     hotelsRemaining: 12,
     freeParkingPot: settings.freeParkingJackpot ? settings.freeParkingSeed : 0,
     auction: null,
+    auctionQueue: [],
     debt: null,
     trades: [],
     tradeCooldowns: {},
     activeCard: null,
     turnNumber: 0,
+    round: 0,
     winnerId: null,
     startedAt: 0,
   };
@@ -95,6 +97,7 @@ export function reduce(prev: GameState, action: GameAction): Reduction {
   const events: GameEvent[] = [];
 
   if (prev.phase === 'game_over') return { state: prev, events };
+  if (action.type === 'TIME_OUT') return timeOut(prev, action.playerId);
   if (!isLegal(prev, action)) return { state: prev, events };
 
   const s = clone(prev);
@@ -113,7 +116,7 @@ export function reduce(prev: GameState, action: GameAction): Reduction {
     case 'UNMORTGAGE':      doUnmortgage(s, events, action.playerId, action.spaceId); break;
     case 'PAY_JAIL_FINE':   doPayFine(s, events, action.playerId); break;
     case 'USE_JAIL_CARD':   doUseJailCard(s, events, action.playerId); break;
-    case 'DECLARE_BANKRUPTCY': doBankrupt(s, events, action.playerId, s.debt?.to ?? null); break;
+    case 'DECLARE_BANKRUPTCY': declareBankruptcy(s, events, action.playerId); break;
     case 'PROPOSE_TRADE':   doProposeTrade(s, events, action.offer); break;
     case 'ACCEPT_TRADE':    doAcceptTrade(s, events, action.playerId, action.tradeId); break;
     case 'DECLINE_TRADE':   doDeclineTrade(s, events, action.playerId, action.tradeId); break;
@@ -135,6 +138,7 @@ export function reduce(prev: GameState, action: GameAction): Reduction {
 function startGame(s: GameState, events: GameEvent[]): void {
   s.phase = 'preroll';
   s.turnNumber = 1;
+  s.round = 1;
   s.startedAt = 0;
   events.push({ type: 'GAME_STARTED' });
   events.push({ type: 'TURN_STARTED', playerId: currentPlayerId(s), turnNumber: 1 });
@@ -173,11 +177,15 @@ function doRoll(s: GameState, events: GameEvent[]): void {
       me.inJail = false;
       me.jailTurns = 0;
       events.push({ type: 'LEFT_JAIL', playerId: pid, how: 'paid the fine' });
-      if (s.phase !== 'must_raise') {
-        movePlayer(s, events, pid, total, false);
-        resolveLanding(s, events, pid, total);
-        finishResolution(s, events, false);
+      if (s.phase === 'must_raise') {
+        // Short of the fine: the roll is still owed its move, made once the
+        // money is raised (settleDebt) - or never, if they fold.
+        if (s.debt) s.debt.resume = 'move';
+        return;
       }
+      movePlayer(s, events, pid, total, false);
+      resolveLanding(s, events, pid, total);
+      finishResolution(s, events, false);
       return;
     }
     s.resolved = true;
@@ -228,6 +236,7 @@ function doEndTurn(s: GameState, events: GameEvent[]): void {
   const alive = s.seats.filter((id) => !s.players[id].bankrupt);
   if (alive.length <= 1) { checkWinCondition(s, events); return; }
 
+  const from = s.seatIndex;
   let guard = 0;
   do {
     s.seatIndex = (s.seatIndex + 1) % s.seats.length;
@@ -235,7 +244,13 @@ function doEndTurn(s: GameState, events: GameEvent[]): void {
   } while (s.players[s.seats[s.seatIndex]].bankrupt && guard <= s.seats.length);
 
   s.turnNumber += 1;
+  // Coming back round the table starts a new round - the unit a turn limit
+  // counts in, so that every player gets the same number of turns.
+  if (s.seatIndex <= from) s.round += 1;
   expireTrades(s, events);
+  // A turn limit ends the game here, before anyone starts a turn past it.
+  checkWinCondition(s, events);
+  if (s.phase === 'game_over') return;
   const pid = currentPlayerId(s);
   s.phase = s.players[pid].inJail ? 'jailed_choice' : 'preroll';
   events.push({ type: 'TURN_STARTED', playerId: pid, turnNumber: s.turnNumber });
@@ -322,7 +337,6 @@ function resolveLanding(
       const amount = space.taxAmount ?? 0;
       chargePlayer(s, events, pid, amount, space.name, null);
       events.push({ type: 'TAX_PAID', playerId: pid, amount, label: space.name });
-      if (s.settings.freeParkingJackpot) s.freeParkingPot += amount;
       return;
     }
 
@@ -383,10 +397,7 @@ function applyCard(
   switch (e.kind) {
     case 'money':
       if (e.amount >= 0) credit(s, events, pid, e.amount, card.text);
-      else {
-        chargePlayer(s, events, pid, -e.amount, card.text, null);
-        if (s.settings.freeParkingJackpot) s.freeParkingPot += -e.amount;
-      }
+      else chargePlayer(s, events, pid, -e.amount, card.text, null);
       return;
 
     case 'moneyFromEach': {
@@ -400,13 +411,17 @@ function applyCard(
     case 'moneyToEach': {
       const others = s.seats.filter((id) => id !== pid && !s.players[id].bankrupt);
       const total = others.length * e.amount;
-      // Raise the whole sum first, so a short payer cannot leave half the
-      // table unpaid while a single debt sits against one of them.
-      if (me.cash < total) autoLiquidate(s, events, pid, total);
-      for (const other of others) {
-        if (s.players[pid].bankrupt) break;
-        chargePlayer(s, events, pid, e.amount, card.text, other);
+      if (total <= 0) return;
+      if (me.cash >= total) {
+        for (const other of others) chargePlayer(s, events, pid, e.amount, card.text, other);
+        return;
       }
+      // Short: one debt for the whole sum, owed to everyone in equal shares.
+      // Charging them one at a time let each failed payment overwrite the
+      // last, so only the final player was ever owed anything.
+      s.debt = { from: pid, to: null, amount: total, reason: card.text, split: others };
+      s.phase = 'must_raise';
+      events.push({ type: 'DEBT_INCURRED', playerId: pid, amount: total, reason: card.text });
       return;
     }
 
@@ -417,10 +432,7 @@ function applyCard(
         if (st.houses === 5) owed += e.perHotel;
         else owed += st.houses * e.perHouse;
       }
-      if (owed > 0) {
-        chargePlayer(s, events, pid, owed, card.text, null);
-        if (s.settings.freeParkingJackpot) s.freeParkingPot += owed;
-      }
+      if (owed > 0) chargePlayer(s, events, pid, owed, card.text, null);
       return;
     }
 
@@ -462,11 +474,19 @@ function applyCard(
       if (!st.owner) { s.phase = 'awaiting_buy'; return; }
       if (st.owner === pid) return;
 
-      // The utility card charges 10x the roll regardless of how many the
-      // owner holds; the railroad card charges double the normal rent.
-      const rent = e.target === 'utility'
-        ? calculateRent(s, best, diceTotal, { forceUtilityMultiplier: 10 })
-        : calculateRent(s, best, diceTotal, { railroadMultiplier: 2 });
+      // The utility card charges ten times a fresh throw of the dice, however
+      // many utilities the owner holds; the railroad card charges double.
+      let rent: number;
+      if (e.target === 'utility') {
+        const r = rollDice(s.settings.seed, s.rngCursor);
+        s.rngCursor = r.cursor;
+        s.dice = r.dice;
+        // A throw for the card, not a move: it never counts as doubles.
+        events.push({ type: 'DICE_ROLLED', playerId: pid, dice: r.dice, isDouble: false });
+        rent = calculateRent(s, best, r.dice[0] + r.dice[1], { forceUtilityMultiplier: 10 });
+      } else {
+        rent = calculateRent(s, best, diceTotal, { railroadMultiplier: 2 });
+      }
       if (rent > 0) {
         chargePlayer(s, events, pid, rent, `rent on ${BOARD[best].name}`, st.owner);
         events.push({ type: 'RENT_PAID', from: pid, to: st.owner, amount: rent, spaceId: best });
@@ -500,6 +520,7 @@ function chargePlayer(
     me.cash -= amount;
     events.push({ type: 'MONEY', playerId: pid, delta: -amount, reason });
     if (creditorId) credit(s, events, creditorId, amount, `from ${me.name}`);
+    else paidToBank(s, amount);
     return;
   }
 
@@ -515,6 +536,7 @@ function chargePlayer(
     me.cash -= amount;
     events.push({ type: 'MONEY', playerId: pid, delta: -amount, reason });
     if (creditorId) credit(s, events, creditorId, amount, `from ${me.name}`);
+    else paidToBank(s, amount);
   } else {
     if (creditorId) credit(s, events, creditorId, me.cash, `from ${me.name}`);
     me.cash = 0;
@@ -542,17 +564,79 @@ function autoLiquidate(s: GameState, events: GameEvent[], pid: string, target: n
   }
 }
 
+/** Money paid to the bank. Under the Free Parking house rule it piles up on
+ *  the square instead - counted here, once, when it is actually paid. */
+function paidToBank(s: GameState, amount: number): void {
+  if (s.settings.freeParkingJackpot) s.freeParkingPot += amount;
+}
+
 function settleDebt(s: GameState, events: GameEvent[]): void {
   const d = s.debt;
   if (!d) return;
   const me = s.players[d.from];
   me.cash -= d.amount;
   events.push({ type: 'MONEY', playerId: d.from, delta: -d.amount, reason: d.reason });
-  if (d.to) credit(s, events, d.to, d.amount, `from ${me.name}`);
-  else if (s.settings.freeParkingJackpot) s.freeParkingPot += d.amount;
+  if (d.split) {
+    // Whole by construction: the debt is the per-player sum times the count.
+    const share = d.amount / d.split.length;
+    for (const id of d.split) credit(s, events, id, share, `from ${me.name}`);
+  } else if (d.to) {
+    credit(s, events, d.to, d.amount, `from ${me.name}`);
+  } else {
+    paidToBank(s, d.amount);
+  }
   s.debt = null;
   s.phase = 'resolving';
+
+  if (d.resume === 'move' && s.dice) {
+    const total = s.dice[0] + s.dice[1];
+    movePlayer(s, events, d.from, total, false);
+    resolveLanding(s, events, d.from, total);
+    finishResolution(s, events, false);
+    return;
+  }
   finishResolution(s, events, s.doublesCount > 0);
+}
+
+function declareBankruptcy(s: GameState, events: GameEvent[], pid: string): void {
+  const d = s.debt;
+  if (d?.split) {
+    // Owed to several players at once: what cash there is goes to them in
+    // equal shares, and the deeds go to the bank to be auctioned.
+    const me = s.players[pid];
+    const share = Math.floor(me.cash / d.split.length);
+    if (share > 0) {
+      for (const id of d.split) {
+        me.cash -= share;
+        credit(s, events, id, share, `from ${me.name}'s estate`);
+      }
+    }
+    doBankrupt(s, events, pid, null);
+    return;
+  }
+  doBankrupt(s, events, pid, d?.to ?? null);
+}
+
+/**
+ * A player whose clock ran out, or who has left the table, has their
+ * pending decisions made for them - the least committal legal move each
+ * time - until the table stops waiting on them. The host only says when;
+ * the engine decides what it means, so every client logs the same thing.
+ */
+function timeOut(prev: GameState, pid: string): Reduction {
+  if (!waitingOn(prev).includes(pid)) return { state: prev, events: [] };
+  let state = prev;
+  const events: GameEvent[] = [{ type: 'TIMED_OUT', playerId: pid }];
+  for (let guard = 0; guard < 100 && waitingOn(state).includes(pid); guard++) {
+    const a = autopilotAction(state, pid);
+    if (!a) break;
+    const r = reduce(state, a);
+    if (r.state.version === state.version) break;
+    state = r.state;
+    events.push(...r.events);
+  }
+  if (state === prev) return { state: prev, events: [] };
+  return { state, events };
 }
 
 /* ---------------------------- transactions -------------------------- */
@@ -590,6 +674,9 @@ function doDecline(s: GameState, events: GameEvent[], pid: string): void {
     turn: 0,
     origin: 'declined',
   };
+  // The card that brought them here is finished with. Left up, it would sit
+  // over the auction and hide the bid controls from the whole table.
+  s.activeCard = null;
   s.phase = 'auction';
   events.push({ type: 'AUCTION_STARTED', spaceId });
 }
@@ -629,7 +716,15 @@ function closeAuctionIfDone(s: GameState, events: GameEvent[]): void {
     events.push({ type: 'AUCTION_NOBODY', spaceId: a.spaceId });
   }
 
+  const origin = a.origin;
   s.auction = null;
+  if (origin === 'bankruptcy') {
+    // A bankrupt estate's deeds go one after another; then the turn that was
+    // just starting when the bank took them picks up where it was.
+    if (startQueuedAuction(s, events)) return;
+    s.phase = s.players[currentPlayerId(s)].inJail ? 'jailed_choice' : 'preroll';
+    return;
+  }
   s.phase = 'resolving';
   finishResolution(s, events, s.doublesCount > 0);
 }
@@ -654,6 +749,10 @@ function doBuild(s: GameState, events: GameEvent[], pid: string, spaceId: number
 function applySellHouse(s: GameState, events: GameEvent[], pid: string, spaceId: number): void {
   const st = s.properties[spaceId];
   const refund = buildingSellValue(spaceId);
+  if (st.houses === 5 && s.settings.buildingShortage && s.housesRemaining < 4) {
+    sellSetDown(s, events, pid, spaceId);
+    return;
+  }
   if (st.houses === 5) {
     st.houses = 4;
     s.hotelsRemaining += 1;
@@ -667,6 +766,39 @@ function applySellHouse(s: GameState, events: GameEvent[], pid: string, spaceId:
     events.push({ type: 'MONEY', playerId: pid, delta: refund, reason: `sold house on ${BOARD[spaceId].name}` });
   }
   events.push({ type: 'SOLD_BUILDING', playerId: pid, spaceId, houses: st.houses });
+}
+
+/**
+ * Breaking a hotel takes four houses back from the bank. When the bank is
+ * short, the printed rule is that the hotel is sold down to what the bank
+ * can supply - and the rest of the set comes down with it, so the set stays
+ * even. Picks the highest level the bank can still furnish; level 0 always
+ * can be, since it takes no houses at all.
+ */
+function sellSetDown(s: GameState, events: GameEvent[], pid: string, spaceId: number): void {
+  const group = GROUPS[BOARD[spaceId].group!];
+  const target = (h: number, level: number): number => (h === 5 ? level : Math.min(h, level));
+  const need = (level: number): number =>
+    group.reduce((n, id) => {
+      const h = s.properties[id].houses;
+      return n + (h === 5 ? level : target(h, level) - h);
+    }, 0);
+  let level = 4;
+  while (level > 0 && need(level) > s.housesRemaining) level -= 1;
+
+  s.housesRemaining -= need(level);
+  for (const id of group) {
+    const st = s.properties[id];
+    const next = target(st.houses, level);
+    const sold = st.houses - next; // a hotel counts as five
+    if (sold <= 0) continue;
+    if (st.houses === 5) s.hotelsRemaining += 1;
+    st.houses = next;
+    const amount = sold * buildingSellValue(id);
+    s.players[pid].cash += amount;
+    events.push({ type: 'MONEY', playerId: pid, delta: amount, reason: `sold buildings on ${BOARD[id].name}` });
+    events.push({ type: 'SOLD_BUILDING', playerId: pid, spaceId: id, houses: next });
+  }
 }
 
 function doSellHouse(s: GameState, events: GameEvent[], pid: string, spaceId: number): void {
@@ -705,7 +837,7 @@ function doPayFine(s: GameState, events: GameEvent[], pid: string): void {
   me.jailTurns = 0;
   events.push({ type: 'MONEY', playerId: pid, delta: -s.settings.jailFine, reason: 'jail fine' });
   events.push({ type: 'LEFT_JAIL', playerId: pid, how: 'paid the fine' });
-  if (s.settings.freeParkingJackpot) s.freeParkingPot += s.settings.jailFine;
+  paidToBank(s, s.settings.jailFine);
   s.phase = 'preroll';
 }
 
@@ -714,10 +846,27 @@ function doUseJailCard(s: GameState, events: GameEvent[], pid: string): void {
   me.getOutOfJailCards -= 1;
   me.inJail = false;
   me.jailTurns = 0;
-  // The card goes back to the bottom of its deck.
-  s.chanceOrder.push('ch08');
+  returnJailCard(s);
   events.push({ type: 'LEFT_JAIL', playerId: pid, how: 'used a Get Out of Jail Free card' });
   s.phase = 'preroll';
+}
+
+/**
+ * A Get Out of Jail Free card that is used, or surrendered to the bank, goes
+ * to the bottom of whichever deck is missing its copy. The two cards are
+ * identical, so which one a player happened to draw needs no remembering.
+ */
+function returnJailCard(s: GameState): void {
+  if (!s.chanceOrder.includes('ch08')) s.chanceCursor = toBottom(s.chanceOrder, s.chanceCursor, 'ch08');
+  else if (!s.chestOrder.includes('cc05')) s.chestCursor = toBottom(s.chestOrder, s.chestCursor, 'cc05');
+}
+
+/** A deck is read round from its cursor, so its bottom is the slot just
+ *  before it. Returns the cursor, moved past the inserted card. */
+function toBottom(order: string[], cursor: number, id: string): number {
+  const at = order.length === 0 ? 0 : cursor % order.length;
+  order.splice(at, 0, id);
+  return at + 1;
 }
 
 /* ------------------------------- trades ----------------------------- */
@@ -768,12 +917,23 @@ function doAcceptTrade(s: GameState, events: GameEvent[], pid: string, tradeId: 
   to.getOutOfJailCards += offer.giveJailCards - offer.wantJailCards;
   for (const id of offer.giveProperties) s.properties[id].owner = offer.to;
   for (const id of offer.wantProperties) s.properties[id].owner = offer.from;
+  chargeTransferFees(s, events, offer.to, offer.giveProperties);
+  chargeTransferFees(s, events, offer.from, offer.wantProperties);
 
   s.trades = s.trades.filter(
     (t) => t.id !== tradeId
       && ![t.from, t.to].some((p) => p === offer.from || p === offer.to),
   );
   events.push({ type: 'TRADE_ACCEPTED', offer });
+}
+
+/** Deeds that arrive mortgaged cost their new owner the interest up front
+ *  (official rule). canTrade has already checked it can be paid. */
+function chargeTransferFees(s: GameState, events: GameEvent[], pid: string, ids: number[]): void {
+  const fee = ids.reduce((n, id) => n + (s.properties[id].mortgaged ? transferFee(s, id) : 0), 0);
+  if (fee <= 0) return;
+  s.players[pid].cash -= fee;
+  events.push({ type: 'MONEY', playerId: pid, delta: -fee, reason: 'mortgage interest' });
 }
 
 function doDeclineTrade(s: GameState, events: GameEvent[], pid: string, tradeId: string): void {
@@ -795,6 +955,7 @@ function doBankrupt(
   if (creditorId && s.players[creditorId] && !s.players[creditorId].bankrupt) {
     // Everything transfers, mortgages and all.
     credit(s, events, creditorId, me.cash, `from ${me.name}'s estate`);
+    let interest = 0;
     for (const id of owned) {
       const st = s.properties[id];
       // Buildings are returned to the bank at half value, paid to the creditor.
@@ -806,10 +967,20 @@ function doBankrupt(
         credit(s, events, creditorId, refund, 'liquidated buildings');
       }
       st.owner = creditorId;
+      if (st.mortgaged) interest += transferFee(s, id);
     }
     s.players[creditorId].getOutOfJailCards += me.getOutOfJailCards;
+    // Taking over a mortgaged deed costs the interest up front - paid out of
+    // what the estate has just handed over, never into debt.
+    const creditor = s.players[creditorId];
+    const pay = Math.min(interest, creditor.cash);
+    if (pay > 0) {
+      creditor.cash -= pay;
+      events.push({ type: 'MONEY', playerId: creditorId, delta: -pay, reason: 'mortgage interest' });
+    }
   } else {
-    // To the bank: the deeds go back on the market, unimproved and unmortgaged.
+    // To the bank: the deeds come back unimproved and unmortgaged, and the
+    // bank sells them on at auction (official rule).
     for (const id of owned) {
       const st = s.properties[id];
       if (st.houses === 5) s.hotelsRemaining += 1;
@@ -818,6 +989,8 @@ function doBankrupt(
       st.houses = 0;
       st.mortgaged = false;
     }
+    for (let i = 0; i < me.getOutOfJailCards; i++) returnJailCard(s);
+    if (s.settings.auctionsEnabled) s.auctionQueue.push(...owned);
   }
 
   me.cash = 0;
@@ -838,6 +1011,30 @@ function doBankrupt(
     s.jailedThisTurn = false;
     doEndTurn(s, events);
   }
+  startQueuedAuction(s, events);
+}
+
+/** Put the next deed the bank took from a bankrupt estate up for auction.
+ *  False when there is nothing to sell, or nobody left to sell it to. */
+function startQueuedAuction(s: GameState, events: GameEvent[]): boolean {
+  if (s.phase === 'game_over' || s.auction || s.auctionQueue.length === 0) return false;
+  const bidders = s.seats.filter((id) => !s.players[id].bankrupt);
+  if (bidders.length < 2) {
+    s.auctionQueue = [];
+    return false;
+  }
+  const spaceId = s.auctionQueue.shift()!;
+  s.auction = {
+    spaceId,
+    currentBid: 0,
+    highBidder: null,
+    active: bidders,
+    turn: 0,
+    origin: 'bankruptcy',
+  };
+  s.phase = 'auction';
+  events.push({ type: 'AUCTION_STARTED', spaceId });
+  return true;
 }
 
 /* ---------------------------- win condition ------------------------- */
@@ -853,7 +1050,7 @@ function checkWinCondition(s: GameState, events: GameEvent[]): void {
     return;
   }
 
-  if (s.settings.winCondition === 'turn-limit' && s.turnNumber > s.settings.turnLimit) {
+  if (s.settings.winCondition === 'turn-limit' && s.round > s.settings.turnLimit) {
     s.winnerId = leaderByNetWorth(s, alive);
     s.phase = 'game_over';
     events.push({ type: 'GAME_OVER', winnerId: s.winnerId });

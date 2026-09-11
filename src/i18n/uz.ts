@@ -229,6 +229,7 @@ export const uz: Dict = {
     raise: 'Pul yig‘ish uchun maydondagi mulklarni garovga qo‘ying yoki binolarni soting.',
     bankruptcy: 'Bankrotlikni e’lon qilish',
     tapHint: 'Garovga qo‘yish yoki binolarini sotish uchun maydondagi o‘z mulkingizni bosing.',
+    raiseToBuy: 'Pul yetmayaptimi? Garovga qo‘yish yoki binolarni sotish uchun maydondagi mulklaringizni bosing.',
     theirTurn: (name) => `${name}ning navbati`,
     waitNote: 'Kutayotganda ham o‘z mulkingizni boshqarishingiz va savdo taklif qilishingiz mumkin.',
     yourTurn: 'Sizning navbatingiz',
@@ -310,6 +311,7 @@ export const uz: Dict = {
     tradeDeclined: (to) => `${to} savdoni rad etdi.`,
     tradeExpired: (from, to) => `${from}ning ${dat(to)} taklifi muddati tugadi.`,
     freeParking: (p, x) => `${p} bepul avtoturargohdan ${x} oldi.`,
+    timedOut: (p) => `${p}ning vaqti tugadi — yurish uning o‘rniga qilindi.`,
     wins: (p) => `${p} g‘olib.`,
     draw: 'O‘yin durang bilan tugadi.',
   },
@@ -326,6 +328,7 @@ export const uz: Dict = {
   auction: {
     title: (space) => `Auksion: ${space}`,
     intro: (space) => [`«${space}» sotilmadi, shuning uchun eng ko‘p taklif bergan o‘yinchiga o‘tadi. Hujjatdagi narxi: `, '.'],
+    introBank: (space) => [`Bank «${space}»ni bankrot o‘yinchidan oldi va eng ko‘p taklif bergan o‘yinchiga sotadi. Hujjatdagi narxi: `, '.'],
     currentBid: 'Joriy taklif',
     noBids: 'Takliflar yo‘q',
     passed: 'pas',
@@ -333,6 +336,7 @@ export const uz: Dict = {
     customAria: 'O‘z taklifingiz',
     bid: 'Taklif',
     out: 'Siz bu auksiondan chiqdingiz. Boshqalar kutilmoqda.',
+    leading: 'Eng yuqori taklif sizniki. Boshqalar oshirishi yoki pas deyishi kutilmoqda.',
   },
 
   trade: {
@@ -429,6 +433,7 @@ export const uz: Dict = {
     sellBuilding: (x) => `Binoni sotish +${x}`,
     liftMortgage: (x) => `Garovdan chiqarish ${x}`,
     mortgageFor: (x) => `Garovga qo‘yish +${x}`,
+    notNow: 'Hozir mumkin emas',
   },
 
   help: {
@@ -654,7 +659,7 @@ export const uz: Dict = {
     },
     speed: {
       name: 'Tezkor',
-      blurb: 'Ikki baravar maosh, ko‘proq boshlang‘ich pul va qat’iy 30 yurish chegarasi. Eng boyi yutadi.',
+      blurb: 'Ikki baravar maosh, ko‘proq boshlang‘ich pul va qat’iy 15 davra chegarasi. Eng boyi yutadi.',
       minutes: '25–40 daq',
     },
     friendly: {

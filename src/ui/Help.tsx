@@ -50,7 +50,12 @@ export function useGameKeys(onHelp: () => void, onFocusMode?: () => void): void 
         // Only ever the turn-advancing action. Buying, bidding and
         // bankruptcy stay mouse-only on purpose: a stray space bar should
         // never spend money.
-        const btn = document.querySelector<HTMLButtonElement>(
+        // The topmost open dialog owns the key: with a card up, Space means
+        // that card's Continue - not the Roll or End turn button hidden
+        // underneath it. A dialog without an advance button takes nothing.
+        const scrims = document.querySelectorAll<HTMLElement>('.scrim');
+        const scope: ParentNode = scrims.length > 0 ? scrims[scrims.length - 1] : document;
+        const btn = scope.querySelector<HTMLButtonElement>(
           'button[data-hotkey="advance"]:not(:disabled)',
         );
         if (btn) {

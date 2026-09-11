@@ -1,11 +1,23 @@
 import { BOARD, GROUPS, GROUP_COLOR, RAILROAD_RENT } from '../game/board';
 import {
-  buildingSellValue, canBuildHouse, canMortgage, canSellHouse, canUnmortgage,
-  hasUnmortgagedMonopoly, unmortgageCost,
+  type BuildCheck, buildingSellValue, canBuildHouse, canMortgage, canSellHouse,
+  canUnmortgage, hasUnmortgagedMonopoly, legalActions, unmortgageCost,
 } from '../game/rules';
 import type { GameAction, GameState } from '../game/types';
-import { spaceName, trReason, useT } from '../i18n';
+import { type Dict, spaceName, trReason, useT } from '../i18n';
 import { Modal, fmt } from './bits';
+
+/** A move can be sound and still not be yours to make just now - somebody
+ *  else's turn, an auction, a debt. A button needs both, or the reducer
+ *  would silently drop the click. */
+function gate(check: BuildCheck, allowed: boolean, t: Dict): { ok: boolean; why?: string } {
+  if (!check.ok) return { ok: false, why: trReason(t, check.reason) };
+  if (!allowed) return { ok: false, why: t.deed.notNow };
+  return { ok: true };
+}
+
+const isAllowed = (legal: GameAction[], type: GameAction['type'], spaceId: number): boolean =>
+  legal.some((a) => a.type === type && 'spaceId' in a && a.spaceId === spaceId);
 
 /** The title deed, rendered like the card in the box. Read-only for
  *  anything you do not own; actionable for anything you do. */
@@ -186,6 +198,7 @@ function SetBuilder({
   // bankruptcy is - reads as the game being broken. The panel stays, and says
   // why instead.
   const mortgagedInSet = ids.filter((id) => state.properties[id].mortgaged);
+  const legal = legalActions(state, myId);
 
   return (
     <section className="setBuild">
@@ -197,8 +210,8 @@ function SetBuilder({
       <ul className="setBuild__list">
         {ids.map((id) => {
           const st = state.properties[id];
-          const build = canBuildHouse(state, myId, id);
-          const sell = canSellHouse(state, myId, id);
+          const build = gate(canBuildHouse(state, myId, id), isAllowed(legal, 'BUILD_HOUSE', id), t);
+          const sell = gate(canSellHouse(state, myId, id), isAllowed(legal, 'SELL_HOUSE', id), t);
           const cost = BOARD[id].houseCost ?? 0;
           const name = spaceName(t, id);
           return (
@@ -219,7 +232,7 @@ function SetBuilder({
                 type="button"
                 className="btn btn--sm setBuild__btn setBuild__btn--sell"
                 disabled={!sell.ok}
-                title={sell.ok ? d.sellFor(fmt(buildingSellValue(id))) : trReason(t, sell.reason)}
+                title={sell.ok ? d.sellFor(fmt(buildingSellValue(id))) : sell.why}
                 aria-label={d.sellAria(name)}
                 onClick={() => dispatch({ type: 'SELL_HOUSE', playerId: myId, spaceId: id })}
               >
@@ -229,7 +242,7 @@ function SetBuilder({
                 type="button"
                 className="btn btn--sm setBuild__btn setBuild__btn--build"
                 disabled={!build.ok}
-                title={build.ok ? d.buildFor(st.houses === 4, fmt(cost)) : trReason(t, build.reason)}
+                title={build.ok ? d.buildFor(st.houses === 4, fmt(cost)) : build.why}
                 aria-label={d.buildAria(name)}
                 onClick={() => dispatch({ type: 'BUILD_HOUSE', playerId: myId, spaceId: id })}
               >
@@ -261,24 +274,25 @@ function DeedActions({
   const t = useT();
   const d = t.deed;
   const st = state.properties[spaceId];
-  const build = canBuildHouse(state, myId, spaceId);
-  const sell = canSellHouse(state, myId, spaceId);
-  const mort = canMortgage(state, myId, spaceId);
-  const unmort = canUnmortgage(state, myId, spaceId);
+  const legal = legalActions(state, myId);
+  const build = gate(canBuildHouse(state, myId, spaceId), isAllowed(legal, 'BUILD_HOUSE', spaceId), t);
+  const sell = gate(canSellHouse(state, myId, spaceId), isAllowed(legal, 'SELL_HOUSE', spaceId), t);
+  const mort = gate(canMortgage(state, myId, spaceId), isAllowed(legal, 'MORTGAGE', spaceId), t);
+  const unmort = gate(canUnmortgage(state, myId, spaceId), isAllowed(legal, 'UNMORTGAGE', spaceId), t);
   const houseCost = BOARD[spaceId].houseCost ?? 0;
 
   return (
     <footer className="deed__actions">
       <button
         type="button" className="btn btn--primary btn--sm"
-        disabled={!build.ok} title={trReason(t, build.reason)}
+        disabled={!build.ok} title={build.why}
         onClick={() => dispatch({ type: 'BUILD_HOUSE', playerId: myId, spaceId })}
       >
         {st.houses === 4 ? d.buildHotel(fmt(houseCost)) : d.buildHouse(fmt(houseCost))}
       </button>
       <button
         type="button" className="btn btn--sm"
-        disabled={!sell.ok} title={trReason(t, sell.reason)}
+        disabled={!sell.ok} title={sell.why}
         onClick={() => dispatch({ type: 'SELL_HOUSE', playerId: myId, spaceId })}
       >
         {d.sellBuilding(fmt(buildingSellValue(spaceId)))}
@@ -286,7 +300,7 @@ function DeedActions({
       {st.mortgaged ? (
         <button
           type="button" className="btn btn--sm"
-          disabled={!unmort.ok} title={trReason(t, unmort.reason)}
+          disabled={!unmort.ok} title={unmort.why}
           onClick={() => dispatch({ type: 'UNMORTGAGE', playerId: myId, spaceId })}
         >
           {d.liftMortgage(fmt(unmortgageCost(state, spaceId)))}
@@ -294,7 +308,7 @@ function DeedActions({
       ) : (
         <button
           type="button" className="btn btn--sm"
-          disabled={!mort.ok} title={trReason(t, mort.reason)}
+          disabled={!mort.ok} title={mort.why}
           onClick={() => dispatch({ type: 'MORTGAGE', playerId: myId, spaceId })}
         >
           {d.mortgageFor(fmt(BOARD[spaceId].mortgage ?? 0))}

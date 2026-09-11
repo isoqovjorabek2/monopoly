@@ -25,7 +25,7 @@ export const CLASSIC: GameSettings = {
 
   maxPlayers: 6,
   winCondition: 'last-standing',
-  turnLimit: 60,
+  turnLimit: 30,
   netWorthTarget: 5000,
   turnTimer: 0,
   auctionBidSeconds: 20,
@@ -55,13 +55,13 @@ export const PRESETS: Preset[] = [
   {
     id: 'speed',
     name: 'Speed Run',
-    blurb: 'Double salary, richer start, and a hard 30-turn limit. Highest net worth takes it.',
+    blurb: 'Double salary, richer start, and a hard 15-round limit. Highest net worth takes it.',
     minutes: '25-40 min',
     patch: {
       startingCash: 2500,
       goSalary: 400,
       winCondition: 'turn-limit',
-      turnLimit: 30,
+      turnLimit: 15,
       turnTimer: 45,
       animationSpeed: 1.6,
       buildingShortage: false,

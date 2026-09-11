@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { BOARD, GROUPS, GROUP_COLOR, GROUP_ORDER } from '../game/board';
-import { canTrade, netWorth, ownedBy } from '../game/rules';
+import { canTrade, clockKey, netWorth, ownedBy } from '../game/rules';
 import { acceptMargin, completesFor, suggestTrade, tradeGain } from '../game/ai';
 import type { GameAction, GameState, Player, TradeBody, TradeOffer } from '../game/types';
 import { describe, type LogLine } from '../game/describe';
 import { spaceName, spaceShort, useT } from '../i18n';
 import type { ChatMessage, SeatInfo } from '../net/protocol';
-import { Avatar, Empty, Modal, Money, fmt } from './bits';
+import { Avatar, Empty, Modal, Money, fmt, useCountdown } from './bits';
 import type { CashFloat } from '../store/store';
 import {
   STICKERS, groupArt, parseSticker, stickerToken, stickerUrl, type GroupMotif,
@@ -416,13 +416,16 @@ export function AuctionPanel({
     if (a) setAmount(a.currentBid + 10);
   }, [a?.currentBid, a?.spaceId]);
 
+  const left = useCountdown(state.settings.auctionBidSeconds, clockKey(state));
+
   if (!a) return null;
   const space = BOARD[a.spaceId];
   const me = state.players[myId];
-  const canAct = a.active.includes(myId) && !me.bankrupt;
+  const leading = a.highBidder === myId;
+  const canAct = a.active.includes(myId) && !me.bankrupt && !leading;
   const high = a.highBidder ? state.players[a.highBidder] : null;
   const name = spaceName(t, a.spaceId);
-  const [introBefore, introAfter] = t.auction.intro(name);
+  const [introBefore, introAfter] = (a.origin === 'bankruptcy' ? t.auction.introBank : t.auction.intro)(name);
 
   return (
     <Modal open onClose={() => {}} title={t.auction.title(name)} dismissable={false}>
@@ -435,6 +438,7 @@ export function AuctionPanel({
           <span className="overline">{t.auction.currentBid}</span>
           <span className="auction__amount num">{a.currentBid > 0 ? fmt(a.currentBid) : t.auction.noBids}</span>
           {high && <span className="muted small" style={{ color: high.color }}>{high.name}</span>}
+          {left != null && <span className="muted small num">{t.common.seconds(left)}</span>}
         </div>
 
         <ul className="auction__bidders">
@@ -496,7 +500,7 @@ export function AuctionPanel({
             </div>
           </div>
         ) : (
-          <p className="muted">{t.auction.out}</p>
+          <p className="muted">{leading ? t.auction.leading : t.auction.out}</p>
         )}
       </div>
     </Modal>

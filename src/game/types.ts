@@ -105,6 +105,12 @@ export interface Debt {
   to: string | null;
   amount: number;
   reason: string;
+  /** One debt owed to several players in equal shares ("pay each player").
+   *  `to` is null when this is set. */
+  split?: string[];
+  /** What the turn still owes once this is paid: the third-turn jail fine
+   *  comes before the move of the roll that brought it. */
+  resume?: 'move';
 }
 
 export interface TradeOffer {
@@ -160,6 +166,7 @@ export interface GameSettings {
   /* --- flow --- */
   maxPlayers: number;
   winCondition: 'last-standing' | 'turn-limit' | 'networth';
+  /** Rounds, not turns: every player gets this many before it ends. */
   turnLimit: number;
   netWorthTarget: number;
   /** Seconds before the host auto-passes an idle player. 0 = off. */
@@ -207,6 +214,8 @@ export interface GameState {
   freeParkingPot: number;
 
   auction: Auction | null;
+  /** Deeds the bank took from a bankrupt estate, still to be auctioned. */
+  auctionQueue: number[];
   debt: Debt | null;
   trades: TradeOffer[];
   /** `"from>to"` -> the turn on which that pair's last offer was refused or
@@ -218,6 +227,8 @@ export interface GameState {
   activeCard: Card | null;
 
   turnNumber: number;
+  /** Times round the table. Starts at 1; a turn limit counts these. */
+  round: number;
   winnerId: string | null;
   startedAt: number;
 }
@@ -244,7 +255,10 @@ export type GameAction =
   | { type: 'ACCEPT_TRADE'; playerId: string; tradeId: string }
   | { type: 'DECLINE_TRADE'; playerId: string; tradeId: string }
   | { type: 'END_TURN'; playerId: string }
-  | { type: 'DISMISS_CARD'; playerId: string };
+  | { type: 'DISMISS_CARD'; playerId: string }
+  /** Sent by the host when a player's clock runs out or they have left the
+   *  table: the engine makes their pending decisions for them. */
+  | { type: 'TIME_OUT'; playerId: string };
 
 /* ------------------------------------------------------------------ *
  * Events - what happened, for the presentation layer to animate and
@@ -279,6 +293,7 @@ export type GameEvent =
   | { type: 'TRADE_EXPIRED'; offer: TradeOffer }
   | { type: 'TURN_STARTED'; playerId: string; turnNumber: number }
   | { type: 'FREE_PARKING'; playerId: string; amount: number }
+  | { type: 'TIMED_OUT'; playerId: string }
   | { type: 'GAME_OVER'; winnerId: string | null };
 
 export interface Reduction {

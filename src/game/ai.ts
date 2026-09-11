@@ -2,7 +2,7 @@ import { BOARD, GROUPS } from './board';
 import { rand } from './rng';
 import {
   canTrade, countRailroads, hasUnmortgagedMonopoly, legalActions, netWorth,
-  ownedBy, ownsFullGroup, tradeKey, unmortgageCost,
+  ownedBy, ownsFullGroup, tradeKey, transferFee, unmortgageCost,
 } from './rules';
 import type { BotLevel, ColorGroup, GameAction, GameState, TradeBody } from './types';
 
@@ -116,8 +116,10 @@ export function tradeGain(s: GameState, pid: string, o: TradeBody): number {
   const outCards = receiving ? o.wantJailCards : o.giveJailCards;
   const sum = (ids: number[]) => ids.reduce((n, id) => n + tradeValue(s, pid, id), 0);
   const card = jailCardValue(s);
+  // Taking over a mortgaged deed costs its interest on the spot.
+  const fees = inProps.reduce((n, id) => n + (s.properties[id]?.mortgaged ? transferFee(s, id) : 0), 0);
   return (sum(inProps) + inCash + inCards * card)
-    - (sum(outProps) + outCash + outCards * card);
+    - (sum(outProps) + outCash + outCards * card + fees);
 }
 
 /** Turns a refusal keeps a pair from talking again. Without it a bot
@@ -369,7 +371,7 @@ function scoreAction(s: GameState, pid: string, a: GameAction, level: BotLevel):
 
     case 'UNMORTGAGE': {
       const space = BOARD[a.spaceId];
-      const cost = Math.ceil((space.mortgage ?? 0) * 1.1);
+      const cost = unmortgageCost(s, a.spaceId);
       if (me.cash - cost < floor * 1.4) return -30;
       const completes = space.group && ownsFullGroup(s, pid, space.group);
       return completes ? 48 : 18;
@@ -451,6 +453,10 @@ export function botDecide(s: GameState, pid: string): GameAction | null {
       return mortgages[0];
     }
     if (sells.length > 0) return sells[0];
+    // A deal on the table that clears its bar beats folding.
+    const deal = options.find((a) => a.type === 'ACCEPT_TRADE'
+      && acceptMargin(s, pid, s.trades.find((t) => t.id === a.tradeId)!) > 0);
+    if (deal) return deal;
     if (need > 0) return { type: 'DECLARE_BANKRUPTCY', playerId: pid };
   }
 
@@ -462,6 +468,12 @@ export function botDecide(s: GameState, pid: string): GameAction | null {
   if (!isCurrent && (s.phase === 'preroll' || s.phase === 'turn_end')) {
     options = options.filter((a) => a.type === 'ACCEPT_TRADE' || a.type === 'DECLINE_TRADE');
     if (options.length === 0) return null;
+  }
+
+  // Mortgaging to reach a price is there for a human who is short of it; a
+  // bot decides on a deed with the cash it has.
+  if (s.phase === 'awaiting_buy') {
+    options = options.filter((a) => a.type !== 'MORTGAGE' && a.type !== 'SELL_HOUSE');
   }
 
   // Bids are offered by legalActions at the minimum increment only; let the

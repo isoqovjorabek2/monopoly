@@ -4,7 +4,7 @@ import { botDecide, botDelay } from '../game/ai';
 import { createGame, reduce, type SeatSpec } from '../game/engine';
 import { logLine, type LogLine } from '../game/describe';
 import { tr } from '../i18n';
-import { legalActions } from '../game/rules';
+import { clockKey, clockSeconds, legalActions, waitingOn } from '../game/rules';
 import { randomSeed } from '../game/rng';
 import { BOT_NAMES, PLAYER_COLORS, TOKENS, defaultSettings } from '../game/settings';
 import type { GameAction, GameEvent, GameSettings, GameState, TokenId } from '../game/types';
@@ -101,6 +101,13 @@ let host: HostNet | null = null;
 let guest: GuestNet | null = null;
 let botTimer: number | null = null;
 let walkTimer: number | null = null;
+let clockTimer: number | null = null;
+/** What the armed clock is timing (see clockKey), so an unrelated publish -
+ *  the presence ping every few seconds, a chat line - does not restart it. */
+let clockArmed = '';
+/** Seconds a dropped player gets to come back before the table plays on
+ *  without them, clock or no clock. */
+const OFFLINE_GRACE_S = 30;
 /* Heartbeat for the public directory. Module scope, not component state:
  * a room stays listed for as long as it is open, which outlives every
  * screen that can be unmounted while it is. */
@@ -169,6 +176,7 @@ export const useStore = create<Store>((set, get) => {
       case 'RENT_PAID': return e.from === myId ? 'pay' : e.to === myId ? 'cash' : null;
       case 'PASSED_GO': return e.playerId === myId ? 'cash' : null;
       case 'DEBT_INCURRED': return e.playerId === myId ? 'error' : null;
+      case 'TIMED_OUT': return e.playerId === myId ? 'error' : null;
       default: return null;
     }
   };
@@ -301,6 +309,7 @@ export const useStore = create<Store>((set, get) => {
       if (get().listed && !withRev.game && !withRev.cf && withRev.seats.length !== listedSeats) beat();
     }
     scheduleBots();
+    scheduleClock();
   };
 
   /* --------------------------- bot driver -------------------------- */
@@ -344,6 +353,49 @@ export const useStore = create<Store>((set, get) => {
       }, botDelay(game, seat.playerId));
       return;
     }
+  };
+
+  /* ----------------------------- clock ----------------------------- */
+
+  const stopClock = (): void => {
+    if (clockTimer) window.clearTimeout(clockTimer);
+    clockTimer = null;
+    clockArmed = '';
+  };
+
+  /**
+   * The turn and auction clocks, and the backstop for a player who has
+   * dropped off the table. When one runs out the authority sends TIME_OUT
+   * for that player and the engine makes their pending choices, so a closed
+   * tab or an idle player can no longer stall everyone else.
+   */
+  const scheduleClock = (): void => {
+    const { role, room } = get();
+    const s = room?.game;
+    if (role === 'guest' || !room || !s || s.phase === 'game_over' || s.phase === 'lobby') {
+      stopClock();
+      return;
+    }
+    const humans = waitingOn(s).filter((id) => !s.players[id]?.isBot);
+    const away = humans.filter((id) => room.seats.find((x) => x.playerId === id)?.connected === false);
+    const limit = clockSeconds(s);
+    let secs = limit > 0 ? limit : Infinity;
+    if (away.length > 0) secs = Math.min(secs, OFFLINE_GRACE_S);
+    if (humans.length === 0 || !Number.isFinite(secs)) { stopClock(); return; }
+
+    const key = `${clockKey(s)}|${humans.join(',')}|${away.join(',')}`;
+    if (key === clockArmed && clockTimer) return;
+    stopClock();
+    clockArmed = key;
+    // At the full limit everyone the table is waiting on is played for; the
+    // shorter grace only covers the ones who are not there.
+    const due = limit > 0 && secs === limit ? humans : away;
+    clockTimer = window.setTimeout(() => {
+      clockTimer = null;
+      clockArmed = '';
+      for (const id of due) applyIntent(id, { type: 'TIME_OUT', playerId: id });
+      scheduleClock();
+    }, secs * 1000);
   };
 
   /** The single funnel every action goes through on the authority. The
@@ -558,6 +610,7 @@ export const useStore = create<Store>((set, get) => {
     if (walkTimer) window.clearInterval(walkTimer);
     botTimer = null;
     walkTimer = null;
+    stopClock();
     stopListing();
   };
 

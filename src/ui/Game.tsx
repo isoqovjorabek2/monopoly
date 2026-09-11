@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { BOARD } from '../game/board';
-import { maxRaisable } from '../game/rules';
+import { clockKey, clockSeconds, maxRaisable } from '../game/rules';
 import type { GameAction, GameState } from '../game/types';
 import { cap, spaceName, trReason, useT } from '../i18n';
 import { useStore } from '../store/store';
@@ -11,7 +11,7 @@ import { DeedCard } from './DeedCard';
 import {
   AuctionPanel, GameOver, IncomingTrades, LogFeed, PlayerRail, PortfolioModal, TradePanel,
 } from './Panels';
-import { Modal, fmt } from './bits';
+import { Modal, fmt, useCountdown } from './bits';
 import { BoardIcon } from './Pieces';
 import { FxLayer, useFx } from './Fx';
 import { cardArt, deckBack } from '../art/art';
@@ -141,7 +141,7 @@ export function Game() {
         <button type="button" className="btn btn--ghost btn--sm" onClick={leave}>{t.common.leave}</button>
         <span className="game__turn overline">
           {t.game.turn(
-            state.turnNumber,
+            state.round,
             state.settings.winCondition === 'turn-limit' ? state.settings.turnLimit : null,
           )}
         </span>
@@ -294,7 +294,7 @@ function ActionBar({
   const current = state.players[state.seats[state.seatIndex]];
   const spectator = !me || me.bankrupt;
 
-  const timeLeft = useTurnTimer(state);
+  const timeLeft = useCountdown(clockSeconds(state), clockKey(state));
 
   if (spectator) {
     return (
@@ -315,7 +315,10 @@ function ActionBar({
     const why = cap(trReason(t, debt.reason)).replace(/\.$/, '');
     return (
       <section className="actions actions--urgent">
-        <p className="actions__title">{A.owe(fmt(debt.amount))}</p>
+        <p className="actions__title">
+          {A.owe(fmt(debt.amount))}
+          {timeLeft != null && <span className="actions__timer num"> {t.common.seconds(timeLeft)}</span>}
+        </p>
         <p className="muted small">
           {why}. {shortBefore}<strong className="num">{fmt(short)}</strong>{shortAfter}
           {' '}{doomed ? A.doomed : A.raise}
@@ -431,6 +434,9 @@ function ActionBar({
               {state.settings.auctionsEnabled ? A.toAuction : t.common.pass}
             </button>
           </div>
+          {me.cash < (space.price ?? 0) && maxRaisable(state, myId) >= (space.price ?? 0) && (
+            <p className="muted small">{A.raiseToBuy}</p>
+          )}
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => useStore.getState().inspect(me.position)}>
             {A.seeDeed}
           </button>
@@ -466,22 +472,6 @@ function ActionBar({
   );
 }
 
-/** Counts down only for display; the host is the authority on timeouts. */
-function useTurnTimer(state: GameState): number | null {
-  const limit = state.settings.turnTimer;
-  const [left, setLeft] = useState(limit);
-
-  useEffect(() => {
-    if (limit <= 0) return;
-    setLeft(limit);
-    const timer = window.setInterval(() => setLeft((v) => Math.max(0, v - 1)), 1000);
-    return () => window.clearInterval(timer);
-  }, [limit, state.turnNumber, state.phase]);
-
-  if (limit <= 0) return null;
-  return left;
-}
-
 /* =========================== drawn card ============================= */
 
 function CardModal({
@@ -491,22 +481,32 @@ function CardModal({
   const card = state.activeCard;
   const drawer = state.players[state.seats[state.seatIndex]];
 
+  // One card on the table is one draw: the roll that drew it moved the dice
+  // cursor, so this names it for as long as it stays up.
+  const drawKey = card ? `${state.turnNumber}:${state.rngCursor}:${card.id}` : '';
+  const [putDown, setPutDown] = useState('');
+
   const dismiss = useMemo(
-    () => () => { if (isMyTurn) dispatch({ type: 'DISMISS_CARD', playerId: myId }); },
-    [isMyTurn, dispatch, myId],
+    () => () => {
+      if (isMyTurn) dispatch({ type: 'DISMISS_CARD', playerId: myId });
+      else setPutDown(drawKey);
+    },
+    [isMyTurn, dispatch, myId, drawKey],
   );
 
-  // Cards drawn by other players clear themselves so the table keeps moving.
+  // Somebody else's card is theirs to act on. The rest of the table reads it
+  // for a moment and gets the board back, instead of sitting behind it until
+  // that player gets round to clicking.
   useEffect(() => {
     if (!card || isMyTurn) return;
-    const timer = window.setTimeout(() => {}, 100);
+    const timer = window.setTimeout(() => setPutDown(drawKey), 3500);
     return () => window.clearTimeout(timer);
-  }, [card, isMyTurn]);
+  }, [card, isMyTurn, drawKey]);
 
   return (
     <AnimatePresence>
-      {card && (
-        <Modal open onClose={dismiss} dismissable={isMyTurn}>
+      {card && putDown !== drawKey && (
+        <Modal open onClose={dismiss}>
           {/* The card turns over rather than tilting into view, which is
               what the printed deck back is for: it is what you see for the
               first half of the rotation. The scene owns the perspective;

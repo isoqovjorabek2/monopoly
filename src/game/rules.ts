@@ -83,6 +83,11 @@ export function calculateRent(
 export const unmortgageCost = (s: GameState, spaceId: number): number =>
   Math.ceil((BOARD[spaceId].mortgage ?? 0) * (1 + s.settings.mortgageInterestPct / 100));
 
+/** Interest owed up front by whoever takes over a mortgaged deed, by trade
+ *  or from a bankrupt estate (official rule). */
+export const transferFee = (s: GameState, spaceId: number): number =>
+  Math.ceil((BOARD[spaceId].mortgage ?? 0) * s.settings.mortgageInterestPct / 100);
+
 /** Half the house cost, as printed on the deed. */
 export const buildingSellValue = (spaceId: number): number =>
   Math.floor((BOARD[spaceId].houseCost ?? 0) / 2);
@@ -133,10 +138,8 @@ export function canSellHouse(s: GameState, playerId: string, spaceId: number): B
   const group = GROUPS[space.group];
   const highest = Math.max(...group.map((id) => s.properties[id].houses));
   if (st.houses < highest) return { ok: false, reason: 'Sell evenly across the set' };
-
-  // Breaking a hotel needs four houses back from the bank.
-  if (s.settings.buildingShortage && st.houses === 5 && s.housesRemaining < 4)
-    return { ok: false, reason: 'Not enough houses in the bank to break the hotel' };
+  // A hotel the bank cannot break back into four houses is still sellable:
+  // the reducer sells the set down to what the bank can supply.
   return { ok: true };
 }
 
@@ -203,7 +206,9 @@ export function legalActions(s: GameState, playerId: string): GameAction[] {
 
   /* --- auction: open to every solvent player, including the decliner --- */
   if (s.phase === 'auction' && s.auction) {
-    if (s.auction.active.includes(playerId)) {
+    // Whoever holds the high bid waits for the others. Offering them a raise
+    // let a bot outbid itself, over and over, until it hit its own ceiling.
+    if (s.auction.active.includes(playerId) && s.auction.highBidder !== playerId) {
       const next = s.auction.currentBid + 10;
       if (me.cash >= next) out.push({ type: 'BID', playerId, amount: next });
       out.push({ type: 'PASS_BID', playerId });
@@ -213,7 +218,12 @@ export function legalActions(s: GameState, playerId: string): GameAction[] {
 
   /* --- settling a debt: only ways to raise money are legal --- */
   if (s.phase === 'must_raise' && s.debt?.from === playerId) {
+    // A card that caused the debt must still be put down, or it stays over
+    // the board and hides the deeds the player has to sell to pay it.
+    if (s.activeCard && isCurrent) out.push({ type: 'DISMISS_CARD', playerId });
     pushAssetActions(s, playerId, out, { allowUnmortgage: false, allowBuild: false });
+    // Selling a deed to another player for cash is raising money too.
+    pushTradeAnswers(s, playerId, out);
     out.push({ type: 'DECLARE_BANKRUPTCY', playerId });
     return out;
   }
@@ -222,14 +232,7 @@ export function legalActions(s: GameState, playerId: string): GameAction[] {
   if (s.activeCard && isCurrent) out.push({ type: 'DISMISS_CARD', playerId });
 
   /* --- trades can be answered at any time by the recipient --- */
-  if (s.settings.allowTrades) {
-    for (const t of s.trades) {
-      if (t.to === playerId) {
-        out.push({ type: 'ACCEPT_TRADE', playerId, tradeId: t.id });
-        out.push({ type: 'DECLINE_TRADE', playerId, tradeId: t.id });
-      }
-    }
-  }
+  pushTradeAnswers(s, playerId, out);
 
   /* --- off-turn: manage your portfolio, that's all --- */
   if (!isCurrent) {
@@ -262,6 +265,9 @@ export function legalActions(s: GameState, playerId: string): GameAction[] {
         out.push({ type: 'BUY_PROPERTY', playerId });
       }
       out.push({ type: 'DECLINE_PROPERTY', playerId });
+      // Short of the price, a player may mortgage or sell to raise it before
+      // deciding - the printed rules allow that at any point in a turn.
+      pushAssetActions(s, playerId, out, { allowUnmortgage: false, allowBuild: false });
       break;
     }
 
@@ -292,6 +298,16 @@ function pushAssetActions(
       out.push({ type: 'MORTGAGE', playerId, spaceId: id });
     if (o.allowUnmortgage && canUnmortgage(s, playerId, id).ok)
       out.push({ type: 'UNMORTGAGE', playerId, spaceId: id });
+  }
+}
+
+function pushTradeAnswers(s: GameState, playerId: string, out: GameAction[]): void {
+  if (!s.settings.allowTrades) return;
+  for (const t of s.trades) {
+    if (t.to === playerId) {
+      out.push({ type: 'ACCEPT_TRADE', playerId, tradeId: t.id });
+      out.push({ type: 'DECLINE_TRADE', playerId, tradeId: t.id });
+    }
   }
 }
 
@@ -331,7 +347,15 @@ export function canTrade(s: GameState, o: TradeBody): boolean {
     if (g && GROUPS[g].some((x) => s.properties[x].houses > 0)) return false;
     return true;
   });
-  return check(o.giveProperties, o.from) && check(o.wantProperties, o.to);
+  if (!(check(o.giveProperties, o.from) && check(o.wantProperties, o.to))) return false;
+
+  // A deed that arrives mortgaged costs its new owner the interest at once,
+  // so each side has to be able to pay that from what it holds afterwards.
+  const fees = (ids: number[]) =>
+    ids.reduce((n, id) => n + (s.properties[id].mortgaged ? transferFee(s, id) : 0), 0);
+  if (from.cash - o.giveCash + o.wantCash < fees(o.wantProperties)) return false;
+  if (to.cash - o.wantCash + o.giveCash < fees(o.giveProperties)) return false;
+  return true;
 }
 
 /** Cheap membership test used by the reducer to reject spoofed intents. */
@@ -366,6 +390,68 @@ export function isLegal(s: GameState, action: GameAction): boolean {
     return true;
   });
 }
+
+/* ------------------------------ the clock --------------------------- */
+
+/** Who the table is waiting on right now - the only players a timer or a
+ *  dropped connection can hold the game up for. */
+export function waitingOn(s: GameState): string[] {
+  const alive = (id: string): boolean => Boolean(s.players[id]) && !s.players[id].bankrupt;
+  switch (s.phase) {
+    case 'auction': {
+      const a = s.auction;
+      return a ? a.active.filter((id) => alive(id) && id !== a.highBidder) : [];
+    }
+    case 'must_raise':
+      return s.debt && alive(s.debt.from) ? [s.debt.from] : [];
+    case 'preroll':
+    case 'jailed_choice':
+    case 'awaiting_buy':
+    case 'turn_end': {
+      const id = currentPlayerId(s);
+      return alive(id) ? [id] : [];
+    }
+    default:
+      return [];
+  }
+}
+
+/**
+ * The choice made for a player who ran out of time or left the table: the
+ * least committal legal move. It never buys, bids, builds or trades; it
+ * raises a debt by mortgaging before breaking buildings, and folds only
+ * when nothing left would cover it.
+ */
+export function autopilotAction(s: GameState, playerId: string): GameAction | null {
+  const legal = legalActions(s, playerId);
+  const find = (type: GameAction['type']): GameAction | null =>
+    legal.find((a) => a.type === type) ?? null;
+
+  if (s.phase === 'must_raise' && s.debt?.from === playerId) {
+    if (maxRaisable(s, playerId) < s.debt.amount) return find('DECLARE_BANKRUPTCY');
+    return find('MORTGAGE') ?? find('SELL_HOUSE') ?? find('DECLARE_BANKRUPTCY');
+  }
+  switch (s.phase) {
+    case 'auction': return find('PASS_BID');
+    case 'awaiting_buy': return find('DECLINE_PROPERTY');
+    case 'turn_end': return find('END_TURN');
+    case 'preroll':
+    case 'jailed_choice': return find('ROLL');
+    default: return null;
+  }
+}
+
+/** What the clock is timing. The host's timeout and every player's
+ *  on-screen countdown restart together whenever this changes. */
+export function clockKey(s: GameState): string {
+  const a = s.auction;
+  if (s.phase === 'auction' && a) return `auction|${a.spaceId}|${a.currentBid}|${a.active.join(',')}`;
+  return `${s.phase}|${s.turnNumber}|${s.seatIndex}`;
+}
+
+/** Seconds on the clock for the decision in front of the table. 0 = none. */
+export const clockSeconds = (s: GameState): number =>
+  (s.phase === 'auction' ? s.settings.auctionBidSeconds : s.settings.turnTimer);
 
 /* ---------------------------- presentation ------------------------ */
 

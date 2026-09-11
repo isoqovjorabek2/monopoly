@@ -51,6 +51,7 @@ export function logLine(e: GameEvent, seq: number): LogLine | null {
     case 'TRADE_DECLINED': return line(e.offer.to);
     case 'TRADE_EXPIRED': return line(e.offer.from);
     case 'FREE_PARKING': return line(e.playerId, 'good');
+    case 'TIMED_OUT': return line(e.playerId, 'bad');
     case 'GAME_OVER': return line(e.winnerId, 'big');
     // Movement and raw money moves are shown on the board itself; putting
     // them in the log as well just buries the interesting lines.
@@ -101,6 +102,7 @@ export function describe(s: GameState, e: GameEvent, t: Dict): string {
     case 'TRADE_DECLINED': return L.tradeDeclined(name(e.offer.to));
     case 'TRADE_EXPIRED': return L.tradeExpired(name(e.offer.from), name(e.offer.to));
     case 'FREE_PARKING': return L.freeParking(name(e.playerId), money(e.amount));
+    case 'TIMED_OUT': return L.timedOut(name(e.playerId));
     case 'GAME_OVER': return e.winnerId ? L.wins(name(e.winnerId)) : L.draw;
     case 'MOVED':
     case 'MONEY':

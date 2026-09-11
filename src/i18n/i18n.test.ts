@@ -144,7 +144,8 @@ const seats = (n: number): SeatSpec[] =>
 function playedEvents(): { state: GameState; event: GameEvent }[] {
   const out: { state: GameState; event: GameEvent }[] = [];
   for (const seed of [7, 4242, 90210]) {
-    let s = createGame({ ...CLASSIC, seed, winCondition: 'turn-limit', turnLimit: 60 }, seats(4));
+    // 15 rounds of four: the same 60 turns this always played.
+    let s = createGame({ ...CLASSIC, seed, winCondition: 'turn-limit', turnLimit: 15 }, seats(4));
     let r = reduce(s, { type: 'START_GAME', playerId: 'p0' });
     s = r.state;
     for (const event of r.events) out.push({ state: s, event });
