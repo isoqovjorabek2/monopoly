@@ -252,7 +252,7 @@ export const useStore = create<Store>((set, get) => {
             s.playerId === from ? { ...s, connected: true, name } : s);
           const next = { ...room, seats };
           set({ room: next });
-          host?.send(from, { t: 'WELCOME', you: from, snapshot: next });
+          host?.welcome(from, next);
           host?.broadcastRoom(next);
           return;
         }
@@ -270,7 +270,7 @@ export const useStore = create<Store>((set, get) => {
         const seat = emptySeat(from, name, token, room.seats.length, false);
         const next = { ...room, seats: [...room.seats, seat] };
         set({ room: next });
-        host?.send(from, { t: 'WELCOME', you: from, snapshot: next });
+        host?.welcome(from, next);
         publish(next);
         return;
       }
@@ -368,6 +368,8 @@ export const useStore = create<Store>((set, get) => {
 
       case 'BYE': {
         const reason = tr().net.bye[msg.reason];
+        // A guest whose seat was refused as already-taken should not keep
+        // trying to reconnect into the same rejection.
         teardown();
         set({ screen: 'home', netStatus: 'closed', netError: reason, room: null });
         return;

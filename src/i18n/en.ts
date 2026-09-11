@@ -425,6 +425,9 @@ export const en = {
     buildFor: (hotel: boolean, x: string) => `${hotel ? 'Hotel' : 'House'} for ${x}`,
     buildAria: (name: string) => `Build on ${name}`,
     bankStock: (h: number, ho: number) => `Bank has ${h} houses and ${ho} hotels left.`,
+    // Shown when you hold the whole set but it cannot be built on yet.
+    blockedByMortgage: (names: string) => `Lift the mortgage on ${names} before you can build on this set.`,
+    blockedNote: 'You hold the whole set. You can build on it once the reason on each button is cleared.',
     buildHotel: (x: string) => `Build hotel ${x}`,
     buildHouse: (x: string) => `Build house ${x}`,
     sellBuilding: (x: string) => `Sell building +${x}`,
@@ -518,6 +521,7 @@ export const en = {
       kicked: 'You were removed from the room.',
       room_full: 'That room is full.',
       in_progress: 'That game has already started.',
+      seat_taken: 'That seat is already held by someone else in this room.',
     },
   },
 

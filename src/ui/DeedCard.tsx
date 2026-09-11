@@ -180,9 +180,12 @@ function SetBuilder({
   const allMine = ids.every((id) => state.properties[id].owner === myId);
   if (!allMine || ids.length === 0) return null;
 
-  const anyBuildable = ids.some((id) => canBuildHouse(state, myId, id).ok);
-  const anySellable = ids.some((id) => canSellHouse(state, myId, id).ok);
-  if (!anyBuildable && !anySellable) return null;
+  // Deliberately shown even when nothing is buildable or sellable right now.
+  // Owning the whole set and finding no build controls at all - which is what
+  // happens when a deed in the set is mortgaged, as one inherited from a
+  // bankruptcy is - reads as the game being broken. The panel stays, and says
+  // why instead.
+  const mortgagedInSet = ids.filter((id) => state.properties[id].mortgaged);
 
   return (
     <section className="setBuild">
@@ -236,6 +239,12 @@ function SetBuilder({
           );
         })}
       </ul>
+
+      {mortgagedInSet.length > 0 && (
+        <p className="setBuild__stock muted small">
+          {d.blockedByMortgage(mortgagedInSet.map((id) => spaceName(t, id)).join(', '))}
+        </p>
+      )}
 
       {state.settings.buildingShortage && (
         <p className="setBuild__stock muted small">

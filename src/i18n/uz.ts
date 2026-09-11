@@ -421,6 +421,8 @@ export const uz: Dict = {
     buildFor: (hotel, x) => `${hotel ? 'Mehmonxona' : 'Uy'} — ${x}`,
     buildAria: (name) => `«${name}»ga qurish`,
     bankStock: (h, ho) => `Bankda ${h} ta uy va ${ho} ta mehmonxona qoldi.`,
+    blockedByMortgage: (names) => `Bu to‘plamga qurish uchun avval ${names} garovdan chiqaring.`,
+    blockedNote: 'Butun to‘plam sizda. Har bir tugmadagi sabab bartaraf etilsa, qurishingiz mumkin.',
     buildHotel: (x) => `Mehmonxona qurish ${x}`,
     buildHouse: (x) => `Uy qurish ${x}`,
     sellBuilding: (x) => `Binoni sotish +${x}`,
@@ -513,6 +515,7 @@ export const uz: Dict = {
       kicked: 'Sizni xonadan chiqarishdi.',
       room_full: 'Bu xonada joy yo‘q.',
       in_progress: 'Bu o‘yin allaqachon boshlangan.',
+      seat_taken: 'Bu joyni xonadagi boshqa o‘yinchi allaqachon egallagan.',
     },
   },
 

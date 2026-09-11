@@ -41,7 +41,7 @@ export interface ChatMessage {
 
 /* ----------------------------- guest -> host ----------------------------- */
 export type Up =
-  | { t: 'HELLO'; playerId: string; name: string; token: TokenId }
+  | { t: 'HELLO'; playerId: string; name: string; token: TokenId; secret: string }
   | { t: 'PROFILE'; playerId: string; name: string; token: TokenId }
   | { t: 'SETTINGS'; playerId: string; settings: GameSettings }
   | { t: 'ADD_BOT'; playerId: string }
@@ -58,7 +58,7 @@ export type Down =
   | { t: 'CHAT'; message: ChatMessage }
   | { t: 'REJECT'; reason: string }
   | { t: 'PING'; seq: number }
-  | { t: 'BYE'; reason: 'host_left' | 'kicked' | 'room_full' | 'in_progress' };
+  | { t: 'BYE'; reason: 'host_left' | 'kicked' | 'room_full' | 'in_progress' | 'seat_taken' };
 
 export interface Envelope<T> {
   v: number;
@@ -119,6 +119,45 @@ export function localPlayerId(): string {
   } catch {
     return `p_${Math.random().toString(36).slice(2, 10)}`;
   }
+}
+
+/**
+ * A private key that proves, on a reconnect, that you are the same person who
+ * first took this seat. The playerId travels in every snapshot and so is
+ * public; this never leaves the tab that owns the seat except in the HELLO it
+ * authenticates, so another player who knows your id still cannot take it.
+ */
+export function localSecret(): string {
+  try {
+    const existing = sessionStorage.getItem('mply.secret');
+    if (existing) return existing;
+    const s = `s_${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+    sessionStorage.setItem('mply.secret', s);
+    return s;
+  } catch {
+    return `s_${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+  }
+}
+
+/**
+ * The copy of a room a guest is allowed to see. A started game's state carries
+ * the RNG seed and the shuffled, undrawn card decks - everything needed to
+ * predict every future roll and card. Guests never run the engine, so they
+ * never need any of it; stripping it is what stops a guest from reading the
+ * future out of the snapshot they receive. The host keeps the full copy.
+ */
+export function redactForGuests(snapshot: RoomSnapshot): RoomSnapshot {
+  if (!snapshot.game) return snapshot;
+  return {
+    ...snapshot,
+    settings: { ...snapshot.settings, seed: 0 },
+    game: {
+      ...snapshot.game,
+      settings: { ...snapshot.game.settings, seed: 0 },
+      chanceOrder: [],
+      chestOrder: [],
+    },
+  };
 }
 
 /** Peer-supplied strings are untrusted: cap them before they reach layout. */

@@ -2,7 +2,7 @@ import Peer, { type DataConnection } from 'peerjs';
 import type { GameEvent } from '../game/types';
 import {
   type ChatMessage, type Down, type RoomSnapshot, type Up,
-  toPeerId, unwrap, wrap,
+  localSecret, redactForGuests, toPeerId, unwrap, wrap,
 } from './protocol';
 import { tr } from '../i18n';
 
@@ -103,6 +103,10 @@ const friendlyError = (err: unknown): string => {
 export class HostNet {
   private peer: Peer | null = null;
   private conns = new Map<string, DataConnection>();   // playerId -> conn
+  /* The secret each seat first presented. A later HELLO claiming that seat
+   * has to match, so knowing another player's id (it is in every snapshot)
+   * is not enough to take their seat or reconnect as them. */
+  private secrets = new Map<string, string>();
   private lastSeen = new Map<string, number>();
   private pings = new Map<string, number>();
   private pingSent = new Map<string, number>();
@@ -140,12 +144,24 @@ export class HostNet {
       // later message is forced to that id, so a peer cannot act as another.
       const bound = this.idOf(conn);
       if (msg.t === 'HELLO') {
-        if (!bound) {
-          this.conns.set(msg.playerId, conn);
-          this.lastSeen.set(msg.playerId, Date.now());
+        const claimed = msg.playerId;
+        const known = this.secrets.get(claimed);
+        // Someone already holds this seat with a different secret: this is a
+        // takeover attempt, not the seat's owner reconnecting. Turn it away
+        // without touching the live connection that legitimately has the seat.
+        if (known !== undefined && known !== (msg.secret ?? '')) {
+          try { conn.send(wrap({ t: 'BYE', reason: 'seat_taken' })); } catch { /* gone */ }
+          try { conn.close(); } catch { /* already gone */ }
+          return;
         }
-        this.h.onUp(msg.playerId, msg);
-        this.h.onPresence(msg.playerId, true, 0);
+        if (known === undefined) this.secrets.set(claimed, msg.secret ?? '');
+        // Bind this connection to the claimed id, dropping any stale mapping of
+        // the same socket to a different id so one conn never holds two seats.
+        if (bound && bound !== claimed) this.conns.delete(bound);
+        this.conns.set(claimed, conn);
+        this.lastSeen.set(claimed, Date.now());
+        this.h.onUp(claimed, msg);
+        this.h.onPresence(claimed, true, 0);
         return;
       }
       if (!bound) return;
@@ -203,7 +219,14 @@ export class HostNet {
   }
 
   broadcastRoom(snapshot: RoomSnapshot): void {
-    this.broadcast({ t: 'ROOM', snapshot });
+    // Guests get a copy with the RNG seed and undrawn decks removed, so the
+    // snapshot cannot be read to predict rolls and cards.
+    this.broadcast({ t: 'ROOM', snapshot: redactForGuests(snapshot) });
+  }
+
+  /** The first snapshot a guest receives on joining, redacted the same way. */
+  welcome(playerId: string, snapshot: RoomSnapshot): void {
+    this.send(playerId, { t: 'WELCOME', you: playerId, snapshot: redactForGuests(snapshot) });
   }
 
   broadcastEvents(rev: number, events: GameEvent[]): void {
@@ -277,7 +300,13 @@ export class GuestNet {
       this.retries = 0;
       this.h.onStatus('online');
       // Sending before 'open' silently drops the message, so HELLO goes here.
-      this.send({ t: 'HELLO', playerId: this.me.playerId, name: this.me.name, token: this.me.token });
+      this.send({
+        t: 'HELLO',
+        playerId: this.me.playerId,
+        name: this.me.name,
+        token: this.me.token,
+        secret: localSecret(),
+      });
     });
 
     conn.on('data', (raw) => {

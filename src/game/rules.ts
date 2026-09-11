@@ -316,8 +316,12 @@ export function canTrade(s: GameState, o: TradeBody): boolean {
   if (!Number.isInteger(o.giveCash) || !Number.isInteger(o.wantCash)) return false;
   if (o.giveCash < 0 || o.wantCash < 0) return false;
   if (from.cash < o.giveCash || to.cash < o.wantCash) return false;
+  // Non-integer or negative card counts would corrupt the totals a trade
+  // applies, so reject anything that is not a clean count.
+  if (!Number.isInteger(o.giveJailCards) || !Number.isInteger(o.wantJailCards)) return false;
   if (o.giveJailCards < 0 || o.wantJailCards < 0) return false;
   if (from.getOutOfJailCards < o.giveJailCards || to.getOutOfJailCards < o.wantJailCards) return false;
+  if (!Array.isArray(o.giveProperties) || !Array.isArray(o.wantProperties)) return false;
 
   const check = (ids: number[], ownerId: string) => ids.every((id) => {
     const st = s.properties[id];
@@ -332,10 +336,15 @@ export function canTrade(s: GameState, o: TradeBody): boolean {
 
 /** Cheap membership test used by the reducer to reject spoofed intents. */
 export function isLegal(s: GameState, action: GameAction): boolean {
-  // Trades are validated in depth by the reducer; proposing is always allowed
-  // for a solvent player when trading is on.
+  // Trades are validated in depth by the reducer; proposing is allowed for a
+  // solvent player when trading is on - but the offer must be from that same
+  // player. Without this last check a guest could send an offer that gives
+  // away another player's cash and deeds, then accept it themselves.
   if (action.type === 'PROPOSE_TRADE') {
-    return s.settings.allowTrades && !s.players[action.playerId]?.bankrupt;
+    return s.settings.allowTrades
+      && !s.players[action.playerId]?.bankrupt
+      && action.offer?.from === action.playerId
+      && action.offer.to !== action.playerId;
   }
   if (action.type === 'START_GAME') return s.phase === 'lobby';
 
