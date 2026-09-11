@@ -1,28 +1,32 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { BOARD, GROUPS, GROUP_COLOR, GROUP_LABEL, GROUP_ORDER } from '../game/board';
+import { BOARD, GROUPS, GROUP_COLOR, GROUP_ORDER } from '../game/board';
 import { canTrade, netWorth, ownedBy } from '../game/rules';
 import { acceptMargin, completesFor, suggestTrade, tradeGain } from '../game/ai';
 import type { GameAction, GameState, Player, TradeBody, TradeOffer } from '../game/types';
-import type { LogLine } from '../game/describe';
+import { describe, type LogLine } from '../game/describe';
+import { spaceName, spaceShort, useT } from '../i18n';
 import type { ChatMessage, SeatInfo } from '../net/protocol';
 import { Avatar, Empty, Modal, Money, fmt } from './bits';
 import type { CashFloat } from '../store/store';
 import {
-  STICKERS, groupArt, parseSticker, stickerLabel, stickerToken, stickerUrl, type GroupMotif,
+  STICKERS, groupArt, parseSticker, stickerToken, stickerUrl, type GroupMotif,
 } from '../art/art';
 
 /* ============================ player rail ============================ */
 
 export function PlayerRail({
-  state, seats, myId, floats, onInspectPlayer,
+  state, seats, myId, floats, onInspectPlayer, onSpotlight,
 }: {
   state: GameState;
   seats: SeatInfo[];
   myId: string;
   floats: CashFloat[];
   onInspectPlayer: (id: string) => void;
+  /** Point the board at this player. Null puts the light out. */
+  onSpotlight: (id: string | null) => void;
 }) {
+  const t = useT();
   const current = state.seats[state.seatIndex];
   // Seat order, not a leaderboard: cards that reshuffle as fortunes change
   // make it impossible to see who plays next, and the movement is jarring
@@ -56,43 +60,53 @@ export function PlayerRail({
               data-me={mine || undefined}
               style={{ ['--pc' as string]: p.color } as React.CSSProperties}
               onClick={() => onInspectPlayer(id)}
-              aria-label={`${p.name}, ${fmt(p.cash)}${active ? ', current turn' : ''}`}
+              /* Mouse and keyboard both, so the board answers whether you are
+                 reaching for a pointer or tabbing through the rail. Touch is
+                 deliberately excluded: a tap fires enter and often never
+                 fires leave, which would leave the light stuck on whoever
+                 was tapped last. Phones get the explicit button on the
+                 player's card instead. */
+              onPointerEnter={(e) => { if (e.pointerType === 'mouse') onSpotlight(id); }}
+              onPointerLeave={(e) => { if (e.pointerType === 'mouse') onSpotlight(null); }}
+              onFocus={() => onSpotlight(id)}
+              onBlur={() => onSpotlight(null)}
+              aria-label={t.rail.aria(p.name, fmt(p.cash), active)}
             >
               <Avatar color={p.color} token={p.token} size={34} active={active} dim={p.bankrupt} />
 
               <span className="playerCard__main">
                 <span className="playerCard__top">
                   <span className="playerCard__name truncate" title={p.name}>{p.name}</span>
-                  {mine && <span className="chip">You</span>}
-                  {p.isBot && <span className="chip">Bot</span>}
+                  {mine && <span className="chip">{t.common.you}</span>}
+                  {p.isBot && <span className="chip">{t.common.bot}</span>}
                   {rank[id] === 1 && !p.bankrupt && state.turnNumber > 3 && (
-                    <span className="chip" data-tone="good" title="Highest net worth">Leading</span>
+                    <span className="chip" data-tone="good" title={t.rail.leadingTitle}>{t.rail.leading}</span>
                   )}
                 </span>
                 <span className="playerCard__cash">
                   {p.bankrupt
-                    ? <span className="muted small">Bankrupt</span>
+                    ? <span className="muted small">{t.common.bankrupt}</span>
                     : <Money value={p.cash} />}
-                  <span className="playerCard__worth num" title="Net worth">
+                  <span className="playerCard__worth num" title={t.rail.netTitle}>
                     {/* Only worth showing once property makes it differ from cash. */}
                     {p.bankrupt || netWorth(state, id) === p.cash
                       ? ''
-                      : `${fmt(netWorth(state, id))} net`}
+                      : t.rail.net(fmt(netWorth(state, id)))}
                   </span>
                 </span>
                 <PortfolioStrip state={state} playerId={id} />
               </span>
 
               <span className="playerCard__flags">
-                {p.inJail && <span className="chip" data-tone="bad">Jail</span>}
+                {p.inJail && <span className="chip" data-tone="bad">{t.rail.jail}</span>}
                 {p.getOutOfJailCards > 0 && (
-                  <span className="chip" title="Get Out of Jail Free">Key x{p.getOutOfJailCards}</span>
+                  <span className="chip" title={t.rail.jailCardTitle}>{t.rail.keys(p.getOutOfJailCards)}</span>
                 )}
                 {seat && !seat.connected && !p.isBot && (
-                  <span className="chip" data-tone="bad">Offline</span>
+                  <span className="chip" data-tone="bad">{t.rail.offline}</span>
                 )}
                 {seat && seat.connected && seat.ping > 400 && (
-                  <span className="chip num" title="Latency">{seat.ping}ms</span>
+                  <span className="chip num" title={t.rail.latency}>{seat.ping}ms</span>
                 )}
               </span>
 
@@ -121,6 +135,7 @@ export function PlayerRail({
 
 /** Colour-group ownership at a glance: filled pips per deed held. */
 function PortfolioStrip({ state, playerId }: { state: GameState; playerId: string }) {
+  const t = useT();
   return (
     <span className="strip" aria-hidden>
       {GROUP_ORDER.map((g) => {
@@ -144,12 +159,12 @@ function PortfolioStrip({ state, playerId }: { state: GameState; playerId: strin
       })}
       {[5, 15, 25, 35].some((id) => state.properties[id].owner === playerId) && (
         <span className="strip__count num">
-          RR {[5, 15, 25, 35].filter((id) => state.properties[id].owner === playerId).length}
+          {t.rail.railroadsShort} {[5, 15, 25, 35].filter((id) => state.properties[id].owner === playerId).length}
         </span>
       )}
       {[12, 28].some((id) => state.properties[id].owner === playerId) && (
         <span className="strip__count num">
-          U {[12, 28].filter((id) => state.properties[id].owner === playerId).length}
+          {t.rail.utilitiesShort} {[12, 28].filter((id) => state.properties[id].owner === playerId).length}
         </span>
       )}
     </span>
@@ -166,6 +181,7 @@ export function LogFeed({
   state: GameState | null;
   onSend: (text: string) => void;
 }) {
+  const t = useT();
   const [tab, setTab] = useState<'log' | 'chat'>('log');
   const [draft, setDraft] = useState('');
   const [stickersOpen, setStickersOpen] = useState(false);
@@ -185,45 +201,45 @@ export function LogFeed({
 
   return (
     <div className="feed">
-      <div className="tabs tabs--sm" role="tablist" aria-label="Table feed">
+      <div className="tabs tabs--sm" role="tablist" aria-label={t.feed.aria}>
         <button
           type="button" role="tab" aria-selected={tab === 'log'}
           className="tabs__item" data-on={tab === 'log' || undefined}
           onClick={() => setTab('log')}
         >
-          Table log
+          {t.feed.log}
         </button>
         <button
           type="button" role="tab" aria-selected={tab === 'chat'}
           className="tabs__item" data-on={tab === 'chat' || undefined}
           onClick={() => setTab('chat')}
         >
-          Chat{chat.length > 0 ? ` (${chat.length})` : ''}
+          {t.feed.chat(chat.length)}
         </button>
       </div>
 
       <div className="feed__box" ref={boxRef} onScroll={onScroll} aria-live="polite">
         {tab === 'log' ? (
           log.length === 0
-            ? <Empty>Nothing has happened yet.</Empty>
+            ? <Empty>{t.feed.emptyLog}</Empty>
             : log.map((l) => (
               <p key={l.id} className="logLine" data-tone={l.tone}>
                 {l.actor && state?.players[l.actor] && (
                   <span className="logLine__dot" style={{ background: state.players[l.actor].color }} />
                 )}
-                {l.text}
+                {state ? describe(state, l.event, t) : ''}
               </p>
             ))
         ) : (
           chat.length === 0
-            ? <Empty>Say something to the table.</Empty>
+            ? <Empty>{t.feed.emptyChat}</Empty>
             : chat.map((m) => {
               const sticker = parseSticker(m.text);
               return (
                 <p key={m.id} className="chatLine" data-sticker={sticker ? '' : undefined}>
                   <strong style={{ color: m.color }}>{m.name}</strong>{' '}
                   {sticker
-                    ? <img className="chatSticker" src={stickerUrl(sticker)} alt={stickerLabel(sticker)} />
+                    ? <img className="chatSticker" src={stickerUrl(sticker)} alt={t.stickers[sticker] ?? sticker} />
                     : m.text}
                 </p>
               );
@@ -234,16 +250,16 @@ export function LogFeed({
       {tab === 'chat' && (
         <>
           {stickersOpen && (
-            <div className="stickerTray" role="group" aria-label="Stickers">
+            <div className="stickerTray" role="group" aria-label={t.feed.stickers}>
               {STICKERS.map((s) => (
                 <button
                   key={s.id}
                   type="button"
                   className="stickerTray__item"
-                  title={s.label}
+                  title={t.stickers[s.id] ?? s.label}
                   onClick={() => { onSend(stickerToken(s.id)); setStickersOpen(false); }}
                 >
-                  <img src={stickerUrl(s.id)} alt={s.label} loading="lazy" decoding="async" />
+                  <img src={stickerUrl(s.id)} alt={t.stickers[s.id] ?? s.label} loading="lazy" decoding="async" />
                 </button>
               ))}
             </div>
@@ -256,8 +272,8 @@ export function LogFeed({
               type="button"
               className="btn btn--sm btn--icon"
               aria-expanded={stickersOpen}
-              aria-label={stickersOpen ? 'Hide stickers' : 'Show stickers'}
-              title="Stickers"
+              aria-label={stickersOpen ? t.feed.hideStickers : t.feed.showStickers}
+              title={t.feed.stickers}
               onClick={() => setStickersOpen((v) => !v)}
             >
               {/* The tray's own handle, drawn rather than lettered so it
@@ -271,11 +287,11 @@ export function LogFeed({
               className="field"
               value={draft}
               maxLength={220}
-              placeholder="Message the table"
+              placeholder={t.feed.placeholder}
               onChange={(e) => setDraft(e.target.value)}
-              aria-label="Chat message"
+              aria-label={t.feed.messageAria}
             />
-            <button type="submit" className="btn btn--sm" disabled={!draft.trim()}>Send</button>
+            <button type="submit" className="btn btn--sm" disabled={!draft.trim()}>{t.common.send}</button>
           </form>
         </>
       )}
@@ -286,30 +302,45 @@ export function LogFeed({
 /* ============================ portfolio ============================= */
 
 export function PortfolioModal({
-  state, playerId, onClose, onInspect,
+  state, playerId, onClose, onInspect, onShowOnBoard,
 }: {
   state: GameState;
   playerId: string | null;
   onClose: () => void;
   onInspect: (id: number) => void;
+  /** Put this card away and stand a light on their square instead. */
+  onShowOnBoard: (id: string) => void;
 }) {
+  const t = useT();
   if (!playerId) return null;
   const p = state.players[playerId];
   if (!p) return null;
   const deeds = ownedBy(state, playerId);
 
   return (
-    <Modal open onClose={onClose} title={`${p.name} - ${fmt(netWorth(state, playerId))} net worth`}>
+    <Modal open onClose={onClose} title={t.portfolio.title(p.name, fmt(netWorth(state, playerId)))}>
       <div className="portfolio">
         <div className="portfolio__stats">
-          <Stat label="Cash" value={fmt(p.cash)} />
-          <Stat label="Deeds" value={String(deeds.length)} />
-          <Stat label="Buildings" value={String(deeds.reduce((n, id) => n + state.properties[id].houses, 0))} />
-          <Stat label="Position" value={BOARD[p.position].short} />
+          <Stat label={t.common.cash} value={fmt(p.cash)} />
+          <Stat label={t.portfolio.deeds} value={String(deeds.length)} />
+          <Stat label={t.portfolio.buildings} value={String(deeds.reduce((n, id) => n + state.properties[id].houses, 0))} />
+          <Stat label={t.portfolio.position} value={spaceShort(t, p.position)} />
         </div>
 
+        {/* The card is over the board, so pointing at a square is only useful
+            if the card gets out of the way first. */}
+        {!p.bankrupt && (
+          <button
+            type="button"
+            className="btn btn--sm portfolio__locate"
+            onClick={() => onShowOnBoard(playerId)}
+          >
+            {t.portfolio.showOnBoard(p.name)}
+          </button>
+        )}
+
         {deeds.length === 0 ? (
-          <Empty>No property yet.</Empty>
+          <Empty>{t.portfolio.empty}</Empty>
         ) : (
           <ul className="portfolio__list">
             {deeds.map((id) => {
@@ -322,10 +353,10 @@ export function PortfolioModal({
                       className="portfolio__band"
                       style={{ background: space.group ? GROUP_COLOR[space.group] : 'var(--n-50)' }}
                     />
-                    <span className="portfolio__name truncate">{space.name}</span>
+                    <span className="portfolio__name truncate">{spaceName(t, id)}</span>
                     <span className="portfolio__meta num">
-                      {st.mortgaged && <span className="chip" data-tone="bad">Mortgaged</span>}
-                      {st.houses === 5 ? 'Hotel' : st.houses > 0 ? `${st.houses}h` : ''}
+                      {st.mortgaged && <span className="chip" data-tone="bad">{t.common.mortgaged}</span>}
+                      {st.houses === 5 ? t.common.hotel : st.houses > 0 ? t.common.housesShort(st.houses) : ''}
                     </span>
                   </button>
                 </li>
@@ -352,6 +383,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 export function AuctionPanel({
   state, myId, dispatch,
 }: { state: GameState; myId: string; dispatch: (a: GameAction) => void }) {
+  const t = useT();
   const a = state.auction;
   const [amount, setAmount] = useState(0);
 
@@ -364,18 +396,19 @@ export function AuctionPanel({
   const me = state.players[myId];
   const canAct = a.active.includes(myId) && !me.bankrupt;
   const high = a.highBidder ? state.players[a.highBidder] : null;
+  const name = spaceName(t, a.spaceId);
+  const [introBefore, introAfter] = t.auction.intro(name);
 
   return (
-    <Modal open onClose={() => {}} title={`Auction: ${space.name}`} dismissable={false}>
+    <Modal open onClose={() => {}} title={t.auction.title(name)} dismissable={false}>
       <div className="auction">
         <p className="muted">
-          {space.name} went unsold, so it goes to the highest bidder. List price is{' '}
-          <strong className="num">{fmt(space.price ?? 0)}</strong>.
+          {introBefore}<strong className="num">{fmt(space.price ?? 0)}</strong>{introAfter}
         </p>
 
         <div className="auction__bid">
-          <span className="overline">Current bid</span>
-          <span className="auction__amount num">{a.currentBid > 0 ? fmt(a.currentBid) : 'No bids'}</span>
+          <span className="overline">{t.auction.currentBid}</span>
+          <span className="auction__amount num">{a.currentBid > 0 ? fmt(a.currentBid) : t.auction.noBids}</span>
           {high && <span className="muted small" style={{ color: high.color }}>{high.name}</span>}
         </div>
 
@@ -387,7 +420,7 @@ export function AuctionPanel({
               <li key={id} className="auction__bidder" data-out={out || undefined}>
                 <Avatar color={p.color} token={p.token} size={24} dim={out} />
                 <span className="truncate">{p.name}</span>
-                <span className="num muted small">{out ? 'passed' : fmt(p.cash)}</span>
+                <span className="num muted small">{out ? t.auction.passed : fmt(p.cash)}</span>
               </li>
             );
           })}
@@ -402,7 +435,7 @@ export function AuctionPanel({
                   type="button"
                   className="btn btn--sm"
                   disabled={a.currentBid + inc > me.cash}
-                  title={a.currentBid + inc > me.cash ? 'More than you have in cash' : undefined}
+                  title={a.currentBid + inc > me.cash ? t.auction.tooMuch : undefined}
                   onClick={() => dispatch({ type: 'BID', playerId: myId, amount: a.currentBid + inc })}
                 >
                   +{fmt(inc)}
@@ -417,28 +450,28 @@ export function AuctionPanel({
                 min={a.currentBid + 1}
                 max={me.cash}
                 onChange={(e) => setAmount(Number(e.target.value))}
-                aria-label="Custom bid"
+                aria-label={t.auction.customAria}
               />
               <button
                 type="button"
                 className="btn btn--primary"
                 disabled={amount <= a.currentBid || amount > me.cash}
-                title={amount > me.cash ? 'More than you have in cash' : undefined}
+                title={amount > me.cash ? t.auction.tooMuch : undefined}
                 onClick={() => dispatch({ type: 'BID', playerId: myId, amount })}
               >
-                Bid
+                {t.auction.bid}
               </button>
               <button
                 type="button"
                 className="btn btn--danger"
                 onClick={() => dispatch({ type: 'PASS_BID', playerId: myId })}
               >
-                Pass
+                {t.common.pass}
               </button>
             </div>
           </div>
         ) : (
-          <p className="muted">You are out of this auction. Waiting for the others.</p>
+          <p className="muted">{t.auction.out}</p>
         )}
       </div>
     </Modal>
@@ -485,6 +518,7 @@ export function motifOf(spaceId: number): GroupMotif | null {
 function DeedChip({
   state, id, badge,
 }: { state: GameState; id: number; badge?: string }) {
+  const t = useT();
   const space = BOARD[id];
   const motif = motifOf(id);
   const st = state.properties[id];
@@ -501,9 +535,9 @@ function DeedChip({
         />
       )}
       <span className="deedChip__band" aria-hidden />
-      <span className="deedChip__name truncate">{space.short}</span>
+      <span className="deedChip__name truncate">{spaceShort(t, id)}</span>
       {badge && <span className="deedChip__badge">{badge}</span>}
-      {st?.mortgaged && <span className="deedChip__badge deedChip__badge--warn">mortgaged</span>}
+      {st?.mortgaged && <span className="deedChip__badge deedChip__badge--warn">{t.trade.mortgagedBadge}</span>}
       <span className="spacer" />
       <span className="deedChip__price num">{fmt(space.price ?? 0)}</span>
     </span>
@@ -528,6 +562,7 @@ export function TradePanel({
   onClose: () => void;
   dispatch: (a: GameAction) => void;
 }) {
+  const t = useT();
   const others = state.seats.filter((id) => id !== myId && !state.players[id].bankrupt);
   const [withId, setWithId] = useState(others[0] ?? '');
   const [draft, setDraft] = useState(EMPTY_OFFER);
@@ -555,7 +590,7 @@ export function TradePanel({
 
   if (!open) return null;
   if (others.length === 0 || !them || !offer) {
-    return <Modal open onClose={onClose} title="Trade"><Empty>Nobody left to trade with.</Empty></Modal>;
+    return <Modal open onClose={onClose} title={t.trade.title}><Empty>{t.trade.nobody}</Empty></Modal>;
   }
 
   const empty = draft.give.length + draft.want.length
@@ -594,10 +629,10 @@ export function TradePanel({
   };
 
   return (
-    <Modal open onClose={onClose} title="Propose a trade" wide>
+    <Modal open onClose={onClose} title={t.trade.propose} wide>
       <div className="trade">
         <div className="trade__who">
-          <span className="switch__label">Trade with</span>
+          <span className="switch__label">{t.trade.with}</span>
           <div className="trade__whoList">
             {others.map((id) => {
               const p = state.players[id];
@@ -617,20 +652,19 @@ export function TradePanel({
           </div>
           <span className="spacer" />
           <button type="button" className="btn btn--ghost btn--sm" onClick={onSuggest}>
-            Suggest a deal
+            {t.trade.suggest}
           </button>
         </div>
 
         {noDeal && (
           <p className="trade__note">
-            No obvious deal with {them.name} yet — neither of you is one deed from a set.
-            You can still build an offer by hand.
+            {t.trade.noDeal(them.name)}
           </p>
         )}
 
         <div className="trade__cols">
           <TradeSide
-            title="You give"
+            title={t.trade.youGive}
             state={state}
             ownerId={myId}
             receiverId={withId}
@@ -644,7 +678,7 @@ export function TradePanel({
             onCards={(v) => set({ giveCards: v })}
           />
           <TradeSide
-            title={`${them.name} gives`}
+            title={t.trade.theyGive(them.name)}
             state={state}
             ownerId={withId}
             receiverId={myId}
@@ -662,31 +696,31 @@ export function TradePanel({
         {!empty && (
           <div className="trade__verdict" aria-live="polite">
             <div className="trade__balance">
-              <Gain label="You" value={myGain} />
+              <Gain label={t.common.you} value={myGain} />
               <Gain label={them.name} value={theirGain} />
             </div>
             <p className="trade__reading">
               {!sound
-                ? 'That deal cannot be made: a deed cannot change hands while its colour set has buildings on it, and neither side can pay more cash than it holds.'
+                ? t.trade.unsound
                 : margin === null
-                  ? `${them.name} decides for themselves — the figures above are what the deal is worth to each of you.`
-                  : margin > 90 ? `${them.name} will take this.`
-                    : margin > 0 ? `${them.name} will probably take this.`
-                      : margin > -120 ? `${them.name} will turn this down. Add a little.`
-                        : `${them.name} will turn this down flat.`}
+                  ? t.trade.human(them.name)
+                  : margin > 90 ? t.trade.willTake(them.name)
+                    : margin > 0 ? t.trade.probably(them.name)
+                      : margin > -120 ? t.trade.addLittle(them.name)
+                        : t.trade.flat(them.name)}
             </p>
           </div>
         )}
 
         <footer className="trade__foot">
-          <button type="button" className="btn btn--ghost" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn btn--ghost" onClick={onClose}>{t.common.cancel}</button>
           <button
             type="button"
             className="btn btn--primary"
             disabled={empty || !sound}
             onClick={send}
           >
-            Send offer
+            {t.trade.send}
           </button>
         </footer>
       </div>
@@ -724,13 +758,14 @@ function TradeSide({
   maxCards: number;
   onCards: (v: number) => void;
 }) {
+  const t = useT();
   const deeds = ownedBy(state, ownerId);
 
   // Grouped into sets, in board order, because "two of the three oranges"
   // is the unit a player actually thinks in.
   const groups = GROUP_ORDER.map((g) => ({
     key: g as string,
-    label: GROUP_LABEL[g],
+    label: t.groups[g],
     color: GROUP_COLOR[g],
     all: [...GROUPS[g]],
     ids: GROUPS[g].filter((id) => deeds.includes(id)),
@@ -738,14 +773,14 @@ function TradeSide({
 
   const others = deeds.filter((id) => !BOARD[id].group);
   if (others.length > 0) {
-    groups.push({ key: 'other', label: 'Stations & utilities', color: 'var(--n-50)', all: others, ids: others });
+    groups.push({ key: 'other', label: t.trade.otherDeeds, color: 'var(--n-50)', all: others, ids: others });
   }
 
   return (
     <section className="tradeSide">
       <h4 className="section__title">{title}</h4>
 
-      {deeds.length === 0 ? <Empty>No deeds to offer.</Empty> : (
+      {deeds.length === 0 ? <Empty>{t.trade.noDeeds}</Empty> : (
         <div className="tradeSide__sets">
           {groups.map((g) => (
             <div key={g.key} className="tradeSet">
@@ -774,12 +809,12 @@ function TradeSide({
                         <DeedChip
                           state={state}
                           id={id}
-                          badge={completes ? 'completes the set' : undefined}
+                          badge={completes ? t.trade.completesSet : undefined}
                         />
                       </button>
                       {built && (
                         <span className="tradeSide__why">
-                          Sell the buildings on this set before it can be traded.
+                          {t.trade.builtWhy}
                         </span>
                       )}
                     </li>
@@ -793,7 +828,7 @@ function TradeSide({
 
       <div className="tradeSide__cash">
         <div className="tradeSide__cashHead">
-          <span className="switch__label">Cash</span>
+          <span className="switch__label">{t.common.cash}</span>
           <span className="num">{fmt(cash)}</span>
         </div>
         <input
@@ -803,10 +838,10 @@ function TradeSide({
           max={maxCash}
           step={10}
           value={Math.min(cash, maxCash)}
-          aria-label={`${title} cash`}
+          aria-label={t.trade.cashAria(title)}
           onChange={(e) => onCash(Number(e.target.value))}
         />
-        <span className="tradeSide__max small muted">of {fmt(maxCash)}</span>
+        <span className="tradeSide__max small muted">{t.trade.of(fmt(maxCash))}</span>
       </div>
 
       {maxCards > 0 && (
@@ -816,7 +851,7 @@ function TradeSide({
           data-on={cards > 0 || undefined}
           onClick={() => onCards(cards > 0 ? 0 : 1)}
         >
-          Get out of jail free
+          {t.trade.jailCard}
           <span className="num">{cards}/{maxCards}</span>
         </button>
       )}
@@ -849,11 +884,12 @@ function OfferSide({
   cards: number;
   tone: 'get' | 'give';
 }) {
+  const t = useT();
   const nothing = props.length === 0 && cash === 0 && cards === 0;
   return (
     <div className="offer__side" data-tone={tone}>
       <span className="overline">{label}</span>
-      {nothing ? <p className="muted">Nothing</p> : (
+      {nothing ? <p className="muted">{t.offers.nothing}</p> : (
         <div className="offer__items">
           {props.map((id) => (
             <DeedChip
@@ -861,14 +897,14 @@ function OfferSide({
               state={state}
               id={id}
               badge={completesFor(state, viewerId, id)
-                ? 'completes your set'
-                : completesFor(state, otherId, id) ? 'completes theirs' : undefined}
+                ? t.offers.completesYours
+                : completesFor(state, otherId, id) ? t.offers.completesTheirs : undefined}
             />
           ))}
           {cash > 0 && <span className="offer__cash num">{fmt(cash)}</span>}
           {cards > 0 && (
             <span className="offer__cash">
-              {cards} Get out of jail free
+              {t.offers.jailCards(cards)}
             </span>
           )}
         </div>
@@ -877,65 +913,155 @@ function OfferSide({
   );
 }
 
+/**
+ * Offers wait in a dock rather than seizing the screen.
+ *
+ * This was a Modal with `dismissable={false}`: it covered the board, trapped
+ * focus, and had to be answered before anything else could happen - including
+ * looking at the very deeds the offer was about. An offer is a question, not
+ * an interrupt, and you cannot answer it well without seeing the board.
+ *
+ * So they stack in a corner, all of them rather than only the first, summarised
+ * to one line each with the two answers always reachable. Opening one shows the
+ * full detail in place; nothing is ever hidden behind it.
+ */
 export function IncomingTrades({
   state, myId, dispatch,
 }: { state: GameState; myId: string; dispatch: (a: GameAction) => void }) {
-  const mine = state.trades.filter((t) => t.to === myId);
-  if (mine.length === 0) return null;
-  const offer = mine[0];
-  const from = state.players[offer.from];
-  const gain = Math.round(tradeGain(state, myId, offer));
+  const t = useT();
+  const mine = state.trades.filter((o) => o.to === myId);
+  const [openId, setOpenId] = useState<string | null>(null);
 
-  const reading = gain > 150 ? 'That is a good deal for you.'
-    : gain > 0 ? 'That is slightly in your favour.'
-      : gain > -150 ? 'That is slightly against you.'
-        : 'That is a bad deal for you.';
+  // Newest first: the one just sent to you is the one you are being asked about.
+  const offers = [...mine].reverse();
+  if (offers.length === 0) return null;
 
   return (
-    <Modal open onClose={() => {}} title={`${from.name} offers a trade`} dismissable={false}>
-      <div className="offer">
-        <OfferSide
-          state={state}
-          label="You receive"
-          viewerId={myId}
-          otherId={offer.from}
-          props={offer.giveProperties}
-          cash={offer.giveCash}
-          cards={offer.giveJailCards}
-          tone="get"
-        />
-        <OfferSide
-          state={state}
-          label="You give"
-          viewerId={offer.from}
-          otherId={myId}
-          props={offer.wantProperties}
-          cash={offer.wantCash}
-          cards={offer.wantJailCards}
-          tone="give"
-        />
+    <aside
+      className="offerDock"
+      aria-label={t.offers.aria(offers.length)}
+    >
+      <AnimatePresence initial={false}>
+        {offers.map((offer) => (
+          <OfferCard
+            key={offer.id}
+            state={state}
+            myId={myId}
+            offer={offer}
+            open={openId === offer.id}
+            onToggle={() => setOpenId((cur) => (cur === offer.id ? null : offer.id))}
+            dispatch={dispatch}
+          />
+        ))}
+      </AnimatePresence>
+    </aside>
+  );
+}
 
-        <p className="offer__reading" data-sign={gain > 0 ? 'up' : gain < 0 ? 'down' : undefined}>
-          <span className="num">{gain > 0 ? '+' : gain < 0 ? '−' : ''}{fmt(Math.abs(gain))}</span>
-          {' '}in value to you. {reading}
-        </p>
+function OfferCard({
+  state, myId, offer, open, onToggle, dispatch,
+}: {
+  state: GameState;
+  myId: string;
+  offer: TradeOffer;
+  open: boolean;
+  onToggle: () => void;
+  dispatch: (a: GameAction) => void;
+}) {
+  const from = state.players[offer.from];
+  const gain = Math.round(tradeGain(state, myId, offer));
+  const sign = gain > 0 ? 'up' : gain < 0 ? 'down' : undefined;
 
-        <footer className="offer__foot">
-          <button
-            type="button" className="btn btn--ghost"
-            onClick={() => dispatch({ type: 'DECLINE_TRADE', playerId: myId, tradeId: offer.id })}
+  const t = useT();
+  const reading = gain > 150 ? t.offers.good
+    : gain > 0 ? t.offers.slightlyUp
+      : gain > -150 ? t.offers.slightlyDown
+        : t.offers.bad;
+
+  return (
+    <motion.article
+      layout
+      className="offerCard"
+      data-open={open || undefined}
+      initial={{ opacity: 0, y: 14, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 8, scale: 0.97 }}
+      transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+    >
+      <button
+        type="button"
+        className="offerCard__head"
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        <Avatar color={from.color} token={from.token} size={26} />
+        <span className="offerCard__who truncate">{t.offers.offersTrade(from.name)}</span>
+        <span className="offerCard__gain num" data-sign={sign}>
+          {gain > 0 ? '+' : gain < 0 ? '−' : ''}{fmt(Math.abs(gain))}
+        </span>
+        <svg
+          className="offerCard__chev" viewBox="0 0 16 16" width="13" height="13"
+          aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round"
+        >
+          <path d="M4 6l4 4 4-4" />
+        </svg>
+      </button>
+
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            className="offerCard__body"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
           >
-            Decline
-          </button>
-          <button
-            type="button" className="btn btn--primary"
-            onClick={() => dispatch({ type: 'ACCEPT_TRADE', playerId: myId, tradeId: offer.id })}
-          >
-            Accept
-          </button>
-        </footer>
-      </div>
-    </Modal>
+            <div className="offer">
+              <OfferSide
+                state={state}
+                label={t.offers.receive}
+                viewerId={myId}
+                otherId={offer.from}
+                props={offer.giveProperties}
+                cash={offer.giveCash}
+                cards={offer.giveJailCards}
+                tone="get"
+              />
+              <OfferSide
+                state={state}
+                label={t.offers.give}
+                viewerId={offer.from}
+                otherId={myId}
+                props={offer.wantProperties}
+                cash={offer.wantCash}
+                cards={offer.wantJailCards}
+                tone="give"
+              />
+              <p className="offer__reading" data-sign={sign}>
+                <span className="num">{gain > 0 ? '+' : gain < 0 ? '−' : ''}{fmt(Math.abs(gain))}</span>
+                {t.offers.valueToYou} {reading}
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <footer className="offerCard__foot">
+        <button
+          type="button" className="btn btn--ghost btn--sm"
+          onClick={() => dispatch({ type: 'DECLINE_TRADE', playerId: myId, tradeId: offer.id })}
+        >
+          {t.offers.decline}
+        </button>
+        <button
+          type="button" className="btn btn--primary btn--sm"
+          onClick={() => dispatch({ type: 'ACCEPT_TRADE', playerId: myId, tradeId: offer.id })}
+        >
+          {t.offers.accept}
+        </button>
+      </footer>
+    </motion.article>
   );
 }
 
@@ -944,11 +1070,12 @@ export function IncomingTrades({
 export function GameOver({
   state, onLeave,
 }: { state: GameState; onLeave: () => void }) {
+  const t = useT();
   const ranked = [...state.seats].sort((a, b) => netWorth(state, b) - netWorth(state, a));
   const winner = state.winnerId ? state.players[state.winnerId] : null;
 
   return (
-    <Modal open onClose={() => {}} title="Final standings" dismissable={false}>
+    <Modal open onClose={() => {}} title={t.gameOver.title} dismissable={false}>
       <div className="gameOver">
         {winner && (
           <motion.p
@@ -958,7 +1085,7 @@ export function GameOver({
             animate={{ opacity: 1, scale: 1 }}
             transition={{ type: 'spring', stiffness: 260, damping: 16 }}
           >
-            {winner.name} wins
+            {t.gameOver.wins(winner.name)}
           </motion.p>
         )}
         <ol className="gameOver__list">
@@ -970,13 +1097,13 @@ export function GameOver({
                 <Avatar color={p.color} token={p.token} size={26} dim={p.bankrupt} />
                 <span className="truncate">{p.name}</span>
                 <span className="spacer" />
-                <span className="num">{p.bankrupt ? 'Bankrupt' : fmt(netWorth(state, id))}</span>
+                <span className="num">{p.bankrupt ? t.common.bankrupt : fmt(netWorth(state, id))}</span>
               </li>
             );
           })}
         </ol>
         <button type="button" className="btn btn--primary btn--block" onClick={onLeave}>
-          Back to the front door
+          {t.gameOver.home}
         </button>
       </div>
     </Modal>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useT } from '../i18n';
 
 /* ------------------------------------------------------------------ *
  * Making the board bigger.
@@ -112,18 +113,19 @@ export function BoardTools({
   onZoom: (delta: number) => void;
   onToggleFocus: () => void;
 }) {
+  const t = useT();
   const i = ZOOM_STEPS.indexOf(zoom);
   const pct = Math.round(zoom * 100);
 
   return (
-    <div className="boardTools" role="group" aria-label="Board view">
+    <div className="boardTools" role="group" aria-label={t.tools.aria}>
       <button
         type="button"
         className="boardTools__btn"
         onClick={() => onZoom(-1)}
         disabled={i <= 0}
-        aria-label="Smaller board"
-        title="Smaller board"
+        aria-label={t.tools.smaller}
+        title={t.tools.smaller}
       >
         &minus;
       </button>
@@ -133,8 +135,8 @@ export function BoardTools({
         className="boardTools__btn"
         onClick={() => onZoom(1)}
         disabled={i >= ZOOM_STEPS.length - 1}
-        aria-label="Bigger board"
-        title="Bigger board"
+        aria-label={t.tools.bigger}
+        title={t.tools.bigger}
       >
         +
       </button>
@@ -144,9 +146,9 @@ export function BoardTools({
         className="boardTools__btn boardTools__btn--wide"
         onClick={onToggleFocus}
         aria-pressed={focused}
-        title={focused ? 'Leave full screen (F)' : 'Play full screen (F)'}
+        title={focused ? t.tools.leaveFull : t.tools.playFull}
       >
-        {focused ? 'Exit full screen' : 'Full screen'}
+        {focused ? t.tools.exitFull : t.tools.full}
         <kbd className="kbd">F</kbd>
       </button>
     </div>

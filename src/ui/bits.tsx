@@ -1,7 +1,7 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { TOKENS } from '../game/settings';
 import type { TokenId } from '../game/types';
+import { tr, useT } from '../i18n';
 import { Piece } from './Pieces';
 
 export const fmt = (n: number): string =>
@@ -35,8 +35,7 @@ export function Money({ value, className = '' }: { value: number; className?: st
   return <span className={`num ${className}`}>{fmt(shown)}</span>;
 }
 
-export const tokenLabel = (id: TokenId): string =>
-  TOKENS.find((t) => t.id === id)?.label ?? 'Token';
+export const tokenLabel = (id: TokenId): string => tr().tokens[id] ?? id;
 
 export function Avatar({
   color, token, size = 30, active = false, dim = false,
@@ -117,6 +116,7 @@ export function Modal({
   wide?: boolean;
   dismissable?: boolean;
 }) {
+  const t = useT();
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -160,8 +160,8 @@ export function Modal({
           <header className="modal__head">
             <h2 className="modal__title">{title}</h2>
             {dismissable && (
-              <button type="button" className="btn btn--ghost btn--sm" onClick={onClose} aria-label="Close">
-                Close
+              <button type="button" className="btn btn--ghost btn--sm" onClick={onClose} aria-label={t.common.close}>
+                {t.common.close}
               </button>
             )}
           </header>
@@ -194,7 +194,10 @@ export function Slider({
   min: number; max: number; step?: number;
   label: string; format?: (v: number) => string;
 }) {
-  const id = `sl-${label.replace(/\W+/g, '')}`;
+  // Not derived from the label: `\W` strips every Cyrillic letter, so each
+  // Russian slider came out as the same bare "sl-" and its label pointed at
+  // whichever input happened to be first.
+  const id = useId();
   return (
     <div className="slider">
       <div className="slider__head">

@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useT } from '../i18n';
 import { Modal } from './bits';
 
 /* ------------------------------------------------------------------ *
@@ -64,73 +65,47 @@ export function useGameKeys(onHelp: () => void, onFocusMode?: () => void): void 
   }, [onHelp, onFocusMode]);
 }
 
-const RENT_RULES: [string, string][] = [
-  ['Colour set, no houses', 'Double rent once you hold every deed in the set'],
-  ['Railroads', '$25 / $50 / $100 / $200 for 1, 2, 3 or 4 held'],
-  ['Utilities', '4x the dice for one, 10x the dice for both'],
-  ['Mortgaged deeds', 'Pay no rent, and cannot be built on'],
-];
-
-const BUILD_RULES: [string, string][] = [
-  ['Before building', 'Hold the whole colour set, unmortgaged'],
-  ['Even build', 'Houses go up and come down evenly across the set'],
-  ['Hotel', 'Replaces four houses and returns them to the bank'],
-  ['Bank stock', 'Houses and hotels are finite - the header shows what is left'],
-];
-
-const JAIL_RULES: [string, string][] = [
-  ['Getting out', 'Roll doubles, pay the fine, or use a Get Out of Jail Free card'],
-  ['Three turns', 'On the third failed roll you pay the fine and move'],
-  ['Still in play', 'You collect rent and can trade normally while in jail'],
-];
-
 export function HelpModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const t = useT();
   if (!open) return null;
+  const h = t.help;
 
   return (
-    <Modal open onClose={onClose} title="How to play">
+    <Modal open onClose={onClose} title={h.title}>
       <div className="help">
         <section className="help__block">
-          <h3 className="help__heading">Keyboard</h3>
+          <h3 className="help__heading">{h.keyboard}</h3>
           <dl className="help__keys">
-            <div><dt><kbd className="kbd">space</kbd></dt><dd>Roll, continue, or end your turn</dd></div>
-            <div><dt><kbd className="kbd">esc</kbd></dt><dd>Close whatever is open</dd></div>
-            <div><dt><kbd className="kbd">?</kbd></dt><dd>This reference</dd></div>
+            <div><dt><kbd className="kbd">{t.common.keySpace}</kbd></dt><dd>{h.keySpace}</dd></div>
+            <div><dt><kbd className="kbd">esc</kbd></dt><dd>{h.keyEsc}</dd></div>
+            <div><dt><kbd className="kbd">?</kbd></dt><dd>{h.keyHelp}</dd></div>
           </dl>
-          <p className="muted small">
-            Space only ever takes the turn forward. Buying, bidding and bankruptcy
-            stay on the mouse so nothing costly happens by accident.
-          </p>
+          <p className="muted small">{h.keyNote}</p>
         </section>
 
         <section className="help__block">
-          <h3 className="help__heading">Getting around</h3>
+          <h3 className="help__heading">{h.around}</h3>
           <ul className="help__list">
-            <li>Click any square to read its title deed - rent, build costs, who owns it.</li>
-            <li>Click a player to see everything they hold and what it is worth.</li>
-            <li>Your own deeds are actionable: mortgage, unmortgage, build and sell from the card.</li>
+            {h.aroundList.map((item) => <li key={item}>{item}</li>)}
           </ul>
         </section>
 
         <section className="help__block">
-          <h3 className="help__heading">What rent costs</h3>
-          <Rules rows={RENT_RULES} />
+          <h3 className="help__heading">{h.rentHeading}</h3>
+          <Rules rows={h.rent} />
         </section>
 
         <section className="help__block">
-          <h3 className="help__heading">Building</h3>
-          <Rules rows={BUILD_RULES} />
+          <h3 className="help__heading">{h.buildHeading}</h3>
+          <Rules rows={h.build} />
         </section>
 
         <section className="help__block">
-          <h3 className="help__heading">Jail</h3>
-          <Rules rows={JAIL_RULES} />
+          <h3 className="help__heading">{h.jailHeading}</h3>
+          <Rules rows={h.jail} />
         </section>
 
-        <p className="muted small">
-          House rules the host switched on - free parking jackpot, auctions, turn
-          limits - are listed in the lobby and can change what any of this does.
-        </p>
+        <p className="muted small">{h.footnote}</p>
       </div>
     </Modal>
   );

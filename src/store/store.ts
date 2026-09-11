@@ -2,12 +2,14 @@ import { create } from 'zustand';
 import { play, type SfxName } from '../audio/sfx';
 import { botDecide, botDelay } from '../game/ai';
 import { createGame, reduce, type SeatSpec } from '../game/engine';
-import { describe, type LogLine } from '../game/describe';
+import { logLine, type LogLine } from '../game/describe';
+import { tr } from '../i18n';
 import { legalActions } from '../game/rules';
 import { randomSeed } from '../game/rng';
 import { BOT_NAMES, PLAYER_COLORS, TOKENS, defaultSettings } from '../game/settings';
 import type { GameAction, GameEvent, GameSettings, GameState, TokenId } from '../game/types';
 import { GuestNet, HostNet, type NetStatus } from '../net/net';
+import { announce as announceRoom, close as closeRoom } from '../net/directory';
 import {
   type ChatMessage, type Down, type RoomSnapshot, type SeatInfo, type Up,
   cleanText, generateRoomCode, localPlayerId,
@@ -23,6 +25,8 @@ interface Store {
   screen: Screen;
   role: Role;
   code: string;
+  /** Whether this room is announced in the public directory. Host only. */
+  listed: boolean;
   me: { playerId: string; name: string; token: TokenId };
 
   room: RoomSnapshot | null;
@@ -45,6 +49,8 @@ interface Store {
 
   setProfile: (name: string, token: TokenId) => void;
   hostRoom: (settings?: GameSettings) => void;
+  /** List this room publicly, or take it off the list. Host only. */
+  setListed: (on: boolean) => void;
   joinRoom: (code: string) => void;
   playSolo: () => void;
   leave: () => void;
@@ -70,6 +76,13 @@ let host: HostNet | null = null;
 let guest: GuestNet | null = null;
 let botTimer: number | null = null;
 let walkTimer: number | null = null;
+/* Heartbeat for the public directory. Module scope, not component state:
+ * a room stays listed for as long as it is open, which outlives every
+ * screen that can be unmounted while it is. */
+let listTimer: number | null = null;
+/** Seat count as the directory last heard it, so a change can be sent at
+ *  once rather than waiting out the heartbeat. */
+let listedSeats = -1;
 let logSeq = 0;
 
 const savedName = (): string => {
@@ -124,7 +137,7 @@ export const useStore = create<Store>((set, get) => {
     for (const e of events) {
       const cue = cueFor(e, me.playerId);
       if (cue) play(cue, soundOn);
-      const l = describe(state, e, logSeq++);
+      const l = logLine(e, logSeq++);
       if (l) lines.push(l);
       if (e.type === 'MONEY' && Math.abs(e.delta) > 0) {
         floats.push({ id: `f${logSeq++}`, playerId: e.playerId, delta: e.delta });
@@ -182,6 +195,10 @@ export const useStore = create<Store>((set, get) => {
     if (get().role === 'host' && host) {
       host.broadcastEvents(withRev.rev, events);
       host.broadcastRoom(withRev);
+      // Somebody sat down or left. Twenty seconds of a wrong seat count is
+      // how a lobby list earns its reputation for lying, and the fix costs
+      // one request per actual change rather than per publish.
+      if (get().listed && !withRev.game && withRev.seats.length !== listedSeats) beat();
     }
     scheduleBots();
   };
@@ -227,7 +244,7 @@ export const useStore = create<Store>((set, get) => {
 
     switch (msg.t) {
       case 'HELLO': {
-        const name = cleanText(msg.name, 18) || 'Player';
+        const name = cleanText(msg.name, 18) || tr().defaults.player;
         const existing = room.seats.find((s) => s.playerId === from);
         if (existing) {
           // Reconnect: identity is the playerId, never the connection.
@@ -259,7 +276,7 @@ export const useStore = create<Store>((set, get) => {
       }
 
       case 'PROFILE': {
-        const name = cleanText(msg.name, 18) || 'Player';
+        const name = cleanText(msg.name, 18) || tr().defaults.player;
         const taken = new Set(room.seats.filter((x) => x.playerId !== from).map((x) => x.token));
         const token = taken.has(msg.token)
           ? room.seats.find((x) => x.playerId === from)?.token ?? msg.token
@@ -297,7 +314,7 @@ export const useStore = create<Store>((set, get) => {
         const message: ChatMessage = {
           id: `c${logSeq++}`,
           from,
-          name: seat?.name ?? 'Player',
+          name: seat?.name ?? tr().defaults.player,
           color: seat?.color ?? '#fff',
           text,
           at: Date.now(),
@@ -350,12 +367,7 @@ export const useStore = create<Store>((set, get) => {
         return;
 
       case 'BYE': {
-        const reason = {
-          host_left: 'The host closed the room.',
-          kicked: 'You were removed from the room.',
-          room_full: 'That room is full.',
-          in_progress: 'That game has already started.',
-        }[msg.reason];
+        const reason = tr().net.bye[msg.reason];
         teardown();
         set({ screen: 'home', netStatus: 'closed', netError: reason, room: null });
         return;
@@ -373,7 +385,7 @@ export const useStore = create<Store>((set, get) => {
     if (!room || room.game) return;
     if (room.seats.length >= room.settings.maxPlayers) return;
     const used = new Set(room.seats.map((s) => s.name));
-    const name = BOT_NAMES.find((n) => !used.has(n)) ?? `Bot ${room.seats.length + 1}`;
+    const name = BOT_NAMES.find((n) => !used.has(n)) ?? tr().defaults.bot(room.seats.length + 1);
     const usedTokens = new Set(room.seats.map((s) => s.token));
     const token = TOKENS.find((t) => !usedTokens.has(t.id))?.id ?? 'thimble';
     const seat: SeatInfo = {
@@ -402,6 +414,41 @@ export const useStore = create<Store>((set, get) => {
     if (walkTimer) window.clearInterval(walkTimer);
     botTimer = null;
     walkTimer = null;
+    stopListing();
+  };
+
+  /** Take the room off the public list and stop the heartbeat. */
+  const stopListing = (): void => {
+    if (listTimer) window.clearInterval(listTimer);
+    listTimer = null;
+    listedSeats = -1;
+    const { code, listed } = get();
+    if (listed && code) void closeRoom(code);
+  };
+
+  /** Announce now, then keep announcing. The directory forgets a room 45
+   *  seconds after the last beat, so this is also what removes a room when
+   *  the tab is closed without warning. */
+  const beat = (): void => {
+    const { room, listed, role } = get();
+    if (!room || !listed || role !== 'host') return;
+    // A started game cannot be joined, so it does not belong on a list of
+    // rooms you can join.
+    if (room.game) { stopListing(); return; }
+    listedSeats = room.seats.length;
+    void announceRoom({
+      id: room.roomId,
+      host: get().me.name || tr().defaults.someone,
+      seats: room.seats.length,
+      maxSeats: room.settings.maxPlayers,
+      settings: room.settings,
+    });
+  };
+
+  const startListing = (): void => {
+    if (listTimer) window.clearInterval(listTimer);
+    beat();
+    listTimer = window.setInterval(beat, 20000);
   };
 
   /* ------------------------------ store ---------------------------- */
@@ -410,6 +457,7 @@ export const useStore = create<Store>((set, get) => {
     screen: 'home',
     role: 'local',
     code: '',
+    listed: false,
     me: { playerId: localPlayerId(), name: savedName(), token: savedToken() },
 
     room: null,
@@ -427,7 +475,7 @@ export const useStore = create<Store>((set, get) => {
     soundOn: savedSound(),
 
     setProfile: (name, token) => {
-      const clean = cleanText(name, 18) || 'Player';
+      const clean = cleanText(name, 18) || tr().defaults.player;
       try {
         localStorage.setItem('mply.name', clean);
         localStorage.setItem('mply.token', token);
@@ -451,12 +499,17 @@ export const useStore = create<Store>((set, get) => {
       const room: RoomSnapshot = {
         roomId: code,
         hostId: me.playerId,
-        seats: [emptySeat(me.playerId, me.name || 'Host', me.token, 0, true)],
+        seats: [emptySeat(me.playerId, me.name || tr().defaults.host, me.token, 0, true)],
         settings: { ...(settings ?? defaultSettings()), seed: randomSeed() },
         game: null,
         rev: 0,
       };
-      set({ role: 'host', code, room, screen: 'lobby', log: [], chat: [], netError: null });
+      set({
+        role: 'host', code, room, screen: 'lobby',
+        log: [], chat: [], netError: null,
+        // A new room is private until its host says otherwise.
+        listed: false,
+      });
 
       host = new HostNet(code, {
         onUp: handleUp,
@@ -481,7 +534,7 @@ export const useStore = create<Store>((set, get) => {
         role: 'guest', code, room: null, screen: 'lobby',
         log: [], chat: [], netError: null, netStatus: 'connecting',
       });
-      guest = new GuestNet(code, { playerId: me.playerId, name: me.name || 'Player', token: me.token }, {
+      guest = new GuestNet(code, { playerId: me.playerId, name: me.name || tr().defaults.player, token: me.token }, {
         onDown: handleDown,
         onStatus: (status, detail) => set({ netStatus: status, netError: detail ?? null }),
       });
@@ -494,7 +547,7 @@ export const useStore = create<Store>((set, get) => {
       const room: RoomSnapshot = {
         roomId: 'LOCAL',
         hostId: me.playerId,
-        seats: [emptySeat(me.playerId, me.name || 'You', me.token, 0, true)],
+        seats: [emptySeat(me.playerId, me.name || tr().defaults.you, me.token, 0, true)],
         settings: { ...defaultSettings(), fillWithBots: true },
         game: null,
         rev: 0,
@@ -510,10 +563,16 @@ export const useStore = create<Store>((set, get) => {
     leave: () => {
       teardown();
       set({
-        screen: 'home', role: 'local', room: null, code: '',
+        screen: 'home', role: 'local', room: null, code: '', listed: false,
         log: [], chat: [], floats: [], animPos: {},
         netStatus: 'idle', netError: null, sheet: 'none', inspecting: null,
       });
+    },
+
+    setListed: (on) => {
+      if (get().role !== 'host') return;
+      if (on) { set({ listed: true }); startListing(); }
+      else { stopListing(); set({ listed: false }); }
     },
 
     updateSettings: (patch) => {
@@ -551,6 +610,11 @@ export const useStore = create<Store>((set, get) => {
         }
       }
       if (seats.length < 2) return;
+
+      // Off the public list before the first roll: joining a game in
+      // progress is not supported, so leaving it listed would be an
+      // invitation to a door that does not open.
+      stopListing();
 
       const specs: SeatSpec[] = seats.map((s) => ({
         id: s.playerId,

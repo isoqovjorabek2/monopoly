@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useT } from '../i18n';
 
 /* CSS 3D dice. The result is decided by the engine before the animation
  * starts - this component only reads it. Anything else desyncs. */
@@ -51,6 +52,7 @@ function Die({ value, spinKey, extraSpin }: { value: number; spinKey: number; ex
 }
 
 export function Dice({ dice, rolling }: { dice: [number, number] | null; rolling: boolean }) {
+  const t = useT();
   const [spin, setSpin] = useState(0);
   const last = useRef<string>('');
 
@@ -70,7 +72,7 @@ export function Dice({ dice, rolling }: { dice: [number, number] | null; rolling
       data-rolling={rolling || undefined}
       role="status"
       aria-live="polite"
-      aria-label={dice ? `Rolled ${a} and ${b}` : 'Dice ready'}
+      aria-label={dice ? t.board.rolled(a, b) : t.board.diceReady}
       style={{ opacity: dice ? 1 : 0.35 }}
     >
       <Die value={a} spinKey={spin} extraSpin={0} />

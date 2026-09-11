@@ -6,26 +6,46 @@
  * Step 2 repeats the request signed with the long-term credential.
  * A success response with XOR-RELAYED-ADDRESS means an internet client can
  * actually use this server, which is the only claim worth making.
+ *
+ * Every URL in VITE_TURN_URLS is checked, over the transport that URL names:
+ * `turn:` over UDP, `?transport=tcp` over TCP, `turns:` over TLS. They are
+ * separate listeners on the server and separate paths through a firewall, so
+ * one of them working says nothing about the others.
  */
 import dgram from 'node:dgram';
+import net from 'node:net';
+import tls from 'node:tls';
 import crypto from 'node:crypto';
 
-/* Defaults come from the same .env the client build reads, so this checks
- * the relay the game is actually pointed at rather than one you typed. */
-const firstTurnUrl = (process.env.VITE_TURN_URLS ?? '').split(',')[0].trim();
-const parsed = /^turns?:([^:?]+)(?::(\d+))?/.exec(firstTurnUrl);
+const USER = process.argv[3] ?? process.env.VITE_TURN_USERNAME;
+const PASS = process.argv[4] ?? process.env.VITE_TURN_CREDENTIAL;
 
-const HOST = process.argv[2] ?? parsed?.[1];
-const PORT = Number(process.argv[3] ?? parsed?.[2] ?? 3478);
-const USER = process.argv[4] ?? process.env.VITE_TURN_USERNAME;
-const PASS = process.argv[5] ?? process.env.VITE_TURN_CREDENTIAL;
+/* Defaults come from the same .env the client build reads, so this checks the
+ * relay the game is actually pointed at rather than one you typed. */
+const urls = (process.argv[2] ?? process.env.VITE_TURN_URLS ?? '')
+  .split(',').map((s) => s.trim()).filter(Boolean);
 
-if (!HOST || !USER || !PASS) {
+if (!urls.length || !USER || !PASS) {
   console.log('Usage: npm run check:turn        (reads .env)');
-  console.log('   or: node scripts/turncheck.mjs <host> <port> <user> <password>');
+  console.log('   or: node scripts/turncheck.mjs <urls> <user> <password>');
   process.exit(2);
 }
-console.log(`checking turn:${HOST}:${PORT} as "${USER}"\n`);
+
+/** `turns:host:443` and `turn:host:3478?transport=tcp` into something to dial. */
+function parseUrl(url) {
+  const m = /^(turns?):([^:?]+)(?::(\d+))?(?:\?transport=(udp|tcp))?$/.exec(url);
+  if (!m) return null;
+  const [, scheme, host, port, transport] = m;
+  const tlsMode = scheme === 'turns';
+  return {
+    url,
+    host,
+    port: Number(port ?? (tlsMode ? 5349 : 3478)),
+    // turns: is always TLS over TCP; ?transport=tcp selects plain TCP.
+    kind: tlsMode ? 'tls' : transport === 'tcp' ? 'tcp' : 'udp',
+  };
+}
+
 const MAGIC = 0x2112a442;
 
 const ATTR = {
@@ -82,53 +102,130 @@ function xorAddr(buf) {
   return `${ip}:${port}`;
 }
 
-const sock = dgram.createSocket('udp4');
-const send = (buf) => new Promise((resolve, reject) => {
-  const timer = setTimeout(() => reject(new Error('no answer within 5s')), 5000);
-  sock.once('message', (m) => { clearTimeout(timer); resolve(m); });
-  sock.send(buf, PORT, HOST, (e) => { if (e) { clearTimeout(timer); reject(e); } });
-});
+const TIMEOUT_MS = 6000;
 
-const transport = Buffer.alloc(4);
-transport.writeUInt8(17, 0); // UDP
+/** A datagram each way: one send, one reply. */
+function udpTransport({ host, port }) {
+  const sock = dgram.createSocket('udp4');
+  return {
+    request: (buf) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('no answer within 6s')), TIMEOUT_MS);
+      sock.once('message', (m) => { clearTimeout(timer); resolve(m); });
+      sock.send(buf, port, host, (e) => { if (e) { clearTimeout(timer); reject(e); } });
+    }),
+    close: () => sock.close(),
+  };
+}
 
-try {
-  const tx = crypto.randomBytes(12);
-  const first = parse(await send(build(0x0003, tx, [attr(ATTR.REQUESTED_TRANSPORT, transport)])));
+/**
+ * Over a stream there are no message boundaries, so each reply is read by its
+ * own header: 20 bytes of STUN header, then the length that header declares.
+ */
+function streamTransport({ host, port, kind }) {
+  let buf = Buffer.alloc(0);
+  let want = null;
+  const socket = kind === 'tls'
+    ? tls.connect({ host, port, servername: host })
+    : net.connect({ host, port });
+  socket.setTimeout(TIMEOUT_MS);
 
-  const code = first.attrs[ATTR.ERROR_CODE];
-  const realm = first.attrs[ATTR.REALM];
-  const nonce = first.attrs[ATTR.NONCE];
-  const status = code ? code.readUInt8(2) * 100 + code.readUInt8(3) : null;
-  console.log(`step 1  unauthenticated Allocate -> ${status ?? 'no error code'} ${status === 401 ? '(expected)' : ''}`);
-  if (realm) console.log(`        realm "${realm.toString()}"`);
-  if (!realm || !nonce) throw new Error('server did not offer a realm/nonce; long-term auth is not enabled');
+  const ready = new Promise((resolve, reject) => {
+    socket.once(kind === 'tls' ? 'secureConnect' : 'connect', resolve);
+    socket.once('error', reject);
+    socket.once('timeout', () => reject(new Error('no answer within 6s')));
+  });
 
-  const key = crypto.createHash('md5')
-    .update(`${USER}:${realm.toString()}:${PASS}`).digest();
-  const tx2 = crypto.randomBytes(12);
-  const second = parse(await send(build(0x0003, tx2, [
-    attr(ATTR.REQUESTED_TRANSPORT, transport),
-    attr(ATTR.USERNAME, Buffer.from(USER)),
-    attr(ATTR.REALM, realm),
-    attr(ATTR.NONCE, nonce),
-  ], key)));
+  socket.on('data', (chunk) => {
+    buf = Buffer.concat([buf, chunk]);
+    if (!want) return;
+    if (buf.length >= 20 && buf.length >= 20 + buf.readUInt16BE(2)) {
+      const msg = buf.subarray(0, 20 + buf.readUInt16BE(2));
+      buf = buf.subarray(msg.length);
+      const resolve = want; want = null;
+      resolve(msg);
+    }
+  });
 
-  if (second.type === 0x0103) {
-    const relayed = second.attrs[ATTR.XOR_RELAYED_ADDRESS];
-    console.log('step 2  signed Allocate      -> 200 SUCCESS');
-    console.log(`        relayed address ${relayed ? xorAddr(relayed) : '(missing)'}`);
-    console.log('\nRELAY WORKS: a browser on any network can use this server.');
-  } else {
+  return {
+    ready,
+    request: (out) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('no answer within 6s')), TIMEOUT_MS);
+      want = (m) => { clearTimeout(timer); resolve(m); };
+      socket.once('error', (e) => { clearTimeout(timer); reject(e); });
+      socket.write(out);
+    }),
+    close: () => socket.destroy(),
+    peerCert: () => (kind === 'tls' ? socket.getPeerCertificate() : null),
+  };
+}
+
+const transportAttr = Buffer.alloc(4);
+transportAttr.writeUInt8(17, 0); // The relay talks UDP to the peer either way.
+
+async function check(target) {
+  const label = `${target.url}  [${target.kind.toUpperCase()}]`;
+  console.log(`\n${label}`);
+  const t = target.kind === 'udp' ? udpTransport(target) : streamTransport(target);
+  try {
+    if (t.ready) await t.ready;
+    if (t.peerCert) {
+      const c = t.peerCert();
+      if (c?.subject) console.log(`        certificate CN=${c.subject.CN}, expires ${c.valid_to}`);
+    }
+
+    const tx = crypto.randomBytes(12);
+    const first = parse(await t.request(build(0x0003, tx, [attr(ATTR.REQUESTED_TRANSPORT, transportAttr)])));
+
+    const code = first.attrs[ATTR.ERROR_CODE];
+    const realm = first.attrs[ATTR.REALM];
+    const nonce = first.attrs[ATTR.NONCE];
+    const status = code ? code.readUInt8(2) * 100 + code.readUInt8(3) : null;
+    console.log(`step 1  unauthenticated Allocate -> ${status ?? 'no error code'} ${status === 401 ? '(expected)' : ''}`);
+    if (!realm || !nonce) throw new Error('server did not offer a realm/nonce; long-term auth is not enabled');
+
+    const key = crypto.createHash('md5')
+      .update(`${USER}:${realm.toString()}:${PASS}`).digest();
+    const tx2 = crypto.randomBytes(12);
+    const second = parse(await t.request(build(0x0003, tx2, [
+      attr(ATTR.REQUESTED_TRANSPORT, transportAttr),
+      attr(ATTR.USERNAME, Buffer.from(USER)),
+      attr(ATTR.REALM, realm),
+      attr(ATTR.NONCE, nonce),
+    ], key)));
+
+    if (second.type === 0x0103) {
+      const relayed = second.attrs[ATTR.XOR_RELAYED_ADDRESS];
+      console.log('step 2  signed Allocate      -> 200 SUCCESS');
+      console.log(`        relayed address ${relayed ? xorAddr(relayed) : '(missing)'}`);
+      return true;
+    }
     const err = second.attrs[ATTR.ERROR_CODE];
     const s = err ? err.readUInt8(2) * 100 + err.readUInt8(3) : second.type;
-    console.log(`step 2  signed Allocate      -> ${s} FAILED`);
-    console.log(`        ${err ? err.subarray(4).toString() : ''}`);
-    process.exitCode = 1;
+    console.log(`step 2  signed Allocate      -> ${s} FAILED  ${err ? err.subarray(4).toString() : ''}`);
+    return false;
+  } catch (e) {
+    console.log(`        FAILED: ${e.message}`);
+    return false;
+  } finally {
+    t.close();
   }
-} catch (e) {
-  console.log(`FAILED: ${e.message}`);
+}
+
+const targets = urls.map(parseUrl);
+const bad = targets.filter((t) => !t);
+if (bad.length) {
+  console.log(`unparseable TURN url(s): ${urls.filter((_, i) => !targets[i]).join(', ')}`);
+  process.exit(2);
+}
+
+console.log(`checking ${targets.length} relay url(s) as "${USER}"`);
+const results = [];
+for (const t of targets) results.push(await check(t));
+
+const ok = results.filter(Boolean).length;
+console.log(`\n${ok}/${results.length} transports allocated.`);
+if (ok === results.length) {
+  console.log('RELAY WORKS: a browser on any network can use this server.');
+} else {
   process.exitCode = 1;
-} finally {
-  sock.close();
 }

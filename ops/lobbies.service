@@ -1,0 +1,33 @@
+# The public lobby directory. Binds 127.0.0.1:9100; nginx publishes it at
+# /lobbies/. Holds nothing on disk and nothing that outlives a room, so it
+# needs no write access to anything and is restarted rather than recovered.
+[Unit]
+Description=Monopoly public lobby directory (localhost only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=opspanel
+Group=opspanel
+ExecStart=/usr/bin/python3 /opt/opspanel/lobbies.py
+Restart=always
+RestartSec=3
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_INET AF_UNIX
+# It only ever listens; it never calls out.
+IPAddressAllow=localhost
+IPAddressDeny=any
+MemoryMax=96M
+
+[Install]
+WantedBy=multi-user.target

@@ -9,7 +9,30 @@ import type { Edge } from './layout';
  * calls, the type stays as crisp as the device pixel ratio allows, and the
  * board reuses the typography already established in CSS. */
 
+/* Pixels per world unit of the short edge.
+ *
+ * Left at 168 deliberately. The far row being unreadable looks like a
+ * resolution problem and is not one: a tile renders to roughly 40-90 screen
+ * pixels, against 168-336 texels of texture, so the face is already
+ * oversampled several times over and the GPU is picking a mip level well
+ * below the one drawn. Raising this costs texture memory on every device
+ * and changes nothing anyone can see. What was actually wrong is that the
+ * type was too light and too small to survive that downsampling. */
 const PX = 168;               // pixels per world unit of the short edge
+
+/* How many device pixels a face is drawn at, per world pixel.
+ *
+ * Forty faces at a 2x cap is about 23MB of texture memory once mipmaps are
+ * counted; at 1x it is under 6MB. The low tier renders the whole board at
+ * around 1.4x and a tile covers roughly fifty screen pixels there, so a
+ * 336px face was being minified to a seventh of its size - paying for detail
+ * no phone can show, on exactly the devices least able to spare the memory.
+ * Set once from the renderer's own quality tier. */
+let faceDprCap = 2;
+
+export function setFaceQuality(quality: 'high' | 'low'): void {
+  faceDprCap = quality === 'high' ? 2 : 1;
+}
 const FELT_TOP = '#17402c';
 const FELT_BOTTOM = '#0e2a1c';
 const INK = '#f2ede0';
@@ -263,10 +286,15 @@ function fitText(c: CanvasRenderingContext2D, text: string, max: number, start: 
 /**
  * Build the top-face texture for one space.
  * `sx`/`sz` are the tile's world footprint; the drawing is pre-rotated for
- * the edge it sits on, so the mesh needs no UV trickery.
+ * the edge it sits on, so the mesh needs no UV trickery. `text` is what is
+ * printed on it, already in the reader's language - the face is a canvas,
+ * so it is drawn again when that changes.
  */
-export function makeTileFace(space: Space, sx: number, sz: number, edge: Edge): CanvasTexture {
-  const dpr = Math.min(2, typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1);
+export function makeTileFace(
+  space: Space, sx: number, sz: number, edge: Edge,
+  text: { name: string; tax: string | null },
+): CanvasTexture {
+  const dpr = Math.min(faceDprCap, typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1);
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(sx * PX * dpr);
   canvas.height = Math.round(sz * PX * dpr);
@@ -333,7 +361,7 @@ export function makeTileFace(space: Space, sx: number, sz: number, edge: Edge): 
   } else {
     const motif = motifFor(space);
     const img = motif && art(groupArt(motif));
-    if (img) engrave(c, img, w / 2, bodyH * 0.52, Math.min(w * 1.25, bodyH * 0.95), 0.52);
+    if (img) engrave(c, img, w / 2, bodyH * 0.52, Math.min(w * 1.25, bodyH * 0.95), 0.4);
   }
 
   // Glyph
@@ -354,11 +382,14 @@ export function makeTileFace(space: Space, sx: number, sz: number, edge: Edge): 
   c.textAlign = 'center';
   c.textBaseline = 'middle';
   const maxW = w * 0.88;
-  const words = space.short.toUpperCase().split(' ');
+  const words = text.name.toUpperCase().split(' ');
   // Start high and let fitText step down: short names should not be pinned
   // to the size that a 13-character name happens to need.
-  const size = Math.min(...words.map((word) => fitText(c, word, maxW, isCorner ? 30 : 24)));
-  c.font = `400 ${size}px Oswald, "Arial Narrow", sans-serif`;
+  const size = Math.min(...words.map((word) => fitText(c, word, maxW, isCorner ? 34 : 29)));
+  // 600, not 400. Oswald's regular is a thin condensed face: lovely at the
+  // size a deed card shows it and gone entirely by the time the far row has
+  // foreshortened it to a few pixels tall. Weight is what survives distance.
+  c.font = `600 ${size}px Oswald, "Arial Narrow", sans-serif`;
 
   const lines: string[] = [];
   let line = '';
@@ -371,22 +402,38 @@ export function makeTileFace(space: Space, sx: number, sz: number, edge: Edge): 
 
   // Heavier than it was: the type now sits over engraved ornament rather
   // than flat felt, and a thin shadow is not enough to lift it off.
-  c.shadowColor = 'rgba(0,0,0,0.85)';
-  c.shadowBlur = 4;
-  c.shadowOffsetY = 1;
+  /* Separation by outline, not by blur.
+   *
+   * A blurred drop shadow is the obvious way to lift type off a busy
+   * ground and the wrong one here: it puts a soft dark halo around every
+   * glyph, and once the face is minified to the ~9 screen pixels a tile
+   * name actually gets, that halo is a large fraction of the letter. The
+   * glyph edge and its shadow average together and the result reads as
+   * out of focus - which is exactly what it looked like.
+   *
+   * A hard stroke keeps the same separation with an edge the downsample
+   * can preserve. Drawn under the fill so it never thins the letter. */
+  c.lineJoin = 'round';
+  c.miterLimit = 2;
+  c.lineWidth = Math.max(2.5, size * 0.2);
+  c.strokeStyle = 'rgba(0,0,0,0.9)';
   lines.forEach((l, i) => {
-    c.fillText(l, w / 2, textTop + i * size * 1.12);
+    const y = textTop + i * size * 1.12;
+    c.strokeText(l, w / 2, y);
+    c.fillText(l, w / 2, y);
   });
 
   // Price
   if (space.price != null || space.taxAmount != null) {
-    c.fillStyle = GOLD;
     c.font = `500 ${size * 0.78}px "Roboto Mono", monospace`;
-    const label = space.taxAmount != null ? `PAY ${space.taxAmount}` : `${space.price}`;
+    const label = space.taxAmount != null
+      ? (text.tax ?? `PAY ${space.taxAmount}`).toUpperCase()
+      : `${space.price}`;
+    c.lineWidth = Math.max(2, size * 0.16);
+    c.strokeText(label, w / 2, bodyH * 0.86);
+    c.fillStyle = GOLD;
     c.fillText(label, w / 2, bodyH * 0.86);
   }
-  c.shadowColor = 'transparent';
-  c.shadowBlur = 0;
 
   // Inner keyline, so each plaque reads as a separate inlay.
   c.translate(0, -top);

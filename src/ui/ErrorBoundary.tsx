@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { tr } from '../i18n';
 
 /* Without this, any throw during render unmounts the whole tree and the
  * player is left staring at a blank page with no idea what happened and
@@ -33,16 +34,14 @@ export class ErrorBoundary extends Component<Props, State> {
     const { error } = this.state;
     if (!error) return this.props.children;
     if (this.props.fallback) return this.props.fallback(error);
+    // Read once, not subscribed: a crashed tree has nothing left to re-render.
+    const t = tr().crash;
 
     return (
       <div className="crash">
         <div className="card crash__card">
-          <h1 className="section__title">Something broke</h1>
-          <p className="muted">
-            The game hit an error it could not recover from. Reloading starts a
-            fresh table - an in-progress game cannot be restored, because the
-            state only ever lived in the host&apos;s browser.
-          </p>
+          <h1 className="section__title">{t.title}</h1>
+          <p className="muted">{t.body}</p>
           <pre className="crash__detail">{error.message}</pre>
           <button
             type="button"
@@ -52,7 +51,7 @@ export class ErrorBoundary extends Component<Props, State> {
               window.location.reload();
             }}
           >
-            Reload
+            {t.reload}
           </button>
         </div>
       </div>

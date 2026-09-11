@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { BOARD } from '../game/board';
 import { maxRaisable } from '../game/rules';
 import type { GameAction, GameState } from '../game/types';
+import { cap, spaceName, trReason, useT } from '../i18n';
 import { useStore } from '../store/store';
 import { BoardStage, readRenderMode, writeRenderMode, type RenderMode } from './BoardStage';
 import { BoardTools, readBoardZoom, useFocusMode, writeBoardZoom, ZOOM_STEPS } from './BoardTools';
@@ -15,8 +16,10 @@ import { BoardIcon } from './Pieces';
 import { FxLayer, useFx } from './Fx';
 import { cardArt, deckBack } from '../art/art';
 import { HelpModal, useGameKeys } from './Help';
+import { LangSwitch } from './LangSwitch';
 
 export function Game() {
+  const t = useT();
   const room = useStore((s) => s.room);
   const me = useStore((s) => s.me);
   const log = useStore((s) => s.log);
@@ -36,6 +39,27 @@ export function Game() {
   const leave = useStore((s) => s.leave);
 
   const [portfolioOf, setPortfolioOf] = useState<string | null>(null);
+  /* Who the board is currently pointing at.
+   *
+   * Hovering a player card is enough on a pointer device - answering "where
+   * are they" should not cost a click, and should not open anything that
+   * then covers the answer. A phone has no hover and its player list is a
+   * sheet over the board, so there the card carries an explicit "show me on
+   * the board", which puts the sheet away and leaves the light standing for
+   * a few seconds. */
+  const [spotlight, setSpotlight] = useState<string | null>(null);
+  const [pinned, setPinned] = useState<string | null>(null);
+  const pinTimer = useRef<number | null>(null);
+
+  useEffect(() => () => { if (pinTimer.current) window.clearTimeout(pinTimer.current); }, []);
+
+  const showOnBoard = useCallback((id: string) => {
+    setPortfolioOf(null);
+    openSheet('none');
+    setPinned(id);
+    if (pinTimer.current) window.clearTimeout(pinTimer.current);
+    pinTimer.current = window.setTimeout(() => setPinned(null), 7000);
+  }, [openSheet]);
   const [tradeOpen, setTradeOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [renderMode, setRenderMode] = useState<RenderMode>(readRenderMode);
@@ -114,30 +138,30 @@ export function Game() {
           left behind to bring it back. */}
       {focused && <div className="game__reveal" aria-hidden />}
       <header className="game__top">
-        <button type="button" className="btn btn--ghost btn--sm" onClick={leave}>Leave</button>
+        <button type="button" className="btn btn--ghost btn--sm" onClick={leave}>{t.common.leave}</button>
         <span className="game__turn overline">
-          Turn {state.turnNumber}
-          {state.settings.winCondition === 'turn-limit' && ` of ${state.settings.turnLimit}`}
+          {t.game.turn(
+            state.turnNumber,
+            state.settings.winCondition === 'turn-limit' ? state.settings.turnLimit : null,
+          )}
         </span>
         <div className="spacer" />
         {state.settings.freeParkingJackpot && (
-          <span className="chip num" title="Free Parking pot">Pot {fmt(state.freeParkingPot)}</span>
+          <span className="chip num" title={t.game.potTitle}>{t.game.pot(fmt(state.freeParkingPot))}</span>
         )}
-        <span className="chip" title="Houses and hotels still available from the bank">
-          <span className="num">{state.housesRemaining}</span>&nbsp;houses
+        <span className="chip" title={t.game.stockTitle}>
+          <span className="num">{state.housesRemaining}</span>&nbsp;{t.game.houses(state.housesRemaining)}
           <span aria-hidden>&middot;</span>
-          <span className="num">{state.hotelsRemaining}</span>&nbsp;hotels
+          <span className="num">{state.hotelsRemaining}</span>&nbsp;{t.game.hotels(state.hotelsRemaining)}
         </span>
         <button
           type="button"
           className="btn btn--ghost btn--sm"
           onClick={toggleRender}
           aria-pressed={renderMode === '3d'}
-          title={renderMode === '3d'
-            ? 'Switch to the flat board'
-            : 'Switch to the three-dimensional board'}
+          title={renderMode === '3d' ? t.game.toFlat : t.game.to3d}
         >
-          {renderMode === '3d' ? '3D board' : 'Flat board'}
+          {renderMode === '3d' ? t.game.board3d : t.game.boardFlat}
         </button>
         <button
           type="button"
@@ -145,15 +169,16 @@ export function Game() {
           onClick={toggleSound}
           aria-pressed={soundOn}
         >
-          {soundOn ? 'Sound on' : 'Sound off'}
+          {soundOn ? t.game.soundOn : t.game.soundOff}
         </button>
+        <LangSwitch />
         <button
           type="button"
           className="btn btn--ghost btn--sm"
           onClick={() => setHelpOpen(true)}
-          title="Rules and keyboard shortcuts"
+          title={t.game.helpTitle}
         >
-          How to play
+          {t.game.howToPlay}
           <kbd className="kbd">?</kbd>
         </button>
       </header>
@@ -168,6 +193,7 @@ export function Game() {
             myId={myId}
             floats={floats}
             onInspectPlayer={setPortfolioOf}
+            onSpotlight={setSpotlight}
           />
         </aside>
 
@@ -180,7 +206,9 @@ export function Game() {
             <BoardStage
               mode={renderMode}
               state={state}
+              myId={myId}
               animPos={animPos}
+              spotlight={spotlight ?? portfolioOf ?? pinned}
               rolling={rolling}
               onInspect={inspect}
               onFallback={fallBackTo2D}
@@ -198,23 +226,24 @@ export function Game() {
         </main>
 
         <aside className="game__side" data-open={sheet === 'log' || undefined}>
+          <IncomingTrades state={state} myId={myId} dispatch={dispatch} />
           <ActionBar state={state} myId={myId} dispatch={dispatch} onTrade={() => setTradeOpen(true)} />
           <LogFeed log={log} chat={chat} state={state} onSend={useStore.getState().sendChat} />
         </aside>
       </div>
 
-      <nav className="game__tabbar" aria-label="Panels">
+      <nav className="game__tabbar" aria-label={t.game.panelsAria}>
         <button type="button" className="tabbar__item" data-on={sheet === 'players' || undefined}
           onClick={() => openSheet(sheet === 'players' ? 'none' : 'players')}>
-          Players
+          {t.game.players}
         </button>
         <button type="button" className="tabbar__item" data-on={sheet === 'none' || undefined}
           onClick={() => openSheet('none')}>
-          Board
+          {t.game.board}
         </button>
         <button type="button" className="tabbar__item" data-on={sheet === 'log' || undefined}
           onClick={() => openSheet(sheet === 'log' ? 'none' : 'log')}>
-          Actions
+          {t.game.actions}
         </button>
       </nav>
 
@@ -229,6 +258,7 @@ export function Game() {
         state={state}
         playerId={portfolioOf}
         onClose={() => setPortfolioOf(null)}
+        onShowOnBoard={showOnBoard}
         onInspect={(id) => { setPortfolioOf(null); inspect(id); }}
       />
       <TradePanel
@@ -238,7 +268,6 @@ export function Game() {
         onClose={() => setTradeOpen(false)}
         dispatch={dispatch}
       />
-      <IncomingTrades state={state} myId={myId} dispatch={dispatch} />
       {state.phase === 'auction' && <AuctionPanel state={state} myId={myId} dispatch={dispatch} />}
       <CardModal state={state} myId={myId} isMyTurn={isMyTurn} dispatch={dispatch} />
       {state.phase === 'game_over' && <GameOver state={state} onLeave={leave} />}
@@ -258,6 +287,8 @@ function ActionBar({
   dispatch: (a: GameAction) => void;
   onTrade: () => void;
 }) {
+  const t = useT();
+  const A = t.actions;
   const me = state.players[myId];
   const isMyTurn = state.seats[state.seatIndex] === myId;
   const current = state.players[state.seats[state.seatIndex]];
@@ -268,10 +299,8 @@ function ActionBar({
   if (spectator) {
     return (
       <section className="actions">
-        <p className="actions__title">Spectating</p>
-        <p className="muted small">
-          You are out of the game, but you can watch it finish.
-        </p>
+        <p className="actions__title">{A.spectating}</p>
+        <p className="muted small">{A.spectatingNote}</p>
       </section>
     );
   }
@@ -281,14 +310,15 @@ function ActionBar({
     const debt = state.debt;
     const short = debt.amount - me.cash;
     const doomed = maxRaisable(state, myId) < debt.amount;
+    const [shortBefore, shortAfter] = A.short;
+    // A card's own sentence brings its full stop with it.
+    const why = cap(trReason(t, debt.reason)).replace(/\.$/, '');
     return (
       <section className="actions actions--urgent">
-        <p className="actions__title">You owe {fmt(debt.amount)}</p>
+        <p className="actions__title">{A.owe(fmt(debt.amount))}</p>
         <p className="muted small">
-          {debt.reason}. You are <strong className="num">{fmt(short)}</strong> short.
-          {doomed
-            ? ' Even selling everything will not cover it.'
-            : ' Mortgage deeds or sell buildings from the board to raise it.'}
+          {why}. {shortBefore}<strong className="num">{fmt(short)}</strong>{shortAfter}
+          {' '}{doomed ? A.doomed : A.raise}
         </p>
         <div className="actions__row">
           <button
@@ -296,15 +326,13 @@ function ActionBar({
             className={doomed ? 'btn btn--danger' : 'btn btn--ghost'}
             onClick={() => dispatch({ type: 'DECLARE_BANKRUPTCY', playerId: myId })}
           >
-            Declare bankruptcy
+            {A.bankruptcy}
           </button>
           {state.settings.allowTrades && (
-            <button type="button" className="btn" onClick={onTrade}>Offer a trade</button>
+            <button type="button" className="btn" onClick={onTrade}>{t.common.offerTrade}</button>
           )}
         </div>
-        <p className="muted small">
-          Tap any deed you own on the board to mortgage it or sell its buildings.
-        </p>
+        <p className="muted small">{A.tapHint}</p>
       </section>
     );
   }
@@ -313,14 +341,12 @@ function ActionBar({
     return (
       <section className="actions">
         <p className="actions__title" style={{ color: current?.color }}>
-          {current?.name}&apos;s turn
+          {A.theirTurn(current?.name ?? '')}
         </p>
-        <p className="muted small">
-          You can still manage your own property and offer trades while you wait.
-        </p>
+        <p className="muted small">{A.waitNote}</p>
         <div className="actions__row">
           {state.settings.allowTrades && (
-            <button type="button" className="btn btn--sm" onClick={onTrade}>Offer a trade</button>
+            <button type="button" className="btn btn--sm" onClick={onTrade}>{t.common.offerTrade}</button>
           )}
         </div>
       </section>
@@ -329,41 +355,39 @@ function ActionBar({
 
   /* --- your turn --- */
   const space = BOARD[me.position];
+  const [unownedBefore, unownedAfter] = A.unowned(spaceName(t, me.position));
 
   return (
     <section className="actions actions--mine">
       <p className="actions__title">
-        Your turn
-        {timeLeft != null && <span className="actions__timer num"> {timeLeft}s</span>}
+        {A.yourTurn}
+        {timeLeft != null && <span className="actions__timer num"> {t.common.seconds(timeLeft)}</span>}
       </p>
 
       {state.phase === 'jailed_choice' && (
         <>
-          <p className="muted small">
-            You are in jail (turn {me.jailTurns + 1} of {state.settings.maxJailTurns}).
-            Roll for doubles, or buy your way out.
-          </p>
+          <p className="muted small">{A.inJail(me.jailTurns + 1, state.settings.maxJailTurns)}</p>
           <div className="actions__row">
             <button
               type="button" className="btn btn--primary"
               onClick={() => dispatch({ type: 'ROLL', playerId: myId })}
             >
-              Roll for doubles
+              {A.rollDoubles}
             </button>
             <button
               type="button" className="btn"
               disabled={me.cash < state.settings.jailFine}
-              title={me.cash < state.settings.jailFine ? 'Not enough cash' : undefined}
+              title={me.cash < state.settings.jailFine ? t.common.notEnoughCash : undefined}
               onClick={() => dispatch({ type: 'PAY_JAIL_FINE', playerId: myId })}
             >
-              Pay {fmt(state.settings.jailFine)}
+              {t.common.pay(fmt(state.settings.jailFine))}
             </button>
             {me.getOutOfJailCards > 0 && (
               <button
                 type="button" className="btn"
                 onClick={() => dispatch({ type: 'USE_JAIL_CARD', playerId: myId })}
               >
-                Use free pass
+                {A.useCard}
               </button>
             )}
           </div>
@@ -373,17 +397,15 @@ function ActionBar({
       {state.phase === 'preroll' && (
         <>
           <p className="muted small">
-            {state.doublesCount > 0
-              ? `You rolled doubles - go again. ${state.doublesCount} in a row; three sends you to jail.`
-              : 'Roll the dice to move.'}
+            {state.doublesCount > 0 ? A.doublesAgain(state.doublesCount) : A.rollToMove}
           </p>
           <button
             type="button" className="btn btn--primary btn--block"
             data-hotkey="advance"
             onClick={() => dispatch({ type: 'ROLL', playerId: myId })}
           >
-            Roll the dice
-            <kbd className="kbd">space</kbd>
+            {A.roll}
+            <kbd className="kbd">{t.common.keySpace}</kbd>
           </button>
         </>
       )}
@@ -391,55 +413,53 @@ function ActionBar({
       {state.phase === 'awaiting_buy' && (
         <>
           <p className="actions__lead">
-            {space.name} is unowned. It costs <strong className="num">{fmt(space.price ?? 0)}</strong>.
+            {unownedBefore}<strong className="num">{fmt(space.price ?? 0)}</strong>{unownedAfter}
           </p>
           <div className="actions__row">
             <button
               type="button" className="btn btn--primary"
               disabled={me.cash < (space.price ?? 0)}
-              title={me.cash < (space.price ?? 0) ? 'Not enough cash' : undefined}
+              title={me.cash < (space.price ?? 0) ? t.common.notEnoughCash : undefined}
               onClick={() => dispatch({ type: 'BUY_PROPERTY', playerId: myId })}
             >
-              Buy for {fmt(space.price ?? 0)}
+              {A.buyFor(fmt(space.price ?? 0))}
             </button>
             <button
               type="button" className="btn"
               onClick={() => dispatch({ type: 'DECLINE_PROPERTY', playerId: myId })}
             >
-              {state.settings.auctionsEnabled ? 'Send to auction' : 'Pass'}
+              {state.settings.auctionsEnabled ? A.toAuction : t.common.pass}
             </button>
           </div>
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => useStore.getState().inspect(me.position)}>
-            See the title deed
+            {A.seeDeed}
           </button>
         </>
       )}
 
       {state.phase === 'turn_end' && (
         <>
-          <p className="muted small">
-            Build, mortgage or trade before you pass the dice.
-          </p>
+          <p className="muted small">{A.turnEndNote}</p>
           <button
             type="button" className="btn btn--primary btn--block"
             data-hotkey="advance"
             onClick={() => dispatch({ type: 'END_TURN', playerId: myId })}
           >
-            End turn
-            <kbd className="kbd">space</kbd>
+            {A.endTurn}
+            <kbd className="kbd">{t.common.keySpace}</kbd>
           </button>
         </>
       )}
 
       <div className="actions__row actions__row--sub">
         {state.settings.allowTrades && (
-          <button type="button" className="btn btn--ghost btn--sm" onClick={onTrade}>Trade</button>
+          <button type="button" className="btn btn--ghost btn--sm" onClick={onTrade}>{t.common.trade}</button>
         )}
         <button
           type="button" className="btn btn--ghost btn--sm"
           onClick={() => useStore.getState().inspect(me.position)}
         >
-          Where am I?
+          {A.whereAmI}
         </button>
       </div>
     </section>
@@ -454,8 +474,8 @@ function useTurnTimer(state: GameState): number | null {
   useEffect(() => {
     if (limit <= 0) return;
     setLeft(limit);
-    const t = window.setInterval(() => setLeft((v) => Math.max(0, v - 1)), 1000);
-    return () => window.clearInterval(t);
+    const timer = window.setInterval(() => setLeft((v) => Math.max(0, v - 1)), 1000);
+    return () => window.clearInterval(timer);
   }, [limit, state.turnNumber, state.phase]);
 
   if (limit <= 0) return null;
@@ -467,6 +487,7 @@ function useTurnTimer(state: GameState): number | null {
 function CardModal({
   state, myId, isMyTurn, dispatch,
 }: { state: GameState; myId: string; isMyTurn: boolean; dispatch: (a: GameAction) => void }) {
+  const t = useT();
   const card = state.activeCard;
   const drawer = state.players[state.seats[state.seatIndex]];
 
@@ -478,8 +499,8 @@ function CardModal({
   // Cards drawn by other players clear themselves so the table keeps moving.
   useEffect(() => {
     if (!card || isMyTurn) return;
-    const t = window.setTimeout(() => {}, 100);
-    return () => window.clearTimeout(t);
+    const timer = window.setTimeout(() => {}, 100);
+    return () => window.clearTimeout(timer);
   }, [card, isMyTurn]);
 
   return (
@@ -506,9 +527,7 @@ function CardModal({
               <span className="drawnCard__medallion">
                 <BoardIcon icon={card.deck === 'chance' ? 'chance' : 'chest'} />
               </span>
-              <span className="drawnCard__deck">
-                {card.deck === 'chance' ? 'Chance' : 'Community Chest'}
-              </span>
+              <span className="drawnCard__deck">{t.decks[card.deck]}</span>
               {/* One engraved vignette per card. Decorative: the card text
                   below already says everything, so it carries no alt text
                   and never delays the modal. */}
@@ -521,9 +540,9 @@ function CardModal({
                 loading="lazy"
                 decoding="async"
               />
-              <p className="drawnCard__text">{card.text}</p>
+              <p className="drawnCard__text">{t.cards[card.id] ?? card.text}</p>
               <span className="drawnCard__who" style={{ color: drawer?.color }}>
-                drawn by {drawer?.name}
+                {t.card.drawnBy(drawer?.name ?? '')}
               </span>
               {isMyTurn && (
                 <button
@@ -532,8 +551,8 @@ function CardModal({
                   data-hotkey="advance"
                   onClick={dismiss}
                 >
-                  Continue
-                  <kbd className="kbd">space</kbd>
+                  {t.common.continue}
+                  <kbd className="kbd">{t.common.keySpace}</kbd>
                 </button>
               )}
             </div>

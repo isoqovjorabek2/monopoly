@@ -2,13 +2,17 @@ import { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CLASSIC, PRESETS, TOKENS } from '../game/settings';
 import type { BotLevel, GameSettings } from '../game/types';
+import { useT } from '../i18n';
+import { hasDirectory } from '../net/directory';
 import { roomLink } from '../net/protocol';
 import { useStore } from '../store/store';
 import { Avatar, Panel, Segmented, Slider, Toggle, fmt } from './bits';
+import { LangSwitch } from './LangSwitch';
 
 type Tab = 'seats' | 'rules' | 'economy' | 'pace';
 
 export function Lobby() {
+  const t = useT();
   const room = useStore((s) => s.room);
   const role = useStore((s) => s.role);
   const me = useStore((s) => s.me);
@@ -19,6 +23,8 @@ export function Lobby() {
   const removeSeat = useStore((s) => s.removeSeat);
   const updateSettings = useStore((s) => s.updateSettings);
   const startGame = useStore((s) => s.startGame);
+  const listed = useStore((s) => s.listed);
+  const setListed = useStore((s) => s.setListed);
 
   const [tab, setTab] = useState<Tab>('seats');
   const [copied, setCopied] = useState<'code' | 'link' | null>(null);
@@ -34,6 +40,7 @@ export function Lobby() {
 
   const isHost = room ? room.hostId === me.playerId : false;
   const isLocal = role === 'local';
+  const L = t.lobby;
 
   if (!room) {
     return (
@@ -41,10 +48,10 @@ export function Lobby() {
         <div className="card connecting">
           <div className="spinner" aria-hidden />
           <h2 className="section__title">
-            {netStatus === 'error' ? 'Could not join' : 'Connecting to the table...'}
+            {netStatus === 'error' ? L.couldNotJoin : L.connecting}
           </h2>
-          <p className="muted">{netError ?? 'Opening a direct connection to the host.'}</p>
-          <button type="button" className="btn btn--ghost" onClick={leave}>Back</button>
+          <p className="muted">{netError ?? L.opening}</p>
+          <button type="button" className="btn btn--ghost" onClick={leave}>{t.common.back}</button>
         </div>
       </div>
     );
@@ -54,6 +61,7 @@ export function Lobby() {
   const set = (patch: Partial<GameSettings>) => updateSettings(patch);
   const canEdit = isHost || isLocal;
   const enoughPlayers = room.seats.length >= 2 || s.fillWithBots;
+  const rule = (key: string) => L.rules[key] ?? ['', ''];
 
   const copy = async (what: 'code' | 'link') => {
     const text = what === 'code' ? room.roomId : roomLink(room.roomId);
@@ -71,7 +79,7 @@ export function Lobby() {
   const share = async () => {
     const url = roomLink(room.roomId);
     if (navigator.share) {
-      try { await navigator.share({ title: 'Monopoly Royale', text: `Join my game: ${room.roomId}`, url }); return; }
+      try { await navigator.share({ title: 'Monopoly Royale', text: L.shareText(room.roomId), url }); return; }
       catch { /* user dismissed the sheet */ }
     }
     void copy('link');
@@ -80,10 +88,11 @@ export function Lobby() {
   return (
     <div className="lobby">
       <header className="lobby__head">
-        <button type="button" className="btn btn--ghost btn--sm" onClick={leave}>Leave</button>
+        <button type="button" className="btn btn--ghost btn--sm" onClick={leave}>{t.common.leave}</button>
         <div className="spacer" />
+        <LangSwitch />
         <span className="chip" data-tone={netStatus === 'online' ? 'good' : undefined}>
-          {isLocal ? 'Local game' : netStatus === 'online' ? 'Room open' : netStatus}
+          {isLocal ? L.localGame : netStatus === 'online' ? L.roomOpen : t.status[netStatus]}
         </span>
       </header>
 
@@ -93,37 +102,49 @@ export function Lobby() {
         {/* --------------------------- invite -------------------------- */}
         {!isLocal && (
           <section className="card invite">
-            <p className="overline">Room code</p>
+            <p className="overline">{L.roomCode}</p>
             <div className="invite__code num">{room.roomId}</div>
-            <p className="muted small">
-              Anyone with this code or link can take a seat until the game starts.
-            </p>
+            <p className="muted small">{L.anyoneCanSit}</p>
             <div className="invite__actions">
               <button type="button" className="btn btn--sm" onClick={() => copy('code')}>
-                {copied === 'code' ? 'Copied' : 'Copy code'}
+                {copied === 'code' ? L.copied : L.copyCode}
               </button>
               <button type="button" className="btn btn--primary btn--sm" onClick={share}>
-                {copied === 'link' ? 'Link copied' : 'Share link'}
+                {copied === 'link' ? L.linkCopied : L.shareLink}
               </button>
             </div>
             <div className="invite__link num truncate" title={roomLink(room.roomId)}>
               {roomLink(room.roomId)}
             </div>
+
+            {isHost && hasDirectory && (
+              <label className="invite__public">
+                <input
+                  type="checkbox"
+                  checked={listed}
+                  onChange={(e) => setListed(e.target.checked)}
+                />
+                <span>
+                  <span className="switch__label">{L.listPublicly}</span>
+                  <span className="switch__hint">{listed ? L.listedOn : L.listedOff}</span>
+                </span>
+              </label>
+            )}
           </section>
         )}
 
         {/* --------------------------- seats --------------------------- */}
         <Panel
-          title={`Seats (${room.seats.length}/${s.maxPlayers})`}
+          title={L.seats(room.seats.length, s.maxPlayers)}
           action={canEdit && (
             <button
               type="button"
               className="btn btn--ghost btn--sm"
               onClick={addBot}
               disabled={room.seats.length >= s.maxPlayers}
-              title={room.seats.length >= s.maxPlayers ? 'The table is full' : undefined}
+              title={room.seats.length >= s.maxPlayers ? L.tableFull : undefined}
             >
-              Add bot
+              {L.addBot}
             </button>
           )}
           className="lobby__seats"
@@ -144,10 +165,10 @@ export function Lobby() {
                   <span className="seat__info">
                     <span className="seat__name truncate" title={seat.name}>{seat.name}</span>
                     <span className="seat__meta">
-                      {seat.isHost && <span className="chip">Host</span>}
-                      {seat.isBot && <span className="chip">Bot - {seat.botLevel}</span>}
-                      {seat.playerId === me.playerId && <span className="chip">You</span>}
-                      {!seat.connected && <span className="chip" data-tone="bad">Reconnecting</span>}
+                      {seat.isHost && <span className="chip">{t.common.host}</span>}
+                      {seat.isBot && <span className="chip">{L.botChip(L.levels[seat.botLevel])}</span>}
+                      {seat.playerId === me.playerId && <span className="chip">{t.common.you}</span>}
+                      {!seat.connected && <span className="chip" data-tone="bad">{L.reconnecting}</span>}
                     </span>
                   </span>
                   {canEdit && !seat.isHost && (
@@ -155,9 +176,9 @@ export function Lobby() {
                       type="button"
                       className="btn btn--ghost btn--sm"
                       onClick={() => removeSeat(seat.playerId)}
-                      aria-label={`Remove ${seat.name}`}
+                      aria-label={L.removeAria(seat.name)}
                     >
-                      Remove
+                      {L.remove}
                     </button>
                   )}
                 </motion.li>
@@ -166,7 +187,7 @@ export function Lobby() {
             {Array.from({ length: Math.max(0, Math.min(s.maxPlayers, 8) - room.seats.length) }, (_, i) => (
               <li key={`empty${i}`} className="seat seat--empty">
                 <span className="seat__slot" aria-hidden />
-                <span className="seat__info"><span className="muted small">Empty seat</span></span>
+                <span className="seat__info"><span className="muted small">{L.emptySeat}</span></span>
               </li>
             ))}
           </ul>
@@ -174,33 +195,32 @@ export function Lobby() {
 
         {/* -------------------------- settings ------------------------- */}
         <section className="card lobby__rules">
-          <header className="tabs" role="tablist" aria-label="Room settings">
-            {(['seats', 'rules', 'economy', 'pace'] as Tab[]).map((t) => (
+          <header className="tabs" role="tablist" aria-label={L.settingsAria}>
+            {(['seats', 'rules', 'economy', 'pace'] as Tab[]).map((tb) => (
               <button
-                key={t}
+                key={tb}
                 type="button"
                 role="tab"
-                aria-selected={tab === t}
+                aria-selected={tab === tb}
                 className="tabs__item"
-                data-on={tab === t || undefined}
-                onClick={() => setTab(t)}
+                data-on={tab === tb || undefined}
+                onClick={() => setTab(tb)}
               >
-                {{ seats: 'Presets', rules: 'Rules', economy: 'Economy', pace: 'Pace & bots' }[t]}
+                {L.tabs[tb]}
               </button>
             ))}
           </header>
 
           <fieldset className="settings" disabled={!canEdit}>
             {!canEdit && (
-              <p className="muted small settings__lock">
-                Only the host can change the rules. You will see updates live.
-              </p>
+              <p className="muted small settings__lock">{L.hostOnly}</p>
             )}
 
             {tab === 'seats' && (
               <div className="presets">
                 {PRESETS.map((p) => {
                   const on = matchesPreset(s, p.id);
+                  const copyOf = t.presets[p.id] ?? p;
                   return (
                     <button
                       key={p.id}
@@ -209,16 +229,14 @@ export function Lobby() {
                       data-on={on || undefined}
                       onClick={() => set({ ...CLASSIC, ...p.patch, seed: s.seed, maxPlayers: s.maxPlayers })}
                     >
-                      <span className="preset__name">{p.name}</span>
-                      <span className="preset__time num">{p.minutes}</span>
-                      <span className="preset__blurb">{p.blurb}</span>
+                      <span className="preset__name">{copyOf.name}</span>
+                      <span className="preset__time num">{copyOf.minutes}</span>
+                      <span className="preset__blurb">{copyOf.blurb}</span>
                     </button>
                   );
                 })}
-                <p className="muted small">
-                  {deviations === 0
-                    ? 'Currently playing the official rules exactly as printed.'
-                    : `${deviations} house rule${deviations === 1 ? '' : 's'} active.`}
+                <p className="muted small presets__note">
+                  {deviations === 0 ? L.official : L.houseRulesActive(deviations)}
                 </p>
               </div>
             )}
@@ -226,49 +244,49 @@ export function Lobby() {
             {tab === 'rules' && (
               <div className="settings__cols">
                 <Toggle
-                  label="Auctions on declined purchases"
-                  hint="Official. Declining sends the deed to auction instead of leaving it unowned."
+                  label={rule('auctions')[0]}
+                  hint={rule('auctions')[1]}
                   checked={s.auctionsEnabled}
                   onChange={(v) => set({ auctionsEnabled: v })}
                 />
                 <Toggle
-                  label="Double rent on a full colour set"
-                  hint="Official. Only while every deed in the set is unmortgaged."
+                  label={rule('doubleRent')[0]}
+                  hint={rule('doubleRent')[1]}
                   checked={s.doubleRentOnMonopoly}
                   onChange={(v) => set({ doubleRentOnMonopoly: v })}
                 />
                 <Toggle
-                  label="Limited houses and hotels"
-                  hint="Official. 32 houses and 12 hotels exist. Running the bank dry is a real tactic."
+                  label={rule('shortage')[0]}
+                  hint={rule('shortage')[1]}
                   checked={s.buildingShortage}
                   onChange={(v) => set({ buildingShortage: v })}
                 />
                 <Toggle
-                  label="Need the full set to build"
-                  hint="Official. Off means you can build on any deed you own."
+                  label={rule('fullSet')[0]}
+                  hint={rule('fullSet')[1]}
                   checked={s.requireFullSetToBuild}
                   onChange={(v) => set({ requireFullSetToBuild: v })}
                 />
                 <Toggle
-                  label="Buying allowed while in jail"
-                  hint="House rule. Official rules say no purchases from the bank while jailed."
+                  label={rule('buyInJail')[0]}
+                  hint={rule('buyInJail')[1]}
                   checked={s.canBuyInJail}
                   onChange={(v) => set({ canBuyInJail: v })}
                 />
                 <Toggle
-                  label="Must complete a lap before buying"
-                  hint="House rule. Slows the opening land-grab right down."
+                  label={rule('lap')[0]}
+                  hint={rule('lap')[1]}
                   checked={s.mustLapBeforeBuying}
                   onChange={(v) => set({ mustLapBeforeBuying: v })}
                 />
                 <Toggle
-                  label="No rent while the owner is in jail"
-                  hint="House rule. Makes jail a genuine setback."
+                  label={rule('noRentInJail')[0]}
+                  hint={rule('noRentInJail')[1]}
                   checked={s.noRentInJail}
                   onChange={(v) => set({ noRentInJail: v })}
                 />
                 <Toggle
-                  label="Trading between players"
+                  label={rule('trades')[0]}
                   checked={s.allowTrades}
                   onChange={(v) => set({ allowTrades: v })}
                 />
@@ -278,47 +296,47 @@ export function Lobby() {
             {tab === 'economy' && (
               <div className="settings__cols">
                 <Slider
-                  label="Starting cash" min={500} max={5000} step={100}
+                  label={L.startingCash} min={500} max={5000} step={100}
                   value={s.startingCash} format={fmt}
                   onChange={(v) => set({ startingCash: v })}
                 />
                 <Slider
-                  label="Salary for passing GO" min={0} max={800} step={50}
+                  label={L.goSalary} min={0} max={800} step={50}
                   value={s.goSalary} format={fmt}
                   onChange={(v) => set({ goSalary: v })}
                 />
                 <Slider
-                  label="Jail fine" min={0} max={300} step={10}
+                  label={L.jailFine} min={0} max={300} step={10}
                   value={s.jailFine} format={fmt}
                   onChange={(v) => set({ jailFine: v })}
                 />
                 <Slider
-                  label="Mortgage interest" min={0} max={30} step={1}
-                  value={s.mortgageInterestPct} format={(v) => `${v}%`}
+                  label={L.interest} min={0} max={30} step={1}
+                  value={s.mortgageInterestPct} format={t.common.percent}
                   onChange={(v) => set({ mortgageInterestPct: v })}
                 />
                 <Toggle
-                  label="Double salary for landing exactly on GO"
-                  hint="House rule."
+                  label={L.doubleOnGo}
+                  hint={L.houseRule}
                   checked={s.doubleOnGo}
                   onChange={(v) => set({ doubleOnGo: v })}
                 />
                 <Toggle
-                  label="Free Parking jackpot"
-                  hint="House rule. Taxes and fines pile up and go to whoever lands there."
+                  label={L.jackpot}
+                  hint={L.jackpotHint}
                   checked={s.freeParkingJackpot}
                   onChange={(v) => set({ freeParkingJackpot: v })}
                 />
                 {s.freeParkingJackpot && (
                   <Slider
-                    label="Jackpot starts at" min={0} max={2000} step={100}
+                    label={L.jackpotSeed} min={0} max={2000} step={100}
                     value={s.freeParkingSeed} format={fmt}
                     onChange={(v) => set({ freeParkingSeed: v })}
                   />
                 )}
                 <Slider
-                  label="Snake eyes bonus" min={0} max={500} step={25}
-                  value={s.snakeEyesBonus} format={(v) => (v === 0 ? 'Off' : fmt(v))}
+                  label={L.snakeEyes} min={0} max={500} step={25}
+                  value={s.snakeEyesBonus} format={(v) => (v === 0 ? t.common.off : fmt(v))}
                   onChange={(v) => set({ snakeEyesBonus: v })}
                 />
               </div>
@@ -327,81 +345,68 @@ export function Lobby() {
             {tab === 'pace' && (
               <div className="settings__cols">
                 <div className="labelled">
-                  <span className="switch__label">How the game ends</span>
+                  <span className="switch__label">{L.howEnds}</span>
                   <Segmented
-                    label="Win condition"
+                    label={L.winCondition}
                     value={s.winCondition}
                     onChange={(v) => set({ winCondition: v })}
-                    options={[
-                      { value: 'last-standing', label: 'Last standing' },
-                      { value: 'turn-limit', label: 'Turn limit' },
-                      { value: 'networth', label: 'Net worth' },
-                    ]}
+                    options={(['last-standing', 'turn-limit', 'networth'] as const).map((w) => ({
+                      value: w, label: L.win[w][0],
+                    }))}
                   />
-                  <p className="muted small">
-                    {{
-                      'last-standing': 'The classic marathon. Play until only one player is solvent.',
-                      'turn-limit': 'Everyone plays a fixed number of turns; richest wins. Best for one sitting.',
-                      networth: 'First to hit the target total value wins outright.',
-                    }[s.winCondition]}
-                  </p>
+                  <p className="muted small">{L.win[s.winCondition][1]}</p>
                 </div>
 
                 {s.winCondition === 'turn-limit' && (
                   <Slider
-                    label="Turn limit" min={10} max={200} step={5}
+                    label={L.turnLimit} min={10} max={200} step={5}
                     value={s.turnLimit} onChange={(v) => set({ turnLimit: v })}
                   />
                 )}
                 {s.winCondition === 'networth' && (
                   <Slider
-                    label="Net worth target" min={2000} max={25000} step={500}
+                    label={L.netWorthTarget} min={2000} max={25000} step={500}
                     value={s.netWorthTarget} format={fmt}
                     onChange={(v) => set({ netWorthTarget: v })}
                   />
                 )}
 
                 <Slider
-                  label="Table size" min={2} max={8} step={1}
-                  value={s.maxPlayers} format={(v) => `${v} players`}
+                  label={L.tableSize} min={2} max={8} step={1}
+                  value={s.maxPlayers} format={L.players}
                   onChange={(v) => set({ maxPlayers: v })}
                 />
                 <Slider
-                  label="Turn timer" min={0} max={180} step={5}
+                  label={L.turnTimer} min={0} max={180} step={5}
                   value={s.turnTimer}
-                  format={(v) => (v === 0 ? 'Off' : `${v}s`)}
+                  format={(v) => (v === 0 ? t.common.off : t.common.seconds(v))}
                   onChange={(v) => set({ turnTimer: v })}
                 />
                 <Slider
-                  label="Auction bid time" min={5} max={60} step={5}
-                  value={s.auctionBidSeconds} format={(v) => `${v}s`}
+                  label={L.auctionTime} min={5} max={60} step={5}
+                  value={s.auctionBidSeconds} format={t.common.seconds}
                   onChange={(v) => set({ auctionBidSeconds: v })}
                 />
                 <Slider
-                  label="Animation speed" min={0.5} max={2.5} step={0.1}
-                  value={s.animationSpeed} format={(v) => `${v.toFixed(1)}x`}
+                  label={L.animation} min={0.5} max={2.5} step={0.1}
+                  value={s.animationSpeed} format={(v) => t.common.times(v.toFixed(1))}
                   onChange={(v) => set({ animationSpeed: v })}
                 />
 
                 <div className="labelled">
-                  <span className="switch__label">Bot difficulty</span>
+                  <span className="switch__label">{L.botDifficulty}</span>
                   <Segmented
-                    label="Bot difficulty"
+                    label={L.botDifficulty}
                     value={s.botLevel}
                     onChange={(v) => set({ botLevel: v as BotLevel })}
-                    options={[
-                      { value: 'easy', label: 'Easy' },
-                      { value: 'normal', label: 'Normal' },
-                      { value: 'hard', label: 'Hard' },
-                    ]}
+                    options={(['easy', 'normal', 'hard'] as const).map((lv) => ({
+                      value: lv, label: L.levels[lv],
+                    }))}
                   />
-                  <p className="muted small">
-                    Difficulty changes judgement only. Bots never see hidden information
-                    and never get better dice.
-                  </p>
+                  <p className="muted small">{L.difficultyNote}</p>
                 </div>
                 <Toggle
-                  label="Fill empty seats with bots at start"
+                  label={L.fillBots}
                   checked={s.fillWithBots}
                   onChange={(v) => set({ fillWithBots: v })}
                 />
@@ -413,13 +418,13 @@ export function Lobby() {
 
       <footer className="lobby__foot">
         <div className="lobby__summary">
-          <span className="chip num">{fmt(s.startingCash)} start</span>
-          <span className="chip num">{fmt(s.goSalary)} on GO</span>
-          <span className="chip">{s.auctionsEnabled ? 'Auctions on' : 'No auctions'}</span>
+          <span className="chip num">{L.chipStart(fmt(s.startingCash))}</span>
+          <span className="chip num">{L.chipGo(fmt(s.goSalary))}</span>
+          <span className="chip">{s.auctionsEnabled ? L.auctionsOn : L.noAuctions}</span>
           <span className="chip">
-            {s.winCondition === 'turn-limit' ? `${s.turnLimit} turns`
-              : s.winCondition === 'networth' ? `${fmt(s.netWorthTarget)} target`
-                : 'Last standing'}
+            {s.winCondition === 'turn-limit' ? L.chipTurns(s.turnLimit)
+              : s.winCondition === 'networth' ? L.chipTarget(fmt(s.netWorthTarget))
+                : L.lastStanding}
           </span>
         </div>
         <div className="spacer" />
@@ -429,12 +434,12 @@ export function Lobby() {
             className="btn btn--primary"
             onClick={startGame}
             disabled={!enoughPlayers}
-            title={enoughPlayers ? undefined : 'You need at least two players, or turn on bot fill'}
+            title={enoughPlayers ? undefined : L.needPlayers}
           >
-            Start the game
+            {L.start}
           </button>
         ) : (
-          <span className="muted small">Waiting for the host to start...</span>
+          <span className="muted small">{L.waiting}</span>
         )}
       </footer>
     </div>

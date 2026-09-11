@@ -4,18 +4,21 @@ import {
   AdditiveBlending, CanvasTexture, DoubleSide, MathUtils, NeutralToneMapping,
   PMREMGenerator, SRGBColorSpace, Vector3, type Mesh,
 } from 'three';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { ART, TABLE } from '../../art/art';
 import { useArtTexture } from './artTexture';
 import { BOARD } from '../../game/board';
 import type { GameState, Space } from '../../game/types';
+import { spaceShort, useT } from '../../i18n';
 import {
   BASE_H, HALF, TILE_H, TOTAL,
   buildingPositions, tileLayout, tokenPosition,
 } from './layout';
-import { makeTileEmissive, makeTileFace, onFaceArtReady } from './tileFace';
+import { makeTileEmissive, makeTileFace, onFaceArtReady, setFaceQuality } from './tileFace';
 import { Building3D, Token3D } from './Token3D';
 import { Dice3D } from './Dice3D';
+import { Beacon3D } from './Beacon3D';
+import { PLATE_REACH, PLATE_SPAN, SeatPlates, setPlateQuality } from './SeatPlates';
+import { disposeEnvironment, tableEnvironment } from './tableEnvironment';
 
 /* ------------------------------------------------------------------ *
  * The board as an object in light rather than a diagram of one.
@@ -25,8 +28,11 @@ import { Dice3D } from './Dice3D';
  * interchangeable and the engine never learns that 3D exists.
  * ------------------------------------------------------------------ */
 
-function Tile({ space, ownerColor, mortgaged, highlight, artRev, onSelect }: {
+function Tile({ space, name, tax, ownerColor, mortgaged, highlight, artRev, onSelect, onHover }: {
   space: Space;
+  /** Printed on the face, in the reader's language. */
+  name: string;
+  tax: string | null;
   ownerColor: string | null;
   mortgaged: boolean;
   highlight: boolean;
@@ -34,12 +40,14 @@ function Tile({ space, ownerColor, mortgaged, highlight, artRev, onSelect }: {
    *  canvas drawn once, so it has to be drawn again to pick the art up. */
   artRev: number;
   onSelect: (id: number) => void;
+  /** Reported upward so the shell can name the square in plain HTML. */
+  onHover: (id: number | null) => void;
 }) {
   const { x, z, sx, sz, edge } = useMemo(() => tileLayout(space.id), [space.id]);
   const face = useMemo(
-    () => makeTileFace(space, sx, sz, edge),
+    () => makeTileFace(space, sx, sz, edge, { name, tax }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [space, sx, sz, edge, artRev],
+    [space, sx, sz, edge, artRev, name, tax],
   );
   useEffect(() => () => face.dispose(), [face]);
 
@@ -63,8 +71,8 @@ function Tile({ space, ownerColor, mortgaged, highlight, artRev, onSelect }: {
       <mesh
         ref={mesh}
         position={[0, BASE_H / 2, 0]}
-        onPointerOver={(e) => { e.stopPropagation(); setHovered(true); }}
-        onPointerOut={() => setHovered(false)}
+        onPointerOver={(e) => { e.stopPropagation(); setHovered(true); onHover(space.id); }}
+        onPointerOut={() => { setHovered(false); onHover(null); }}
         onClick={(e) => { e.stopPropagation(); onSelect(space.id); }}
         castShadow
         receiveShadow
@@ -220,8 +228,14 @@ function useWordmark() {
  */
 const MEDALLION_SPAN = 8.6;
 
-/** Deco sunburst printed on the felt: an engraved plate, or drawn wedges. */
-function Medallion() {
+/** Deco sunburst printed on the felt: an engraved plate, or drawn wedges.
+ *
+ *  Turned to face whoever is looking. A real board has one printed
+ *  orientation and three players read it sideways, but this is the one thing
+ *  on the felt that means nothing to the game - so a sideways wordmark buys
+ *  authenticity nobody asked for and looks like a bug. Every tile still
+ *  reads from its own edge, which is where authenticity actually matters. */
+function Medallion({ yaw }: { yaw: number }) {
   const rays = useMemo(() => Array.from({ length: 48 }, (_, i) => (i * Math.PI * 2) / 48), []);
   const plate = useArtTexture(ART.medal);
   const wordmark = useWordmark();
@@ -271,7 +285,7 @@ function Medallion() {
   const wordmarkSpan: [number, number] = plate ? [4.0, 2.0] : [5.4, 2.7];
 
   return (
-    <group position={[0, BASE_H / 2 + 0.004, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+    <group position={[0, BASE_H / 2 + 0.004, 0]} rotation={[-Math.PI / 2, 0, yaw]}>
       {engraved}
       {drawn}
       <mesh position={[0, 0, 0.001]}>
@@ -288,11 +302,15 @@ function Medallion() {
  */
 /**
  * How far above the table the camera sits, in radians from the horizon.
- * This is the whole legibility/drama trade: lower is more cinematic but
- * shrinks the far row until its names are unreadable. 57 degrees keeps
- * real depth while every tile stays large enough to read.
+ *
+ * This is the whole legibility/drama trade, and 57 degrees lost it: the far
+ * row rendered at 61% of the near row's height and its names came out as
+ * texture noise. The cost of climbing is nearly all paid by the near row,
+ * which barely changes - going to 69 degrees grows the far row by about 17%
+ * while the near row gives up 2%. Past roughly 75 the board starts reading
+ * as a plan rather than an object, and the gain flattens out anyway.
  */
-const ELEVATION = 1.0;
+const ELEVATION = 1.2;
 
 const FOV = MathUtils.degToRad(38);
 
@@ -319,8 +337,22 @@ function fitDistance(aspect: number): number {
   // and an edge fitted exactly is an edge that clips the moment it moves.
   const hs = HALF + 0.9;
   const y = BASE_H / 2 + TILE_H;
+
+  // The seat plates have to be in frame too, and they are the awkward case:
+  // lower than the board and further out along one axis, so they leave the
+  // picture before any corner of the felt does. Inflating the board's own
+  // pad to cover them was the first attempt and it was the wrong shape -
+  // the plates sit at the middle of each edge, not at the corners, so
+  // padding the corners pushed the camera back far enough to shrink every
+  // tile for a clearance nothing needed. These are the eight points the
+  // plates actually occupy, at the height they actually sit.
+  const py = -BASE_H / 2;
   const corners: [number, number, number][] = [
     [-hs, y, -hs], [hs, y, -hs], [-hs, y, hs], [hs, y, hs],
+    [-PLATE_SPAN, py, PLATE_REACH], [PLATE_SPAN, py, PLATE_REACH],
+    [-PLATE_SPAN, py, -PLATE_REACH], [PLATE_SPAN, py, -PLATE_REACH],
+    [PLATE_REACH, py, -PLATE_SPAN], [PLATE_REACH, py, PLATE_SPAN],
+    [-PLATE_REACH, py, -PLATE_SPAN], [-PLATE_REACH, py, PLATE_SPAN],
   ];
 
   const fits = (d: number): boolean => {
@@ -351,10 +383,15 @@ function fitDistance(aspect: number): number {
   return MathUtils.clamp(hi * 1.03, 9, 48);
 }
 
-function Rig({ focus, cinematic }: { focus: [number, number, number] | null; cinematic: boolean }) {
+function Rig({
+  focus, cinematic, yaw,
+}: { focus: [number, number, number] | null; cinematic: boolean; yaw: number }) {
   const { camera, size } = useThree();
   const target = useRef(new Vector3(0, 0, 0));
   const home = useRef(new Vector3(0, 12.2, 12.6));
+  // Eased rather than jumped: the seat is known before the first frame, but
+  // if it ever changes mid-game a cut would read as the board teleporting.
+  const spin = useRef(yaw);
 
   useEffect(() => {
     // Guarded hard: a zero width on the first measure makes this Infinity,
@@ -367,8 +404,18 @@ function Rig({ focus, cinematic }: { focus: [number, number, number] | null; cin
   }, [size]);
 
   useFrame((state, dt) => {
+    // Take the short way round, so a seat change never spins the long way.
+    let delta = yaw - spin.current;
+    while (delta > Math.PI) delta -= Math.PI * 2;
+    while (delta < -Math.PI) delta += Math.PI * 2;
+    spin.current += delta * (1 - Math.exp(-dt * 3));
+    const cos = Math.cos(spin.current);
+    const sin = Math.sin(spin.current);
+
     // A gentle lean toward the action. Anything stronger than this pushes
     // the board off centre and reads as a camera bug rather than attention.
+    // `focus` is a world position, so it needs no rotating - only the rig's
+    // own offsets, which are expressed relative to whichever edge you sit at.
     const wantTarget = cinematic && focus
       ? new Vector3(focus[0] * 0.16, 0, focus[2] * 0.16)
       : new Vector3(0, 0, 0);
@@ -376,10 +423,15 @@ function Rig({ focus, cinematic }: { focus: [number, number, number] | null; cin
 
     const px = state.pointer.x * 0.55;
     const py = state.pointer.y * 0.35;
+    // Rotate the seat offset and the pointer sway into world space together;
+    // rotating only the seat would make the mouse push the camera sideways
+    // in a direction that has nothing to do with the way you are facing.
+    const lx = px;
+    const lz = home.current.z;
     const want = new Vector3(
-      home.current.x + px + target.current.x * 0.5,
+      lx * cos + lz * sin + target.current.x * 0.5,
       home.current.y - py,
-      home.current.z + target.current.z * 0.5,
+      -lx * sin + lz * cos + target.current.z * 0.5,
     );
     if (!Number.isFinite(want.x + want.y + want.z)) return;
     camera.position.lerp(want, 1 - Math.exp(-dt * 2.4));
@@ -389,12 +441,75 @@ function Rig({ focus, cinematic }: { focus: [number, number, number] | null; cin
   return null;
 }
 
+/**
+ * Which way the board is turned for whoever is looking at it.
+ *
+ * A real table seats people on four sides and each of them reads the board
+ * from their own edge; on screen everybody was given the GO edge, so three
+ * players out of four were looking at somebody else's view of the game.
+ * Seats are dealt round the table in order, so seat n sits a quarter turn
+ * further round than seat n-1, and a fifth player shares an edge with the
+ * first - the same thing that happens when six people sit at a square table.
+ */
+export function seatYaw(state: GameState, myId: string): number {
+  const i = state.seats.indexOf(myId);
+  if (i < 0) return 0;
+  return (i % 4) * (Math.PI / 2);
+}
+
+/** Stable no-op so tiles never remount just because the caller passed none. */
+const noHover = () => {};
+
+/**
+ * Renders above the display's own resolution and lets the device downsample.
+ *
+ * Supersampling is what makes nine-pixel type crisp rather than merely
+ * present - a mip-filtered texture minified to that size averages the glyph
+ * and its background into grey, and no amount of texture detail undoes it.
+ * The cost is real though: 1.75x is three times the fragments of 1x, and a
+ * phone is exactly the device that needs the sharpness and cannot pay for
+ * it.
+ *
+ * So this starts sharp and steps down only if the frames say it must,
+ * rather than guessing a number per tier and being wrong on somebody's
+ * hardware. It never steps back up: oscillating resolution is far more
+ * noticeable than a slightly softer board.
+ */
+function AdaptiveResolution({ start, floor }: { start: number; floor: number }) {
+  const setDpr = useThree((s) => s.setDpr);
+  const current = useRef(start);
+  const frames = useRef<number[]>([]);
+
+  useFrame((_, dt) => {
+    // Ignore the first frames after a step: they include the reallocation.
+    const f = frames.current;
+    f.push(dt);
+    if (f.length < 90) return;
+    const avg = f.reduce((a, b) => a + b, 0) / f.length;
+    f.length = 0;
+    // A second and a half of sustained sub-45fps is a device that cannot
+    // afford this resolution, not a hitch from a dice roll.
+    if (avg > 1 / 45 && current.current > floor) {
+      current.current = Math.max(floor, current.current - 0.25);
+      setDpr(current.current);
+    }
+  });
+
+  return null;
+}
+
 export interface Board3DProps {
   state: GameState;
+  /** Whose edge of the table the camera sits behind. */
+  myId: string;
   animPos: Record<string, number>;
   rolling: boolean;
   highlight: number | null;
   onInspect: (id: number) => void;
+  /** Which square the pointer is over, for the readable label in the shell. */
+  onHover?: (id: number | null) => void;
+  /** Whose piece to stand a shaft of light on, if anyone's. */
+  spotlight?: string | null;
   quality: 'high' | 'low';
   onReady?: () => void;
   /** The GPU dropped the context; the caller decides whether to retry. */
@@ -402,8 +517,14 @@ export interface Board3DProps {
 }
 
 export default function Board3D({
-  state, animPos, rolling, highlight, onInspect, quality, onReady, onContextLost,
+  state, myId, animPos, rolling, highlight, onInspect, onHover, spotlight,
+  quality, onReady, onContextLost,
 }: Board3DProps) {
+  // Set before any tile draws its face: the cap decides how large those
+  // forty canvases are, and they are built during this render's children.
+  setFaceQuality(quality);
+  setPlateQuality(quality);
+  const t = useT();
   const current = state.seats[state.seatIndex];
 
   const bySpace = useMemo(() => {
@@ -421,6 +542,19 @@ export default function Board3D({
   const [artRev, setArtRev] = useState(0);
   useEffect(() => onFaceArtReady(() => setArtRev((n) => n + 1)), []);
 
+  /* The faces are drawn with whatever font is ready at that instant, and
+   * the web font arrives in slices: switching to Russian is the first time
+   * anything asks for Oswald's Cyrillic, so the first faces drawn in it are
+   * set in the fallback and baked into the texture. Draw them again once
+   * the browser says a font landed. */
+  useEffect(() => {
+    const fonts = typeof document === 'undefined' ? undefined : document.fonts;
+    if (!fonts) return undefined;
+    const redraw = () => setArtRev((n) => n + 1);
+    fonts.addEventListener('loadingdone', redraw);
+    return () => fonts.removeEventListener('loadingdone', redraw);
+  }, []);
+
   const focus = useMemo<[number, number, number] | null>(() => {
     const pos = animPos[current] ?? state.players[current]?.position;
     if (pos == null) return null;
@@ -431,7 +565,17 @@ export default function Board3D({
   return (
     <Canvas
       shadows={quality === 'high'}
-      dpr={quality === 'high' ? [1, 2] : 1}
+      /* Resolution, which turned out to be most of why the type looked
+         soft. R3F clamps devicePixelRatio into this range, so [1, 2] on an
+         ordinary 1x display rendered at exactly 1x - no supersampling at
+         all - and the low tier's hard `1` meant a phone at 2x or 3x drew
+         the board at a third of its screen's resolution and let the browser
+         upscale it. Tile names are around nine pixels tall; at that size an
+         upscale is the difference between letters and mush.
+         The floor is now above 1 on both tiers: the board is rendered
+         larger than it is shown and downsampled, which is the one thing
+         that makes small type crisp rather than merely bigger. */
+      dpr={quality === 'high' ? 1.75 : 1.4}
       /* ACES Filmic - what r3f reaches for by default - is a film curve,
          and film curves desaturate saturated colour on purpose. On a board
          whose whole legibility rests on eight flat colours being told
@@ -439,18 +583,29 @@ export default function Board3D({
          flat board and washed out here. Khronos PBR Neutral tone maps the
          highlights without taking the chroma with them. */
       gl={{
-        antialias: quality === 'high',
+        /* No MSAA. The board is already rendered above the display's
+           resolution and downsampled, which antialiases it - asking for
+           multisampling on top allocates a second, multisampled copy of a
+           seven-megapixel framebuffer for edges that are being resolved
+           anyway. That is the difference between roughly 56MB and 224MB of
+           GPU memory, and this scene lost its context outright when both
+           were asked for at once. Supersampling is the antialiasing; the
+           adaptive floor stays above 1 so it never fully goes away. */
+        antialias: false,
         powerPreference: 'high-performance',
         toneMapping: NeutralToneMapping,
       }}
       camera={{ fov: 38, position: [0, 12.2, 12.6], near: 0.1, far: 90 }}
       style={{ width: '100%', height: '100%', touchAction: 'pan-y' }}
       onCreated={({ gl, scene }) => {
-        // Metal needs something to reflect or it renders black. RoomEnvironment
-        // builds a small studio cube in memory - no HDRI to download, which
-        // matters on a host with no backend.
+        // Metal needs something to reflect or it renders black. This builds
+        // the room the board is actually sitting in - a dark green space with
+        // one warm lamp over the table - and photographs it once. Still
+        // nothing downloaded: it is geometry, not an HDRI.
         const pmrem = new PMREMGenerator(gl);
-        scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+        const env = tableEnvironment();
+        scene.environment = pmrem.fromScene(env, 0.04).texture;
+        disposeEnvironment(env);
         pmrem.dispose();
 
         // A lost context is not rare on laptops that switch GPUs or throttle
@@ -487,7 +642,7 @@ export default function Board3D({
       <Suspense fallback={null}>
         <Table />
         <Felt />
-        <Medallion />
+        <Medallion yaw={seatYaw(state, myId)} />
 
         {BOARD.map((space) => {
           const st = state.properties[space.id];
@@ -496,11 +651,14 @@ export default function Board3D({
             <Tile
               key={space.id}
               space={space}
+              name={spaceShort(t, space.id)}
+              tax={space.taxAmount != null ? t.board.payTile(space.taxAmount) : null}
               ownerColor={owner ? owner.color : null}
               mortgaged={st?.mortgaged ?? false}
               highlight={highlight === space.id}
               artRev={artRev}
               onSelect={onInspect}
+              onHover={onHover ?? noHover}
             />
           );
         })}
@@ -537,7 +695,15 @@ export default function Board3D({
         </group>
       </Suspense>
 
-      <Rig focus={focus} cinematic />
+      <AdaptiveResolution start={quality === 'high' ? 1.75 : 1.4} floor={1.15} />
+      <Rig focus={focus} cinematic yaw={seatYaw(state, myId)} />
+      <SeatPlates state={state} outLabel={t.board.plateOut} />
+      {spotlight && state.players[spotlight] && !state.players[spotlight].bankrupt && (
+        <Beacon3D
+          spaceId={Math.round(animPos[spotlight] ?? state.players[spotlight].position)}
+          color={state.players[spotlight].color}
+        />
+      )}
     </Canvas>
   );
 }

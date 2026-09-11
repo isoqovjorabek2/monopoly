@@ -1,5 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
+import { BOARD, GROUP_COLOR } from '../game/board';
 import type { GameState } from '../game/types';
+import { spaceName, useT } from '../i18n';
 import { Board } from './Board';
 import { ErrorBoundary } from './ErrorBoundary';
 
@@ -75,19 +77,28 @@ export function writeRenderMode(mode: RenderMode): void {
 }
 
 export function BoardStage({
-  mode, state, animPos, rolling, highlight, onInspect, onFallback,
+  mode, state, myId, animPos, rolling, highlight, spotlight, onInspect, onFallback,
 }: {
   mode: RenderMode;
   state: GameState;
+  /** Whose seat the 3D camera sits behind. */
+  myId: string;
   animPos: Record<string, number>;
   rolling: boolean;
   highlight: number | null;
+  /** A player to point at on the board itself. */
+  spotlight: string | null;
   onInspect: (id: number) => void;
   onFallback: () => void;
 }) {
   const [failed, setFailed] = useState(false);
   const [ready, setReady] = useState(false);
   const [tier] = useState(quality);
+  // Which square the pointer is over. A perspective board can only ever make
+  // its own type so large - the far row is both distant and turned to face
+  // the player sitting there - so the name is also said here, in HTML, at
+  // whatever size the screen actually is.
+  const [peek, setPeek] = useState<number | null>(null);
 
   // Bumping this remounts the Canvas, which is the only reliable way back
   // from a lost context: the renderer, its programs and every texture on
@@ -206,10 +217,13 @@ export function BoardStage({
               <Board3D
                 key={attempt}
                 state={state}
+                myId={myId}
                 animPos={animPos}
                 rolling={rolling}
                 highlight={highlight}
                 onInspect={onInspect}
+                onHover={setPeek}
+                spotlight={spotlight}
                 quality={tier}
                 onReady={onSceneReady}
                 onContextLost={onContextLost}
@@ -218,6 +232,35 @@ export function BoardStage({
           </div>
         </Suspense>
       </ErrorBoundary>
+      <TilePeek state={state} spaceId={peek} />
+    </div>
+  );
+}
+
+/** Names the square under the pointer, in real text at real size. */
+function TilePeek({ state, spaceId }: { state: GameState; spaceId: number | null }) {
+  const t = useT();
+  if (spaceId == null) return null;
+  const space = BOARD[spaceId];
+  const st = state.properties[spaceId];
+  const owner = st?.owner ? state.players[st.owner] : null;
+  const houses = st?.houses ?? 0;
+
+  return (
+    <div className="tilePeek" aria-hidden>
+      {space.group && (
+        <span className="tilePeek__band" style={{ background: GROUP_COLOR[space.group] }} />
+      )}
+      <span className="tilePeek__name">{spaceName(t, spaceId)}</span>
+      {space.price != null && <span className="tilePeek__num">${space.price}</span>}
+      {space.taxAmount != null && <span className="tilePeek__num">{t.common.pay(`$${space.taxAmount}`)}</span>}
+      {owner && (
+        <span className="tilePeek__owner" style={{ color: owner.color }}>
+          {owner.name}
+          {houses === 5 ? t.board.hotelSuffix : houses > 0 ? ` · ${t.common.housesShort(houses)}` : ''}
+          {st?.mortgaged ? t.board.mortgagedSuffix : ''}
+        </span>
+      )}
     </div>
   );
 }

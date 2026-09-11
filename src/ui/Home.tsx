@@ -4,9 +4,12 @@ import { ART } from '../art/art';
 import { BOARD, GROUP_COLOR } from '../game/board';
 import { TOKENS } from '../game/settings';
 import type { TokenId } from '../game/types';
+import { spaceName, useT } from '../i18n';
 import { useStore } from '../store/store';
 import { normaliseCode } from '../net/protocol';
 import { Avatar, fmt } from './bits';
+import { LangSwitch } from './LangSwitch';
+import { PublicRooms } from './PublicRooms';
 
 /** Reads a #/join/CODE deep link once on mount. */
 function useJoinCodeFromUrl(): string {
@@ -24,6 +27,7 @@ function useJoinCodeFromUrl(): string {
 }
 
 export function Home() {
+  const t = useT();
   const me = useStore((s) => s.me);
   const netError = useStore((s) => s.netError);
   const setProfile = useStore((s) => s.setProfile);
@@ -43,11 +47,14 @@ export function Home() {
 
   const go = (fn: () => void) => { commit(); fn(); };
 
+  const [inviteBefore, inviteAfter] = t.home.followedInvite;
+
   /* The backdrop is set as a variable rather than in the stylesheet
    * because its path depends on the deploy base and on which version is
    * selected; CSS owns the scrim that keeps the type readable over it. */
   return (
     <div className="home" style={{ '--hero-img': `url("${ART.hero}")` } as CSSProperties}>
+      <LangSwitch className="home__lang" />
       <motion.div
         className="home__inner"
         initial={{ opacity: 0 }}
@@ -61,50 +68,55 @@ export function Home() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
           >
+            {/* The name is a brand, so it stays as it is in every language. */}
             <h1 className="masthead__title">
               <span className="masthead__word">Monopoly</span>
               <span className="masthead__sub">Royale</span>
             </h1>
 
-            <p className="masthead__lead">
-              The whole game, not the half everybody plays. Auctions on every declined
-              purchase, mortgages and the interest on them, even building, and the
-              thirty-two houses the bank actually owns &mdash; so a housing shortage is a
-              strategy again.
-            </p>
-            <p className="masthead__note">
-              It runs in the browsers of the people playing it. One of you hosts, the rest
-              connect straight to that tab. Nothing to install, nothing to sign up for, and
-              nowhere else your game is kept.
-            </p>
+            <p className="masthead__lead">{t.home.lead}</p>
+            <p className="masthead__note">{t.home.note}</p>
           </motion.header>
 
-          <motion.div
-            className="deedWrap"
-            initial={{ opacity: 0, y: 26, rotate: -7 }}
-            animate={{ opacity: 1, y: 0, rotate: -3.2 }}
-            transition={{ duration: 0.7, delay: 0.12, ease: [0.22, 1, 0.36, 1] }}
-          >
-            <TitleDeed />
-          </motion.div>
+          {/* Three deeds dropped on the table, not one card floating in
+              space. The overlap and the differing angles are what make it
+              read as objects that were put down rather than a graphic that
+              was placed - and they fill a corner that was empty. */}
+          <div className="deedWrap">
+            {[
+              { id: 5, cls: 'deedFan__back', from: { y: 30, rotate: -4 }, to: { y: 0, rotate: -20 }, delay: 0.10 },
+              { id: 24, cls: 'deedFan__mid', from: { y: 26, rotate: -2 }, to: { y: 0, rotate: -1 }, delay: 0.17 },
+              { id: 39, cls: 'deedFan__front', from: { y: 22, rotate: 2 }, to: { y: 0, rotate: 18 }, delay: 0.24 },
+            ].map((d) => (
+              <motion.div
+                key={d.id}
+                className={`deedFan ${d.cls}`}
+                initial={{ opacity: 0, ...d.from }}
+                animate={{ opacity: 1, ...d.to }}
+                transition={{ duration: 0.72, delay: d.delay, ease: [0.22, 1, 0.36, 1] }}
+              >
+                <TitleDeed id={d.id} />
+              </motion.div>
+            ))}
+          </div>
 
           <motion.section
-            className="seat"
+            className="joinCard"
             initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.55, delay: 0.06, ease: [0.22, 1, 0.36, 1] }}
           >
-            <h2 className="seat__title">Take a seat</h2>
+            <h2 className="joinCard__title">{t.home.takeSeat}</h2>
 
             {netError && <div className="banner banner--bad" role="alert">{netError}</div>}
 
             <label className="labelled">
-              <span className="switch__label">Your name at the table</span>
+              <span className="switch__label">{t.home.nameLabel}</span>
               <input
                 className="field"
                 value={name}
                 maxLength={18}
-                placeholder="What should we call you?"
+                placeholder={t.home.namePlaceholder}
                 onChange={(e) => setName(e.target.value)}
                 onBlur={commit}
                 autoComplete="nickname"
@@ -112,33 +124,33 @@ export function Home() {
               />
               {!nameOk && (
                 <span id="name-hint" className="hint">
-                  A name is all it takes to start.
+                  {t.home.nameHint}
                 </span>
               )}
             </label>
 
             <div className="labelled">
-              <span className="switch__label">Your piece</span>
-              <div className="tokenPicker" role="radiogroup" aria-label="Playing piece">
-                {TOKENS.map((t) => (
+              <span className="switch__label">{t.home.piece}</span>
+              <div className="tokenPicker" role="radiogroup" aria-label={t.home.pieceAria}>
+                {TOKENS.map((tk) => (
                   <button
-                    key={t.id}
+                    key={tk.id}
                     type="button"
                     role="radio"
-                    aria-checked={token === t.id}
+                    aria-checked={token === tk.id}
                     className="tokenPicker__item"
-                    data-on={token === t.id || undefined}
-                    onClick={() => { setToken(t.id); setProfile(name, t.id); }}
-                    title={t.label}
+                    data-on={token === tk.id || undefined}
+                    onClick={() => { setToken(tk.id); setProfile(name, tk.id); }}
+                    title={t.tokens[tk.id]}
                   >
-                    <Avatar color="#e8b448" token={t.id} size={26} />
-                    <span className="tokenPicker__label">{t.label}</span>
+                    <Avatar color="#e8b448" token={tk.id} size={26} />
+                    <span className="tokenPicker__label">{t.tokens[tk.id]}</span>
                   </button>
                 ))}
               </div>
             </div>
 
-            <hr className="seat__rule" />
+            <hr className="joinCard__rule" />
 
             {/* One primary way in. Hosting, joining and solo used to sit in
                 three identical cards, which turned an invitation into a menu
@@ -147,27 +159,25 @@ export function Home() {
               type="button"
               className="btn btn--primary btn--block btn--lg"
               disabled={!nameOk}
-              title={nameOk ? undefined : 'Pick a name first'}
+              title={nameOk ? undefined : t.home.pickName}
               onClick={() => go(() => hostRoom())}
             >
-              Open a table
+              {t.home.open}
             </button>
-            <p className="seat__under">
-              You get a code to share and the whole rulebook to set.
-            </p>
+            <p className="joinCard__under">{t.home.openUnder}</p>
 
             <form
-              className="seat__join"
+              className="joinCard__form"
               onSubmit={(e) => { e.preventDefault(); if (code.trim()) go(() => joinRoom(code)); }}
             >
-              <span className="switch__label">Been invited?</span>
+              <span className="switch__label">{t.home.invited}</span>
               <div className="joinRow">
                 <input
                   className="field num joinRow__code"
                   value={code}
                   placeholder="GOLD-FALCON-42"
                   onChange={(e) => setCode(normaliseCode(e.target.value))}
-                  aria-label="Room code"
+                  aria-label={t.home.codeAria}
                   spellCheck={false}
                   autoCapitalize="characters"
                 />
@@ -175,25 +185,27 @@ export function Home() {
                   type="submit"
                   className="btn"
                   disabled={!nameOk || code.trim().length < 3}
-                  title={nameOk ? undefined : 'Pick a name first'}
+                  title={nameOk ? undefined : t.home.pickName}
                 >
-                  Join
+                  {t.common.join}
                 </button>
               </div>
               {urlCode && (
                 <p className="muted small">
-                  You followed an invite to <strong className="num">{urlCode}</strong>.
+                  {inviteBefore}<strong className="num">{urlCode}</strong>{inviteAfter}
                 </p>
               )}
             </form>
 
+            <PublicRooms onJoin={(id) => go(() => joinRoom(id))} />
+
             <button
               type="button"
-              className="seat__solo"
+              className="joinCard__solo"
               disabled={!nameOk}
               onClick={() => go(playSolo)}
             >
-              Or learn the board against bots
+              {t.home.solo}
             </button>
           </motion.section>
         </div>
@@ -211,21 +223,28 @@ export function Home() {
  * actually pay - propped at an angle as an object lying on the table
  * rather than squared up as a card in a grid.
  */
-function TitleDeed() {
-  const space = BOARD[39];
+function TitleDeed({ id = 39, className = '' }: { id?: number; className?: string }) {
+  const t = useT();
+  const d = t.home.deed;
+  const space = BOARD[id];
+  const name = spaceName(t, id);
   const rent = space.rent ?? [];
   const rows: [string, number][] = [
-    ['Rent', rent[0] ?? 0],
-    ['With one house', rent[1] ?? 0],
-    ['With three houses', rent[3] ?? 0],
-    ['With a hotel', rent[5] ?? 0],
+    [d.rent, rent[0] ?? 0],
+    [d.oneHouse, rent[1] ?? 0],
+    [d.threeHouses, rent[3] ?? 0],
+    [d.hotel, rent[5] ?? 0],
   ];
+  const [eachBefore, eachAfter] = d.housesEach;
 
   return (
-    <article className="deedPlate" aria-label={`Title deed for ${space.name}`}>
-      <div className="deedPlate__head" style={{ background: GROUP_COLOR.darkblue }}>
-        <span className="deedPlate__kicker">Title Deed</span>
-        <span className="deedPlate__name">{space.name}</span>
+    <article className={`deedPlate ${className}`} aria-label={d.aria(name)}>
+      <div
+        className="deedPlate__head"
+        style={{ background: space.group ? GROUP_COLOR[space.group] : GROUP_COLOR.darkblue }}
+      >
+        <span className="deedPlate__kicker">{d.kicker}</span>
+        <span className="deedPlate__name">{name}</span>
       </div>
       <dl className="deedPlate__rows">
         {rows.map(([label, value]) => (
@@ -236,9 +255,9 @@ function TitleDeed() {
         ))}
       </dl>
       <p className="deedPlate__foot">
-        Houses <span className="num">{fmt(space.houseCost ?? 0)}</span> each
+        {eachBefore}<span className="num">{fmt(space.houseCost ?? 0)}</span>{eachAfter}
         <span aria-hidden> &middot; </span>
-        Mortgage <span className="num">{fmt(space.mortgage ?? 0)}</span>
+        {d.mortgage} <span className="num">{fmt(space.mortgage ?? 0)}</span>
       </p>
     </article>
   );

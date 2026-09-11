@@ -640,3 +640,42 @@
 @media (prefers-reduced-motion: reduce) {
   .peek { animation: none; }
 }
+
+/* --------------------- naming the square you point at ---------------- */
+/* A perspective board can only make its own type so large: the far row is
+   distant and turned to face the player sitting there, so it will always
+   read worse than the near one however it is drawn. This says the name in
+   real HTML at the screen's own resolution, which no amount of texture work
+   can match. */
+.tilePeek {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: min(92%, 520px);
+  padding: 7px 13px;
+  border-radius: var(--r-pill);
+  background: color-mix(in oklab, var(--bg-surface) 92%, transparent);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--e-3);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.tilePeek__band { width: 10px; height: 10px; border-radius: 2px; flex: 0 0 auto; }
+.tilePeek__name { font-weight: 600; font-size: var(--t-sm); }
+.tilePeek__num {
+  font-size: var(--t-sm);
+  color: var(--brass-300);
+  font-variant-numeric: tabular-nums;
+}
+.tilePeek__owner { font-size: var(--t-xs); }
+
+@media (max-width: 780px) {
+  /* No pointer to hover with; a tap opens the deed card instead. */
+  .tilePeek { display: none; }
+}

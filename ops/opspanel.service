@@ -1,0 +1,40 @@
+# The status panel. Binds 127.0.0.1:9000 and is reached over an SSH tunnel,
+# so it is never exposed to the internet and has no auth surface of its own.
+#
+# It runs as its own unprivileged user in two groups: `adm` to read nginx's
+# access log, and `systemd-journal` to read coturn's session lines. It needs
+# nothing else, and the hardening below makes sure it cannot take anything
+# else - a panel that only ever reads should not be able to write.
+[Unit]
+Description=Droplet status panel (localhost only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=opspanel
+Group=opspanel
+SupplementaryGroups=adm systemd-journal
+# Read-only: the config holds the OAuth secret and the allowlist.
+ReadOnlyPaths=/etc/opspanel
+ExecStart=/usr/bin/python3 /opt/opspanel/panel.py
+Restart=always
+RestartSec=3
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_INET AF_UNIX
+MemoryMax=128M
+# No IPAddressDeny here. Public sign-in has to reach Google's token endpoint
+# and an SMTP server, so the panel needs egress; the protection that matters
+# is that it still *listens* only on loopback and is never opened in ufw.
+
+[Install]
+WantedBy=multi-user.target

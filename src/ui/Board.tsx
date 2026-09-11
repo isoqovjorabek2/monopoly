@@ -5,6 +5,7 @@ import type { GameState, Space } from '../game/types';
 import { BoardIcon, House, Hotel, Piece, type SpaceIcon } from './Pieces';
 import { Dice } from './Dice';
 import { fmt } from './bits';
+import { spaceName, spaceShort, useT, type Dict } from '../i18n';
 
 /* ---------------- geometry -------------------------------------------
  * The grid is [corner, 9 units, corner] on both axes. Token positions are
@@ -67,6 +68,9 @@ const SPACE_ICON: Record<number, SpaceIcon> = {
 
 interface TileProps {
   space: Space;
+  /** The dictionary itself: it only changes identity on a language switch,
+   *  which is exactly when every tile should redraw. */
+  t: Dict;
   ownerColor: string | null;
   houses: number;
   mortgaged: boolean;
@@ -79,8 +83,9 @@ interface TileProps {
 }
 
 const Tile = memo(function Tile({
-  space, ownerColor, houses, mortgaged, highlight, focusable, onInspect, onPeek, register,
+  space, t, ownerColor, houses, mortgaged, highlight, focusable, onInspect, onPeek, register,
 }: TileProps) {
+  const short = spaceShort(t, space.id);
   const edge = edgeOf(space.id);
   const corner = isCorner(space.id);
   const { col, row } = cellOf(space.id);
@@ -102,7 +107,7 @@ const Tile = memo(function Tile({
   // their own, but a single long word ("MEDITERRANEAN") has no break
   // opportunity, so the type size is fitted to the longest word instead
   // of being allowed to break mid-word.
-  const longestWord = Math.max(...space.short.split(/\s+/).map((w) => w.length), 1);
+  const longestWord = Math.max(...short.split(/\s+/).map((w) => w.length), 1);
 
   return (
     <button
@@ -129,10 +134,12 @@ const Tile = memo(function Tile({
       onPointerLeave={(e) => { if (e.pointerType === 'mouse') onPeek(null); }}
       onFocus={() => onPeek(space.id)}
       onBlur={() => onPeek(null)}
-      aria-label={
-        `${space.name}${space.price ? `, $${space.price}` : ''}`
-        + `${ownerColor ? ', owned' : ''}${mortgaged ? ', mortgaged' : ''}`
-      }
+      aria-label={t.board.tileAria(
+        spaceName(t, space.id),
+        space.price ? fmt(space.price) : null,
+        Boolean(ownerColor),
+        mortgaged,
+      )}
     >
       {band && <span className="tile__band" />}
       {motif && (
@@ -154,9 +161,9 @@ const Tile = memo(function Tile({
 
       <span className="tile__body">
         {icon && <BoardIcon icon={icon} className="tile__icon" />}
-        <span className="tile__name">{space.short}</span>
+        <span className="tile__name">{short}</span>
         {space.price != null && <span className="tile__price">{space.price}</span>}
-        {space.taxAmount != null && <span className="tile__price">Pay {space.taxAmount}</span>}
+        {space.taxAmount != null && <span className="tile__price">{t.board.payTile(space.taxAmount)}</span>}
       </span>
 
       {houses > 0 && (
@@ -181,6 +188,7 @@ export function Board({
   onInspect: (id: number) => void;
   highlight: number | null;
 }) {
+  const t = useT();
   const current = state.seats[state.seatIndex];
 
   /* Forty buttons in the tab order is forty presses to get past the board,
@@ -227,7 +235,7 @@ export function Board({
     <div
       className="board"
       role="group"
-      aria-label="Game board"
+      aria-label={t.board.aria}
       onKeyDown={onKeyDown}
       /* The generated surfaces are handed to CSS rather than imported by
          it, because their paths carry the base path and the ?art= variant
@@ -244,6 +252,7 @@ export function Board({
           <Tile
             key={space.id}
             space={space}
+            t={t}
             ownerColor={owner ? owner.color : null}
             houses={st?.houses ?? 0}
             mortgaged={st?.mortgaged ?? false}
@@ -302,6 +311,7 @@ export function Board({
  * board's own box and never needs to measure anything.
  */
 function Peek({ state, spaceId }: { state: GameState; spaceId: number }) {
+  const t = useT();
   const space = BOARD[spaceId];
   const st = state.properties[spaceId];
   const owner = st?.owner ? state.players[st.owner] : null;
@@ -310,11 +320,9 @@ function Peek({ state, spaceId }: { state: GameState; spaceId: number }) {
 
   const rentRow = (() => {
     if (!space.rent || !st) return null;
-    if (st.houses === 5) return { label: 'Hotel', value: space.rent[5] };
-    if (st.houses > 0) {
-      return { label: `${st.houses} house${st.houses > 1 ? 's' : ''}`, value: space.rent[st.houses] };
-    }
-    return { label: 'Rent', value: space.rent[0] };
+    if (st.houses === 5) return { label: t.common.hotel, value: space.rent[5] };
+    if (st.houses > 0) return { label: t.board.houses(st.houses), value: space.rent[st.houses] };
+    return { label: t.common.rent, value: space.rent[0] };
   })();
 
   return (
@@ -327,12 +335,12 @@ function Peek({ state, spaceId }: { state: GameState; spaceId: number }) {
       aria-hidden
     >
       {space.group && <span className="peek__band" style={{ background: GROUP_COLOR[space.group] }} />}
-      <span className="peek__name">{space.name}</span>
+      <span className="peek__name">{spaceName(t, spaceId)}</span>
       <span className="peek__meta">
         {owner
           ? <span style={{ color: owner.color }}>{owner.name}</span>
-          : space.price != null ? <span className="peek__buy">Unowned</span> : null}
-        {st?.mortgaged && <span className="peek__flag">Mortgaged</span>}
+          : space.price != null ? <span className="peek__buy">{t.board.unowned}</span> : null}
+        {st?.mortgaged && <span className="peek__flag">{t.common.mortgaged}</span>}
       </span>
       {(space.price != null || rentRow) && (
         <span className="peek__nums">
@@ -342,7 +350,7 @@ function Peek({ state, spaceId }: { state: GameState; spaceId: number }) {
           )}
         </span>
       )}
-      {space.taxAmount != null && <span className="peek__nums">Pay {fmt(space.taxAmount)}</span>}
+      {space.taxAmount != null && <span className="peek__nums">{t.common.pay(fmt(space.taxAmount))}</span>}
     </div>
   );
 }
@@ -405,21 +413,11 @@ function Medallion() {
 }
 
 function CentreHud({ state }: { state: GameState }) {
+  const t = useT();
   const current = state.players[state.seats[state.seatIndex]];
   if (!current) return null;
 
-  const hint = (() => {
-    switch (state.phase) {
-      case 'preroll': return 'to roll';
-      case 'awaiting_buy': return 'is deciding whether to buy';
-      case 'auction': return 'Auction in progress';
-      case 'must_raise': return 'must raise cash';
-      case 'jailed_choice': return 'is in jail';
-      case 'turn_end': return 'to finish the turn';
-      case 'game_over': return 'Game over';
-      default: return '';
-    }
-  })();
+  const hint = t.board.hud[state.phase] ?? '';
 
   return (
     <div className="centreHud">

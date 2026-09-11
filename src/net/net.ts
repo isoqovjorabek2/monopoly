@@ -4,6 +4,7 @@ import {
   type ChatMessage, type Down, type RoomSnapshot, type Up,
   toPeerId, unwrap, wrap,
 } from './protocol';
+import { tr } from '../i18n';
 
 /* ------------------------------------------------------------------ *
  * Star topology, host-authoritative. Guests send intents and never
@@ -77,22 +78,23 @@ export interface GuestHandlers {
 
 const friendlyError = (err: unknown): string => {
   const type = (err as { type?: string })?.type ?? '';
+  const t = tr().net;
   switch (type) {
     case 'peer-unavailable':
-      return 'That room is not active. Check the code, or ask for a fresh link.';
+      return t.unavailable;
     case 'unavailable-id':
-      return 'That room code is already taken.';
+      return t.taken;
     case 'browser-incompatible':
-      return 'This browser does not support the peer-to-peer connection this game needs.';
+      return t.incompatible;
     case 'network':
     case 'server-error':
     case 'socket-error':
     case 'socket-closed':
-      return 'Could not reach the matchmaking service. Check your connection and try again.';
+      return t.broker;
     case 'disconnected':
-      return 'Disconnected from the matchmaking service.';
+      return t.disconnected;
     default:
-      return (err as { message?: string })?.message ?? 'Connection failed.';
+      return (err as { message?: string })?.message ?? t.failed;
   }
 };
 
@@ -266,12 +268,7 @@ export class GuestNet {
     // No 'open' inside the window almost always means NAT traversal failed.
     this.timeout = window.setTimeout(() => {
       if (!conn.open && !this.closedByUs) {
-        this.h.onStatus(
-          'error',
-          hasRelay
-            ? 'Could not reach the host, directly or through the relay. Check the room code, and that the host still has the page open.'
-            : 'Could not open a direct connection. Your network may be blocking it - try a different network or a phone hotspot.',
-        );
+        this.h.onStatus('error', hasRelay ? tr().net.noRelay : tr().net.noDirect);
       }
     }, CONNECT_TIMEOUT_MS);
 
@@ -297,11 +294,11 @@ export class GuestNet {
   private onLost(): void {
     if (this.closedByUs) return;
     if (this.retries >= 4) {
-      this.h.onStatus('error', 'Lost the connection to the host and could not get it back.');
+      this.h.onStatus('error', tr().net.lost);
       return;
     }
     this.retries += 1;
-    this.h.onStatus('reconnecting', `Reconnecting (attempt ${this.retries})...`);
+    this.h.onStatus('reconnecting', tr().net.reconnecting(this.retries));
     window.setTimeout(() => { if (!this.closedByUs) this.dial(); }, 800 * this.retries);
   }
 
