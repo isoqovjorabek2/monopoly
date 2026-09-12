@@ -202,6 +202,16 @@ export interface CFSettings {
   turnLimit: number;
   /** Added to a player's beginning CASHFLOW Day income to set their goal. */
   fastGoal: number;
+  /** Seconds a player has for each decision before the host plays it for
+   *  them. 0 = no clock; a player who has dropped off is covered either way. */
+  turnTimer: number;
+}
+
+/** Where everyone stood at the start of a round, for the closing chart. */
+export interface CFHistoryPoint {
+  round: number;
+  /** progress() per player: 0..1 through the Rat Race, above 1 beyond it. */
+  progress: Record<string, number>;
 }
 
 /** The part of the settings the lobby shows as Cashflow's own rules. */
@@ -242,6 +252,10 @@ export interface CFState {
   fastOwners: Record<number, string>;
 
   turnNumber: number;
+  /** Times round the table, from 1. A turn limit counts these, so every
+   *  player gets the same number of turns however many drop out. */
+  round: number;
+  history: CFHistoryPoint[];
   winnerId: string | null;
   winReason: 'dream' | 'cashflow' | 'last' | 'limit' | 'none' | null;
   /** Counter for holding ids. */
@@ -264,7 +278,10 @@ export type CFAction =
   | { type: 'BUY_BUSINESS'; playerId: string }
   | { type: 'TRY_VENTURE'; playerId: string }
   | { type: 'BUY_DREAM'; playerId: string }
-  | { type: 'END_TURN'; playerId: string };
+  | { type: 'END_TURN'; playerId: string }
+  /** Sent by the host when a player's clock runs out or they have left the
+   *  table: the engine makes their pending decision for them. */
+  | { type: 'TIME_OUT'; playerId: string };
 
 export type CFEvent =
   | { type: 'GAME_STARTED' }
@@ -299,6 +316,7 @@ export type CFEvent =
   | { type: 'DREAM_MARKED'; playerId: string; owner: string; spaceId: number }
   | { type: 'LOSS'; playerId: string; kind: 'audit' | 'lawsuit' | 'divorce'; amount: number }
   | { type: 'DREAM_BOUGHT'; playerId: string; spaceId: number; cost: number }
+  | { type: 'TIMED_OUT'; playerId: string }
   | { type: 'GAME_OVER'; winnerId: string | null; reason: NonNullable<CFState['winReason']> };
 
 export interface CFReduction {

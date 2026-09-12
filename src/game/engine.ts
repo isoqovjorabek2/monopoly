@@ -84,6 +84,7 @@ export function createGame(settings: GameSettings, seats: SeatSpec[]): GameState
     activeCard: null,
     turnNumber: 0,
     round: 0,
+    history: [],
     winnerId: null,
     startedAt: 0,
   };
@@ -139,6 +140,7 @@ function startGame(s: GameState, events: GameEvent[]): void {
   s.phase = 'preroll';
   s.turnNumber = 1;
   s.round = 1;
+  recordHistory(s);
   s.startedAt = 0;
   events.push({ type: 'GAME_STARTED' });
   events.push({ type: 'TURN_STARTED', playerId: currentPlayerId(s), turnNumber: 1 });
@@ -246,7 +248,10 @@ function doEndTurn(s: GameState, events: GameEvent[]): void {
   s.turnNumber += 1;
   // Coming back round the table starts a new round - the unit a turn limit
   // counts in, so that every player gets the same number of turns.
-  if (s.seatIndex <= from) s.round += 1;
+  if (s.seatIndex <= from) {
+    s.round += 1;
+    recordHistory(s);
+  }
   expireTrades(s, events);
   // A turn limit ends the game here, before anyone starts a turn past it.
   checkWinCondition(s, events);
@@ -1044,27 +1049,36 @@ function checkWinCondition(s: GameState, events: GameEvent[]): void {
   const alive = s.seats.filter((id) => !s.players[id].bankrupt);
 
   if (alive.length <= 1) {
-    s.winnerId = alive[0] ?? null;
-    s.phase = 'game_over';
-    events.push({ type: 'GAME_OVER', winnerId: s.winnerId });
+    finishGame(s, events, alive[0] ?? null);
     return;
   }
 
   if (s.settings.winCondition === 'turn-limit' && s.round > s.settings.turnLimit) {
-    s.winnerId = leaderByNetWorth(s, alive);
-    s.phase = 'game_over';
-    events.push({ type: 'GAME_OVER', winnerId: s.winnerId });
+    finishGame(s, events, leaderByNetWorth(s, alive));
     return;
   }
 
   if (s.settings.winCondition === 'networth') {
     const reached = alive.filter((id) => netWorth(s, id) >= s.settings.netWorthTarget);
-    if (reached.length > 0) {
-      s.winnerId = leaderByNetWorth(s, reached);
-      s.phase = 'game_over';
-      events.push({ type: 'GAME_OVER', winnerId: s.winnerId });
-    }
+    if (reached.length > 0) finishGame(s, events, leaderByNetWorth(s, reached));
   }
+}
+
+function finishGame(s: GameState, events: GameEvent[], winnerId: string | null): void {
+  s.winnerId = winnerId;
+  recordHistory(s);
+  s.phase = 'game_over';
+  events.push({ type: 'GAME_OVER', winnerId });
+}
+
+/** One point on the closing chart. A second point for the same round (the
+ *  game ending part-way through one) replaces the first. */
+function recordHistory(s: GameState): void {
+  const worth: Record<string, number> = {};
+  for (const id of s.seats) worth[id] = s.players[id].bankrupt ? 0 : netWorth(s, id);
+  const last = s.history[s.history.length - 1];
+  if (last && last.round === s.round) s.history.pop();
+  s.history.push({ round: s.round, worth });
 }
 
 function leaderByNetWorth(s: GameState, ids: string[]): string | null {

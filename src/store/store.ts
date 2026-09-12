@@ -11,13 +11,16 @@ import type { GameAction, GameEvent, GameSettings, GameState, TokenId } from '..
 import { botDecide as cfBotDecide, botDelay as cfBotDelay } from '../cashflow/ai';
 import { cfLogLine, type CFLogLine } from '../cashflow/describe';
 import { CF_DEFAULTS, createCashflow, reduce as cfReduce } from '../cashflow/engine';
-import { currentId as cfCurrentId } from '../cashflow/rules';
+import {
+  clockKey as cfClockKey, clockSeconds as cfClockSeconds, currentId as cfCurrentId,
+  waitingOn as cfWaitingOn,
+} from '../cashflow/rules';
 import type { CFAction, CFEvent, CFRules, CFSettings, CFState } from '../cashflow/types';
 import { GuestNet, HostNet, type NetStatus } from '../net/net';
 import { announce as announceRoom, close as closeRoom } from '../net/directory';
 import {
   type ChatMessage, type Down, type GameKind, type RoomSnapshot, type SeatInfo, type Up,
-  cleanText, generateRoomCode, localPlayerId,
+  cleanText, generateRoomCode, localPlayerId, rehydrateForHost,
 } from '../net/protocol';
 
 export type Screen = 'home' | 'lobby' | 'game';
@@ -75,9 +78,12 @@ interface Store {
   hostRoom: (settings?: GameSettings, kind?: GameKind) => void;
   /** List this room publicly, or take it off the list. Host only. */
   setListed: (on: boolean) => void;
-  joinRoom: (code: string) => void;
+  joinRoom: (code: string, epoch?: number) => void;
   playSolo: (kind?: GameKind) => void;
   leave: () => void;
+  /** Pick up the table saved in this browser. `auto` only resumes one saved
+   *  moments ago - a refresh or a crash, rather than a game left yesterday. */
+  resumeSaved: (auto?: boolean) => void;
 
   updateSettings: (patch: Partial<GameSettings>) => void;
   updateCfRules: (patch: Partial<CFRules>) => void;
@@ -112,10 +118,60 @@ const OFFLINE_GRACE_S = 30;
  * a room stays listed for as long as it is open, which outlives every
  * screen that can be unmounted while it is. */
 let listTimer: number | null = null;
+/** A host coming back late looks for the table before taking the chair back;
+ *  this is what it falls back to when nobody else picked it up. */
+let pendingHostResume: SavedGame | null = null;
 /** Seat count as the directory last heard it, so a change can be sent at
  *  once rather than waiting out the heartbeat. */
 let listedSeats = -1;
 let logSeq = 0;
+
+/* ------------------------------------------------------------------ *
+ * The saved table.
+ *
+ * A game in progress lives in the host's tab and nowhere else, which used
+ * to mean a refresh ended it for everybody. It is plain JSON by
+ * construction, so it fits in localStorage and comes back with the tab.
+ * A guest saves only where it was sitting - the host it rejoins still has
+ * the game itself.
+ * ------------------------------------------------------------------ */
+
+const SAVE_KEY = 'mply.save';
+const SAVE_V = 1;
+/** A save this fresh is a refresh or a crash, and is picked up unasked. */
+const AUTO_RESUME_MS = 90_000;
+/** A host away longer than this may have been replaced at the table, so it
+ *  looks for the game before sitting back down at the head of it. */
+const HOST_SEAT_WARM_MS = 12_000;
+
+export interface SavedGame {
+  v: number;
+  role: Role;
+  code: string;
+  epoch: number;
+  kind: GameKind;
+  room: RoomSnapshot | null;
+  me: { playerId: string; name: string; token: TokenId };
+  secrets: Record<string, string>;
+  at: number;
+}
+
+export function readSave(): SavedGame | null {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw) as SavedGame;
+    if (!s || s.v !== SAVE_V || typeof s.code !== 'string' || !s.me?.playerId) return null;
+    if (s.role !== 'guest' && !s.room) return null;
+    return s;
+  } catch {
+    return null;
+  }
+}
+
+export function forgetSave(): void {
+  try { localStorage.removeItem(SAVE_KEY); } catch { /* private mode */ }
+}
 
 const savedName = (): string => {
   try { return localStorage.getItem('mply.name') ?? ''; } catch { return ''; }
@@ -156,6 +212,7 @@ const freshRoom = (
   cfRules: { ...CF_RULES_DEFAULT },
   game: null,
   cf: null,
+  epoch: 0,
   rev: 0,
 });
 
@@ -310,6 +367,127 @@ export const useStore = create<Store>((set, get) => {
     }
     scheduleBots();
     scheduleClock();
+    writeSave();
+  };
+
+  /* ---------------------------- the save --------------------------- */
+
+  const writeSave = (): void => {
+    const { role, room, code, me } = get();
+    const phase = room?.game?.phase ?? room?.cf?.phase;
+    if (phase === 'game_over') { forgetSave(); return; }
+    if (!room || !phase || phase === 'lobby') return;
+    const save: SavedGame = {
+      v: SAVE_V,
+      role,
+      code,
+      epoch: role === 'guest' ? (guest?.currentEpoch() ?? room.epoch) : room.epoch,
+      kind: room.kind,
+      // A guest's copy is redacted and could not run the game anyway. The
+      // seat is the part worth keeping.
+      room: role === 'guest' ? null : room,
+      me,
+      secrets: host?.exportSecrets() ?? {},
+      at: Date.now(),
+    };
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch { /* quota, private mode */ }
+  };
+
+  /* ------------------------- becoming the host --------------------- */
+
+  const startHost = (code: string, epoch: number, secrets?: Record<string, string>): void => {
+    host = new HostNet(code, {
+      onUp: handleUp,
+      onPresence: (playerId, connected, ping) => {
+        const cur = snapshot();
+        if (!cur) return;
+        publish({
+          ...cur,
+          seats: cur.seats.map((s) => (s.playerId === playerId ? { ...s, connected, ping } : s)),
+        });
+      },
+      onStatus: (status, detail) => set({ netStatus: status, netError: detail ?? null }),
+    }, { epoch, secrets });
+    // This tab plays from the host seat and never connects to itself, and a
+    // bot never connects at all, so those seats can only ever be claimed by
+    // somebody pretending to be them.
+    host.reserve(get().me.playerId);
+    for (const seat of get().room?.seats ?? []) if (seat.isBot) host.reserve(seat.playerId);
+    host.start();
+  };
+
+  /** Restore a table this tab was running, from its own save. */
+  const restoreHost = (saved: SavedGame, epoch: number): void => {
+    if (!saved.room) return;
+    teardown();
+    const room: RoomSnapshot = { ...saved.room, epoch };
+    const positions: Record<string, number> = {};
+    for (const id of room.game?.seats ?? []) positions[id] = room.game!.players[id].position;
+    set({
+      role: saved.role,
+      code: saved.code,
+      room,
+      screen: 'game',
+      animPos: positions,
+      listed: false,
+      log: [], cfLog: [], chat: [], netError: null,
+      netStatus: saved.role === 'host' ? 'starting' : 'idle',
+    });
+    if (saved.role === 'host') startHost(saved.code, epoch, saved.secrets);
+    publish(room);
+  };
+
+  /**
+   * Who takes the table if the host does not come back. Every guest works
+   * it out from the same snapshot - connected humans, in seat order, the
+   * host excluded - so they all pick the same one without negotiating.
+   */
+  const successionLine = (room: RoomSnapshot): string[] =>
+    room.seats
+      .filter((s) => !s.isBot && s.connected && s.playerId !== room.hostId)
+      .map((s) => s.playerId);
+
+  /** This tab is next in line: run the table from the snapshot it holds. */
+  const becomeHost = (epoch: number): void => {
+    const { room, me, code } = get();
+    if (!room) return;
+    guest?.destroy();
+    guest = null;
+    const seats = room.seats.map((s) => ({
+      ...s,
+      isHost: s.playerId === me.playerId,
+      // The host that left is away until it comes back as a guest.
+      connected: s.playerId === room.hostId ? false : s.connected,
+    }));
+    // The shuffled decks and the dice seed went with the old host: they were
+    // never ours to know, so the table deals fresh ones.
+    const next = rehydrateForHost(
+      { ...room, seats, hostId: me.playerId, epoch },
+      randomSeed(),
+    );
+    set({ role: 'host', room: next, netStatus: 'starting', netError: tr().net.migrated });
+    startHost(code, epoch);
+    publish(next);
+  };
+
+  /** The host has been gone a while. Hand the table on, or say so plainly. */
+  const onHostGone = (attempt: number): void => {
+    const { room, me } = get();
+    if (!room || !inGame(room)) {
+      set({ netStatus: 'error', netError: tr().net.lost });
+      return;
+    }
+    const line = successionLine(room);
+    if (attempt >= line.length) {
+      teardown();
+      set({ netStatus: 'error', netError: tr().net.hostGone });
+      return;
+    }
+    const epoch = room.epoch + 1 + attempt;
+    if (line[attempt] === me.playerId) { becomeHost(epoch); return; }
+    const who = room.seats.find((s) => s.playerId === line[attempt])?.name ?? tr().defaults.someone;
+    set({ netStatus: 'reconnecting', netError: tr().net.migrating(who) });
+    guest?.retarget(epoch);
   };
 
   /* --------------------------- bot driver -------------------------- */
@@ -371,19 +549,24 @@ export const useStore = create<Store>((set, get) => {
    */
   const scheduleClock = (): void => {
     const { role, room } = get();
-    const s = room?.game;
-    if (role === 'guest' || !room || !s || s.phase === 'game_over' || s.phase === 'lobby') {
+    const g = room?.game ?? null;
+    const c = room?.cf ?? null;
+    const phase = g?.phase ?? c?.phase;
+    if (role === 'guest' || !room || !phase || phase === 'game_over' || phase === 'lobby') {
       stopClock();
       return;
     }
-    const humans = waitingOn(s).filter((id) => !s.players[id]?.isBot);
+    // Both games answer the same three questions; only the rulebook differs.
+    const players: Record<string, { isBot: boolean }> = g ? g.players : c!.players;
+    const waiting = g ? waitingOn(g) : cfWaitingOn(c!);
+    const humans = waiting.filter((id) => !players[id]?.isBot);
     const away = humans.filter((id) => room.seats.find((x) => x.playerId === id)?.connected === false);
-    const limit = clockSeconds(s);
+    const limit = g ? clockSeconds(g) : cfClockSeconds(c!);
     let secs = limit > 0 ? limit : Infinity;
     if (away.length > 0) secs = Math.min(secs, OFFLINE_GRACE_S);
     if (humans.length === 0 || !Number.isFinite(secs)) { stopClock(); return; }
 
-    const key = `${clockKey(s)}|${humans.join(',')}|${away.join(',')}`;
+    const key = `${g ? clockKey(g) : cfClockKey(c!)}|${humans.join(',')}|${away.join(',')}`;
     if (key === clockArmed && clockTimer) return;
     stopClock();
     clockArmed = key;
@@ -522,12 +705,14 @@ export const useStore = create<Store>((set, get) => {
     switch (msg.t) {
       case 'WELCOME':
         set({ room: msg.snapshot, screen: inGame(msg.snapshot) ? 'game' : 'lobby' });
+        writeSave();
         return;
 
       case 'ROOM': {
         const cur = get().room;
-        // Out-of-order arrival is real; never go backwards.
-        if (cur && msg.snapshot.rev <= cur.rev) return;
+        // Out-of-order arrival is real; never go backwards - unless the table
+        // has been handed on, which starts a fresh count under a new host.
+        if (cur && msg.snapshot.epoch === cur.epoch && msg.snapshot.rev <= cur.rev) return;
         const wasInGame = Boolean(cur && inGame(cur));
         set({ room: msg.snapshot, screen: inGame(msg.snapshot) ? 'game' : 'lobby' });
         cfFloats(cur?.cf ?? null, msg.snapshot.cf);
@@ -536,6 +721,7 @@ export const useStore = create<Store>((set, get) => {
           for (const id of msg.snapshot.game.seats) pos[id] = msg.snapshot.game.players[id].position;
           set({ animPos: pos });
         }
+        writeSave();
         return;
       }
 
@@ -560,6 +746,7 @@ export const useStore = create<Store>((set, get) => {
 
       case 'BYE': {
         const reason = tr().net.bye[msg.reason];
+        forgetSave();
         // A guest whose seat was refused as already-taken should not keep
         // trying to reconnect into the same rejection.
         teardown();
@@ -713,25 +900,10 @@ export const useStore = create<Store>((set, get) => {
         listed: false,
       });
 
-      host = new HostNet(code, {
-        onUp: handleUp,
-        onPresence: (playerId, connected, ping) => {
-          const cur = snapshot();
-          if (!cur) return;
-          publish({
-            ...cur,
-            seats: cur.seats.map((s) => (s.playerId === playerId ? { ...s, connected, ping } : s)),
-          });
-        },
-        onStatus: (status, detail) => set({ netStatus: status, netError: detail ?? null }),
-      });
-      // The host plays from this tab and never connects to itself, so its
-      // seat can only ever be claimed by somebody pretending to be it.
-      host.reserve(me.playerId);
-      host.start();
+      startHost(code, 0);
     },
 
-    joinRoom: (rawCode) => {
+    joinRoom: (rawCode, epoch = 0) => {
       teardown();
       const me = get().me;
       const code = rawCode.trim().toUpperCase();
@@ -741,9 +913,42 @@ export const useStore = create<Store>((set, get) => {
       });
       guest = new GuestNet(code, { playerId: me.playerId, name: me.name || tr().defaults.player, token: me.token }, {
         onDown: handleDown,
-        onStatus: (status, detail) => set({ netStatus: status, netError: detail ?? null }),
-      });
+        onStatus: (status, detail) => {
+          // A host that came back late and found no table still has its own
+          // save: rather than an error, it sits back down at the head.
+          if (status === 'error' && pendingHostResume) {
+            const saved = pendingHostResume;
+            pendingHostResume = null;
+            restoreHost(saved, saved.epoch);
+            return;
+          }
+          if (status === 'online') pendingHostResume = null;
+          set({ netStatus: status, netError: detail ?? null });
+        },
+        onHostGone,
+      }, epoch);
       guest.start();
+    },
+
+    resumeSaved: (auto = false) => {
+      if (get().room) return;
+      const saved = readSave();
+      if (!saved) return;
+      if (auto && Date.now() - saved.at > AUTO_RESUME_MS) return;
+      // The seat is held against the saved identity, so take that back first.
+      try { sessionStorage.setItem('mply.pid', saved.me.playerId); } catch { /* private mode */ }
+      set({ me: saved.me, pick: saved.kind });
+
+      if (saved.role === 'guest') { get().joinRoom(saved.code, saved.epoch); return; }
+      // A host who has only just gone is still expected on the same id. One
+      // who has been away longer looks for the table first: somebody at it
+      // may have picked it up, and two hosts would be worse than none.
+      if (saved.role === 'local' || Date.now() - saved.at < HOST_SEAT_WARM_MS) {
+        restoreHost(saved, saved.epoch);
+        return;
+      }
+      pendingHostResume = saved;
+      get().joinRoom(saved.code, saved.epoch + 1);
     },
 
     playSolo: (kind = get().pick) => {
@@ -765,6 +970,8 @@ export const useStore = create<Store>((set, get) => {
 
     leave: () => {
       teardown();
+      forgetSave();
+      pendingHostResume = null;
       set({
         screen: 'home', role: 'local', room: null, code: '', listed: false,
         log: [], cfLog: [], chat: [], floats: [], animPos: {},
@@ -849,6 +1056,7 @@ export const useStore = create<Store>((set, get) => {
           maxPlayers: seatLimit(room),
           botLevel: room.settings.botLevel,
           fillWithBots: room.settings.fillWithBots,
+          turnTimer: room.settings.turnTimer,
         };
         const started = cfReduce(createCashflow(settings, specs), { type: 'START_GAME', playerId: me.playerId });
         set({ screen: 'game', cfLog: [], log: [] });

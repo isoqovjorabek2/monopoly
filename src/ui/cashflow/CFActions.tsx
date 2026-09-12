@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react';
 import { FAST_BOARD, LOAN_UNIT, RAT_BOARD } from '../../cashflow/data';
 import {
-  charityCost, currentId, dreamPrice, legalActions, maxLoan, settlement, tableCard,
+  charityCost, clockKey, clockSeconds, currentId, dreamPrice, legalActions, maxLoan,
+  settlement, tableCard,
 } from '../../cashflow/rules';
 import type { CFAction, CFPlayer, CFState } from '../../cashflow/types';
 import { money } from '../../game/describe';
 import { useT } from '../../i18n';
-import { fmt } from '../bits';
+import { fmt, useCountdown } from '../bits';
 import { CFTableCardView } from './CFCard';
 
 type Dispatch = (a: CFAction) => void;
@@ -24,6 +25,8 @@ export function CFActions({ s, myId, dispatch }: { s: CFState; myId: string; dis
   const curId = currentId(s);
   const cur = s.players[curId];
   const isMine = curId === myId;
+  const left = useCountdown(clockSeconds(s), clockKey(s));
+  const clock = left != null && <span className="actions__timer num"> {t.common.seconds(left)}</span>;
 
   // On a phone the board is too small to carry the card, so it sits here.
   const cardBlock = s.card ? <div className="cfActions__card"><CFTableCardView s={s} /></div> : null;
@@ -42,7 +45,7 @@ export function CFActions({ s, myId, dispatch }: { s: CFState; myId: string; dis
   if (s.phase === 'dreams') {
     return (
       <section className="actions">
-        <p className="actions__title">{A.chooseDream}</p>
+        <p className="actions__title">{A.chooseDream}{me.dream == null && clock}</p>
         <p className="muted small">{me.dream == null ? A.chooseDreamNote : A.waitingDreams}</p>
       </section>
     );
@@ -61,7 +64,7 @@ export function CFActions({ s, myId, dispatch }: { s: CFState; myId: string; dis
 
   return (
     <section className="actions actions--mine">
-      <p className="actions__title">{A.yourTurn}</p>
+      <p className="actions__title">{A.yourTurn}{clock}</p>
 
       {s.phase === 'roll' && <RollControls me={me} legal={legal} dispatch={dispatch} />}
 

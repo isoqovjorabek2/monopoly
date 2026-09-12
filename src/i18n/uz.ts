@@ -78,6 +78,9 @@ export const uz: Dict = {
     codeAria: 'Xona kodi',
     followedInvite: ['Siz ', ' xonasiga taklif orqali keldingiz.'],
     solo: 'Yoki botlarga qarshi o‘ynab, maydonni o‘rganing',
+    resume: 'Davom ettirish',
+    resumeNote: (code) => `${code} stolingiz hali shu brauzerda ochiq.`,
+    forget: 'Unutish',
     deed: {
       aria: (name) => `«${name}» mulk hujjati`,
       kicker: 'Mulk hujjati',
@@ -505,8 +508,18 @@ export const uz: Dict = {
     full: 'To‘liq ekran',
   },
 
+  rotate: {
+    title: 'Telefoningizni yotqizib burang',
+    body: 'Stol gorizontal ekran uchun mo‘ljallangan: shunda maydon, o‘yinchilar va yurishlaringiz bitta ekranga sig‘adi.',
+    lock: 'Gorizontal rejimga o‘tish',
+    anyway: 'Vertikal holatda o‘ynash',
+  },
+
   net: {
     unavailable: 'Bu xona faol emas. Kodni tekshiring yoki yangi havola so‘rang.',
+    migrating: (name) => `Mezbon chiqib ketdi. Stol boshqa o‘yinchiga o‘tmoqda: ${name}…`,
+    migrated: 'Mezbon chiqib ketdi, endi stolni shu oyna boshqaradi.',
+    hostGone: 'Mezbon chiqib ketdi va stoldagi hech kim o‘yinni o‘z zimmasiga ololmadi.',
     taken: 'Bu xona kodi allaqachon band.',
     incompatible: 'Bu brauzer o‘yin uchun kerakli to‘g‘ridan-to‘g‘ri ulanishni qo‘llab-quvvatlamaydi.',
     broker: 'Ulanish xizmatiga bog‘lanib bo‘lmadi. Internetni tekshirib, qayta urinib ko‘ring.',
@@ -527,7 +540,7 @@ export const uz: Dict = {
 
   crash: {
     title: 'Nimadir buzildi',
-    body: 'O‘yinda tiklab bo‘lmaydigan xato yuz berdi. Qayta yuklash yangi stol ochadi — boshlangan o‘yinni tiklab bo‘lmaydi, chunki u faqat mezbonning brauzerida saqlangan edi.',
+    body: 'O‘yinda tiklab bo‘lmaydigan xato yuz berdi. Qayta yuklash iloji bo‘lsa stolni qaytaradi — nusxa mezbonning brauzerida saqlanadi — aks holda yangi stol ochadi.',
     reload: 'Qayta yuklash',
   },
 

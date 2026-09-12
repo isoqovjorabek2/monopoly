@@ -1,9 +1,14 @@
+import { DECK_CARDS } from '../cashflow/data';
 import type { CFAction, CFRules, CFState } from '../cashflow/types';
+import { CHANCE, CHEST } from '../game/cards';
+import { shuffle } from '../game/rng';
 import type { BotLevel, GameAction, GameEvent, GameSettings, GameState, TokenId } from '../game/types';
 
 /** 2: a room carries which game it plays. A tab still on 1 cannot read a
- *  Cashflow table, so it is refused at the envelope rather than half-drawn. */
-export const PROTOCOL_VERSION = 2;
+ *  Cashflow table, so it is refused at the envelope rather than half-drawn.
+ *  3: rounds, time-outs, estate auctions and host hand-over reshaped both
+ *  games' state; an older tab would misread it. */
+export const PROTOCOL_VERSION = 3;
 
 /** PeerJS ids are shared across every app on the public broker, so we
  *  namespace ours. Players only ever see the readable half. */
@@ -39,6 +44,9 @@ export interface RoomSnapshot {
   cfRules: CFRules;
   game: GameState | null;
   cf: CFState | null;
+  /** Which host generation is running the table. 0 is the host who opened
+   *  it; each hand-over adds one, and moves the peer id with it. */
+  epoch: number;
   /** Bumped on every host-side change; clients drop stale snapshots. */
   rev: number;
 }
@@ -114,6 +122,12 @@ export function generateRoomCode(): string {
 export const toPeerId = (code: string): string =>
   ROOM_PREFIX + code.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
 
+/** The code a given host generation answers on. Players only ever see the
+ *  room code itself; the generation moves the peer id when the table is
+ *  handed over, so an invite link keeps working. */
+export const epochCode = (code: string, epoch: number): string =>
+  (epoch > 0 ? `${code}-${epoch}` : code);
+
 export const normaliseCode = (code: string): string =>
   code.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
 
@@ -176,6 +190,45 @@ export function redactForGuests(snapshot: RoomSnapshot): RoomSnapshot {
       ...snapshot.cf,
       settings: { ...snapshot.cf.settings, seed: 0 },
       decks: { small: [], big: [], market: [], doodad: [] },
+    },
+  };
+}
+
+/**
+ * The other direction, for a guest taking over a table whose host has gone.
+ *
+ * What redaction removed cannot be recovered - the shuffled order only ever
+ * existed in the host's tab - so the new host deals fresh decks from a new
+ * seed. Nobody at the table loses anything by it: that order was never
+ * knowledge any of them had. Cards already drawn stay drawn, because they
+ * are in the state; the two Get Out of Jail Free cards are the only ones a
+ * player can be holding, so a held one is kept out of the new shuffle.
+ */
+export function rehydrateForHost(snapshot: RoomSnapshot, seed: number): RoomSnapshot {
+  const held = snapshot.game
+    ? Object.values(snapshot.game.players).reduce((n, p) => n + p.getOutOfJailCards, 0)
+    : 0;
+  const chance = CHANCE.map((c) => c.id).filter((id) => id !== 'ch08' || held < 1);
+  const chest = CHEST.map((c) => c.id).filter((id) => id !== 'cc05' || held < 2);
+  const deck = (d: keyof typeof DECK_CARDS, at: number): string[] =>
+    shuffle(DECK_CARDS[d].map((c) => c.id), seed, at);
+
+  return {
+    ...snapshot,
+    settings: { ...snapshot.settings, seed },
+    game: snapshot.game && {
+      ...snapshot.game,
+      settings: { ...snapshot.game.settings, seed },
+      chanceOrder: shuffle(chance, seed, 1000),
+      chestOrder: shuffle(chest, seed, 2000),
+      chanceCursor: 0,
+      chestCursor: 0,
+    },
+    cf: snapshot.cf && {
+      ...snapshot.cf,
+      settings: { ...snapshot.cf.settings, seed },
+      decks: { small: deck('small', 4000), big: deck('big', 5000), market: deck('market', 6000), doodad: deck('doodad', 7000) },
+      cursors: { small: 0, big: 0, market: 0, doodad: 0 },
     },
   };
 }

@@ -570,6 +570,138 @@
   .cfGame__tabbar .tabbar__item[data-on] { color: var(--accent-strong); box-shadow: inset 0 2px 0 var(--accent); }
 }
 
+/* A phone on its side: the same arrangement as the Monopoly table (see the
+   Phones block in app.css) - tab strip on the left edge, board sized off
+   the height, actions and statement always open on the right, the seats a
+   drawer over the felt. Last, so it settles the width breakpoints above. */
+@media (orientation: landscape) and (max-height: 540px) {
+  .cfGame {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+    padding-left: calc(44px + env(safe-area-inset-left));
+  }
+  .cfGame__top {
+    flex: none;
+    gap: 4px;
+    padding: 4px 8px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .cfGame__top::-webkit-scrollbar { display: none; }
+  .cfGame__top > * { flex: none; }
+  .cfGame__top .btn--sm { min-height: 30px; padding: 4px 10px; white-space: nowrap; }
+  .cfGame__top .kbd { display: none; }
+  .cfGame__title { display: inline; font-size: 10px; white-space: nowrap; }
+  .cfGame__helpLabel { display: inline; }
+
+  .cfGame__layout {
+    flex: 1 1 auto;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr) minmax(250px, min(42vw, 360px));
+    grid-template-rows: minmax(0, 1fr);
+    gap: 6px;
+    padding: 6px max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) 6px;
+    align-items: stretch;
+  }
+  .cfGame__stage {
+    grid-column: 1;
+    grid-row: 1;
+    min-height: 0;
+    align-items: center;
+    overflow: hidden;
+  }
+  /* The board shares the height with the header (~40px), the layout
+     padding, and the square-name line under it (~42px with its gap). */
+  .cfBoardWrap { width: min(100%, calc(100dvh - 98px)); min-width: 0; }
+  .cfGame__side .kbd { display: none; }
+
+  .cfGame__side,
+  .cfGame__side[data-open] {
+    grid-column: 2;
+    grid-row: 1;
+    display: flex;
+    position: static;
+    top: auto;
+    bottom: auto;
+    height: 100%;
+    max-height: none;
+    min-height: 0;
+    padding: 0;
+    gap: 6px;
+    overflow: auto;
+    overscroll-behavior: contain;
+    background: none;
+    border: 0;
+    box-shadow: none;
+    z-index: auto;
+  }
+
+  .cfGame__rail,
+  .cfGame__rail[data-open] {
+    display: flex;
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: calc(44px + env(safe-area-inset-left));
+    right: auto;
+    width: min(280px, 62vw);
+    max-height: none;
+    z-index: 30;
+    order: 0;
+    padding: var(--s-2);
+    padding-bottom: max(var(--s-2), env(safe-area-inset-bottom));
+    overflow: auto;
+    overscroll-behavior: contain;
+    background: var(--bg-surface);
+    border: 0;
+    border-right: 1px solid var(--border-brass);
+    box-shadow: var(--e-3);
+    transform: translateX(-120%);
+    transition: transform var(--dur-mid) var(--ease-out);
+  }
+  .cfGame__rail[data-open] { transform: none; }
+  .cfRail { flex-direction: column; overflow: visible; }
+  .cfSeat { flex: none; }
+
+  .cfGame__tabbar {
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: auto;
+    z-index: 31;
+    width: calc(44px + env(safe-area-inset-left));
+    height: auto;
+    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) env(safe-area-inset-left);
+    background: var(--bg-raised);
+    border: 0;
+    border-right: 1px solid var(--border);
+  }
+  .cfGame__tabbar .tabbar__item:nth-child(3) { display: none; }
+  .cfGame__tabbar .tabbar__item {
+    flex: 1 1 0;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    font: inherit;
+    font-size: var(--t-xs);
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    background: none;
+    border: 0;
+    cursor: pointer;
+  }
+  .cfGame__tabbar .tabbar__item[data-on] { color: var(--accent-strong); box-shadow: inset 2px 0 0 var(--accent); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cfToken { transition: none; }
   .cfDice[data-rolling] .cfDie,

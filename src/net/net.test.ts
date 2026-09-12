@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { HostNet } from './net';
-import { redactForGuests, wrap, type RoomSnapshot, type Up } from './protocol';
+import {
+  epochCode, redactForGuests, rehydrateForHost, wrap, type RoomSnapshot, type Up,
+} from './protocol';
 import { createGame, reduce } from '../game/engine';
 import { CLASSIC } from '../game/settings';
 import { CF_DEFAULTS, createCashflow, reduce as cfReduce } from '../cashflow/engine';
@@ -92,7 +94,7 @@ describe('snapshots sent to guests', () => {
     const snapshot: RoomSnapshot = {
       roomId: 'ROOM', hostId: 'p0', kind: 'monopoly', seats: [],
       settings: game.settings, cfRules: { strictLoans: true, turnLimit: 0, fastGoal: 50000 },
-      game, cf: null, rev: 3,
+      game, cf: null, epoch: 0, rev: 3,
     };
 
     const redacted = redactForGuests(snapshot);
@@ -112,7 +114,7 @@ describe('snapshots sent to guests', () => {
     const snapshot: RoomSnapshot = {
       roomId: 'ROOM', hostId: 'p0', kind: 'cashflow', seats: [],
       settings: { ...CLASSIC, seed: 515151 }, cfRules: { strictLoans: true, turnLimit: 0, fastGoal: 50000 },
-      game: null, cf, rev: 3,
+      game: null, cf, epoch: 0, rev: 3,
     };
     const redacted = redactForGuests(snapshot);
     expect(redacted.settings.seed).toBe(0);
@@ -120,5 +122,53 @@ describe('snapshots sent to guests', () => {
     for (const deck of Object.values(redacted.cf!.decks)) expect(deck).toEqual([]);
     expect(snapshot.cf!.decks.small.length).toBeGreaterThan(0);
     expect(redacted.cf!.players.p0.profession).toBe(cf.players.p0.profession);
+  });
+});
+
+describe('handing the table over', () => {
+  it('numbers each host generation, leaving the room code as players know it', () => {
+    expect(epochCode('GOLD-FALCON-42', 0)).toBe('GOLD-FALCON-42');
+    expect(epochCode('GOLD-FALCON-42', 2)).toBe('GOLD-FALCON-42-2');
+  });
+
+  it('deals the new host fresh cards, and leaves the game exactly as it stood', () => {
+    const started = reduce(createGame({ ...CLASSIC, seed: 424242 }, seats), { type: 'START_GAME', playerId: 'p0' }).state;
+    const game = {
+      ...started,
+      players: { ...started.players, p1: { ...started.players.p1, cash: 900, getOutOfJailCards: 1 } },
+    };
+    const snapshot: RoomSnapshot = {
+      roomId: 'ROOM', hostId: 'p0', kind: 'monopoly', seats: [],
+      settings: game.settings, cfRules: { strictLoans: true, turnLimit: 0, fastGoal: 50000 },
+      game, cf: null, epoch: 0, rev: 3,
+    };
+
+    // What a guest holds, then what that guest would run the table from.
+    const taken = rehydrateForHost(redactForGuests(snapshot), 777);
+    expect(taken.game!.settings.seed).toBe(777);
+    expect(taken.game!.chanceCursor).toBe(0);
+    // The one jail card a player is holding is not dealt a second time.
+    expect(taken.game!.chanceOrder).not.toContain('ch08');
+    expect(taken.game!.chestOrder).toContain('cc05');
+    expect(taken.game!.chanceOrder.length + taken.game!.chestOrder.length).toBe(31);
+    // Everything the table could see is untouched, and it plays on.
+    expect(taken.game!.players.p1.cash).toBe(900);
+    expect(taken.game!.phase).toBe(game.phase);
+    expect(reduce(taken.game!, { type: 'ROLL', playerId: 'p0' }).state.version)
+      .toBeGreaterThan(taken.game!.version);
+  });
+
+  it('refills the Cashflow decks for the new host', () => {
+    const cf = cfReduce(createCashflow({ ...CF_DEFAULTS, seed: 515151 }, seats), { type: 'START_GAME', playerId: 'p0' }).state;
+    const snapshot: RoomSnapshot = {
+      roomId: 'ROOM', hostId: 'p0', kind: 'cashflow', seats: [],
+      settings: { ...CLASSIC, seed: 515151 }, cfRules: { strictLoans: true, turnLimit: 0, fastGoal: 50000 },
+      game: null, cf, epoch: 0, rev: 3,
+    };
+    const taken = rehydrateForHost(redactForGuests(snapshot), 999);
+    expect(taken.cf!.settings.seed).toBe(999);
+    for (const deck of Object.values(taken.cf!.decks)) expect(deck.length).toBeGreaterThan(0);
+    expect(taken.cf!.cursors).toEqual({ small: 0, big: 0, market: 0, doodad: 0 });
+    expect(taken.cf!.players.p0.profession).toBe(cf.players.p0.profession);
   });
 });

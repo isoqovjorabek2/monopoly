@@ -2292,3 +2292,292 @@
   }
   .boardTools__btn--wide .kbd { display: none; }
 }
+
+/* ==================================================================
+   Phones.
+
+   A phone held upright is asked to turn sideways (RotatePrompt), and a
+   phone held sideways gets a table of its own. Landscape is detected by
+   height rather than by device: anything under ~540px tall is a phone on
+   its side (or a very short window). Every width breakpoint above - 1180,
+   900, 780, 720 - lands somewhere different across the 667px-to-932px
+   range those phones span, so this block comes last and settles all of
+   them at once.
+
+   The layout: a thin vertical tab strip down the left edge, the board
+   sized off the height, and the action column always open on the right,
+   because what you can do this turn should never be behind a tap. The
+   players slide in from the left over the felt.
+   ================================================================== */
+
+.rotate { display: none; }
+
+@media (orientation: portrait) and (max-width: 640px) and (pointer: coarse) {
+  .rotate {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: grid;
+    place-items: center;
+    padding: var(--s-5) var(--s-4) calc(var(--s-5) + env(safe-area-inset-bottom));
+    background:
+      radial-gradient(90% 60% at 50% 35%, color-mix(in oklab, var(--felt-400) 38%, transparent), transparent 70%),
+      rgb(2 6 4 / 0.96);
+    backdrop-filter: blur(8px);
+    animation: fadeIn var(--dur-mid) var(--ease-out);
+  }
+}
+.rotate__card {
+  width: min(340px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-3);
+  text-align: center;
+}
+.rotate__phone { width: 132px; height: 132px; margin-bottom: var(--s-2); overflow: visible; }
+.rotate__device rect:first-child {
+  fill: var(--bg-raised);
+  stroke: var(--brass-300);
+  stroke-width: 2.5;
+}
+.rotate__screen { fill: color-mix(in oklab, var(--felt-400) 70%, #04100a); }
+.rotate__button { fill: var(--brass-400); }
+.rotate__device {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: rotatePhone 2.6s var(--ease-out) infinite;
+}
+.rotate__arrow {
+  fill: none;
+  stroke: var(--brass-300);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.85;
+}
+@keyframes rotatePhone {
+  0%, 18% { transform: rotate(0deg); }
+  55%, 82% { transform: rotate(-90deg); }
+  100% { transform: rotate(0deg); }
+}
+.rotate__title {
+  font-size: var(--t-2xl);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--brass-200);
+}
+.rotate__body { color: var(--text-muted); font-size: var(--t-sm); line-height: 1.55; }
+.rotate__actions {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+}
+@media (prefers-reduced-motion: reduce) {
+  .rotate__device { animation: none; transform: rotate(-90deg); }
+}
+
+@media (orientation: landscape) and (max-height: 540px) {
+  /* ---- shell: exactly the window, never the page ---- */
+  .game,
+  .game[data-focus] {
+    height: 100dvh;
+    min-height: 0;
+    max-width: none;
+    margin: 0;
+    gap: 6px;
+    padding:
+      6px
+      max(6px, env(safe-area-inset-right))
+      max(6px, env(safe-area-inset-bottom))
+      calc(50px + env(safe-area-inset-left));
+    overflow: hidden;
+  }
+
+  /* ---- header: one short row that scrolls sideways if it must ----
+     Focus mode hides it behind a hover, and a phone has no hover. What a
+     phone gets from focus mode is the browser's own bars going away. */
+  .game[data-focus] .game__reveal { display: none; }
+  .game__top,
+  .game[data-focus] .game__top {
+    position: static;
+    transform: none;
+    opacity: 1;
+    pointer-events: auto;
+    background: none;
+    padding: 0;
+    flex-wrap: nowrap;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .game__top::-webkit-scrollbar { display: none; }
+  .game__top .chip,
+  .game__top .kbd { display: none; }
+  .game__top > * { flex: none; }
+  .game__top .btn--sm { min-height: 30px; padding: 4px 10px; white-space: nowrap; }
+  .game__turn { font-size: 10px; white-space: nowrap; }
+
+  /* ---- board | actions ---- */
+  .game__layout,
+  .game[data-focus] .game__layout {
+    flex: 1 1 auto;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr) minmax(236px, min(40vw, 340px));
+    grid-template-rows: minmax(0, 1fr);
+    gap: 6px;
+    align-items: stretch;
+  }
+
+  .game__stage,
+  .game[data-focus] .game__stage {
+    grid-column: 1;
+    grid-row: 1;
+    position: relative;
+    align-self: stretch;
+    grid-template-rows: minmax(0, 1fr);
+  }
+  /* The header row and the shell padding are all that compete with the
+     board for height now; the view controls float. */
+  .game__boardWrap,
+  .game[data-focus] .game__boardWrap {
+    --chrome: 54px;
+    width: min(
+      calc(100% * var(--board-zoom, 1)),
+      calc((100dvh - var(--chrome)) * var(--board-zoom, 1))
+    );
+  }
+  .game__boardWrap[data-mode='3d'],
+  .game[data-focus] .game__boardWrap[data-mode='3d'] { width: 100%; height: 100%; }
+  .stage3d,
+  .game[data-focus] .stage3d { height: 100%; }
+
+  /* Beside a square board there is too little felt on a small phone to
+     stand the view controls in without covering tiles, so they join the
+     header row at its right end, and the header scrolls short of them. */
+  .game__top,
+  .game[data-focus] .game__top { margin-right: 186px; }
+  .boardTools,
+  .game[data-focus] .boardTools {
+    position: fixed;
+    top: 6px;
+    right: max(6px, env(safe-area-inset-right));
+    bottom: auto;
+    left: auto;
+    transform: none;
+    z-index: 5;
+    margin: 0;
+    padding: 2px;
+    opacity: 1;
+  }
+  .game[data-focus] .boardTools::before { content: none; }
+  .boardTools__value { display: none; }
+  .boardTools__btn { min-width: 28px; height: 26px; }
+  .boardTools__btn--wide { font-size: 11px; white-space: nowrap; }
+  .boardTools__btn--wide .kbd { display: none; }
+
+  .game__side,
+  .game[data-focus] .game__side {
+    grid-column: 2;
+    grid-row: 1;
+    position: static;
+    transform: none;
+    transition: none;
+    width: auto;
+    height: 100%;
+    max-height: none;
+    min-height: 0;
+    z-index: auto;
+    gap: 6px;
+    padding: 0;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .game__side .actions { padding: var(--s-3); gap: 6px; }
+  .game__side .actions .kbd { display: none; }
+  .game__side .feed { min-height: 150px; }
+
+  /* ---- players: a drawer from the left edge ---- */
+  .game__rail,
+  .game[data-focus] .game__rail {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: calc(44px + env(safe-area-inset-left));
+    right: auto;
+    width: min(290px, 62vw);
+    height: auto;
+    max-height: none;
+    z-index: 66;
+    grid-column: auto;
+    grid-row: auto;
+    flex-direction: column;
+    padding: var(--s-2);
+    padding-bottom: max(var(--s-2), env(safe-area-inset-bottom));
+    background: var(--bg-app);
+    border: 0;
+    border-right: 1px solid var(--border-strong);
+    border-radius: 0;
+    box-shadow: var(--e-3);
+    backdrop-filter: none;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    transform: translateX(-120%);
+    transition: transform var(--dur-mid) var(--ease-out);
+  }
+  .game__rail[data-open],
+  .game[data-focus] .game__rail[data-open] { transform: none; }
+  .game__rail .rail { flex-direction: column; }
+  .game__rail .rail > li { flex: none; }
+
+  /* ---- the tab strip, turned on its side ----
+     Actions is always on screen here, so the strip only needs Players and
+     a way back to the board. */
+  .game__tabbar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: auto;
+    z-index: 67;
+    display: flex;
+    flex-direction: column;
+    width: calc(44px + env(safe-area-inset-left));
+    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) env(safe-area-inset-left);
+    background: var(--bg-surface);
+    border: 0;
+    border-right: 1px solid var(--border-strong);
+  }
+  .game__tabbar .tabbar__item:nth-child(3) { display: none; }
+  .game__tabbar .tabbar__item {
+    flex: 1 1 0;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    background: transparent;
+    border: 0;
+    color: var(--text-muted);
+    font-size: var(--t-xs);
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  /* Turned half a turn, so the left edge in the source is the right edge on
+     screen - the side where the strip meets the felt. */
+  .game__tabbar .tabbar__item[data-on] { color: var(--brass-200); box-shadow: inset 2px 0 0 var(--accent); }
+
+  /* ---- modals get the short axis, not 88% of it plus a gutter ---- */
+  .scrim { padding: var(--s-2); }
+  .modal { max-height: calc(100dvh - var(--s-2) * 2); }
+}

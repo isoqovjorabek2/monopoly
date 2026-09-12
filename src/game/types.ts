@@ -181,6 +181,12 @@ export interface GameSettings {
   seed: number;
 }
 
+/** One point on the closing chart. */
+export interface HistoryPoint {
+  round: number;
+  worth: Record<string, number>;
+}
+
 export interface GameState {
   version: number;
   phase: Phase;
@@ -229,6 +235,8 @@ export interface GameState {
   turnNumber: number;
   /** Times round the table. Starts at 1; a turn limit counts these. */
   round: number;
+  /** Everyone's net worth at the start of each round, and at the end. */
+  history: HistoryPoint[];
   winnerId: string | null;
   startedAt: number;
 }

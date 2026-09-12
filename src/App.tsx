@@ -4,6 +4,7 @@ import { useStore } from './store/store';
 import { Home } from './ui/Home';
 import { Lobby } from './ui/Lobby';
 import { Game } from './ui/Game';
+import { RotatePrompt } from './ui/RotatePrompt';
 
 /* The Cashflow table is its own chunk: a Monopoly player never downloads
  * it, and the front door does not wait on it either. */
@@ -13,6 +14,12 @@ export default function App() {
   const screen = useStore((s) => s.screen);
   const code = useStore((s) => s.code);
   const kind = useStore((s) => s.room?.kind ?? 'monopoly');
+  const resumeSaved = useStore((s) => s.resumeSaved);
+
+  // A table saved moments ago is a refresh or a crash, not a change of mind:
+  // pick it straight back up. An older one waits behind a button on the
+  // front door instead.
+  useEffect(() => { resumeSaved(true); }, [resumeSaved]);
 
   // Keep the address bar in step so a refresh, a back button, or a copied
   // URL all land somewhere sensible.
@@ -23,7 +30,8 @@ export default function App() {
     }
   }, [screen, code]);
 
-  // A refresh mid-game cannot be recovered peer-to-peer, so warn first.
+  // A refresh is recoverable now, but closing the tab still takes you out of
+  // the room, so it is worth a word first.
   useEffect(() => {
     if (screen !== 'game') return;
     const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
@@ -51,6 +59,8 @@ export default function App() {
           <CashflowGame />
         </Suspense>
       )}
+      {/* Only at the table: the front door and the lobby read fine upright. */}
+      {screen === 'game' && <RotatePrompt />}
     </motion.div>
   );
 }

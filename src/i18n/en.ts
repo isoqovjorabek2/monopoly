@@ -78,6 +78,9 @@ export const en = {
     /** Text either side of the invite code, which is set in bold. */
     followedInvite: ['You followed an invite to ', '.'] as [string, string],
     solo: 'Or learn the board against bots',
+    resume: 'Resume',
+    resumeNote: (code: string) => `Your table ${code} is still open in this browser.`,
+    forget: 'Forget it',
     deed: {
       aria: (name: string) => `Title deed for ${name}`,
       kicker: 'Title Deed',
@@ -511,8 +514,18 @@ export const en = {
     full: 'Full screen',
   },
 
+  rotate: {
+    title: 'Turn your phone sideways',
+    body: 'The table is laid out for landscape, so the board, the players and your moves all fit on one screen.',
+    lock: 'Switch to landscape',
+    anyway: 'Keep playing upright',
+  },
+
   net: {
     unavailable: 'That room is not active. Check the code, or ask for a fresh link.',
+    migrating: (name: string) => `The host left. Handing the table to ${name}...`,
+    migrated: 'The host left, so this tab is running the table now.',
+    hostGone: 'The host left, and nobody at the table could take it over.',
     taken: 'That room code is already taken.',
     incompatible: 'This browser does not support the peer-to-peer connection this game needs.',
     broker: 'Could not reach the matchmaking service. Check your connection and try again.',
@@ -533,7 +546,7 @@ export const en = {
 
   crash: {
     title: 'Something broke',
-    body: 'The game hit an error it could not recover from. Reloading starts a fresh table - an in-progress game cannot be restored, because the state only ever lived in the host’s browser.',
+    body: 'The game hit an error it could not recover from. Reloading picks the table back up where it can - the host’s browser keeps a copy of the game - and otherwise starts a fresh one.',
     reload: 'Reload',
   },
 

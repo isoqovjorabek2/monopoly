@@ -7,7 +7,7 @@ import { BOARD, GROUP_COLOR } from '../game/board';
 import { TOKENS } from '../game/settings';
 import type { TokenId } from '../game/types';
 import { spaceName, useT } from '../i18n';
-import { useStore } from '../store/store';
+import { forgetSave, readSave, useStore } from '../store/store';
 import { normaliseCode, type GameKind } from '../net/protocol';
 import { Avatar, fmt } from './bits';
 import { LangSwitch } from './LangSwitch';
@@ -38,6 +38,9 @@ export function Home() {
   const hostRoom = useStore((s) => s.hostRoom);
   const joinRoom = useStore((s) => s.joinRoom);
   const playSolo = useStore((s) => s.playSolo);
+
+  const resumeSaved = useStore((s) => s.resumeSaved);
+  const [saved, setSaved] = useState(readSave);
 
   const urlCode = useJoinCodeFromUrl();
   const [name, setName] = useState(me.name);
@@ -118,6 +121,27 @@ export function Home() {
             <h2 className="joinCard__title">{t.home.takeSeat}</h2>
 
             {netError && <div className="banner banner--bad" role="alert">{netError}</div>}
+
+            {saved && (
+              <div
+                className="banner"
+                role="status"
+                style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}
+              >
+                <span>{t.home.resumeNote(saved.code)}</span>
+                <span className="spacer" />
+                <button
+                  type="button"
+                  className="btn btn--sm"
+                  onClick={() => { forgetSave(); setSaved(null); }}
+                >
+                  {t.home.forget}
+                </button>
+                <button type="button" className="btn btn--primary btn--sm" onClick={() => resumeSaved()}>
+                  {t.home.resume}
+                </button>
+              </div>
+            )}
 
             <label className="labelled">
               <span className="switch__label">{t.home.nameLabel}</span>

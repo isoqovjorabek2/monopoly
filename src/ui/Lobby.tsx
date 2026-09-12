@@ -404,6 +404,13 @@ function CashflowSettings({
             onChange={(v) => setRules({ turnLimit: v })}
           />
           <Slider
+            label={L.turnTimer}
+            min={0} max={180} step={5}
+            value={s.turnTimer}
+            format={(v) => (v === 0 ? t.common.off : t.common.seconds(v))}
+            onChange={(v) => set({ turnTimer: v })}
+          />
+          <Slider
             label={L.tableSize}
             min={2} max={CF_MAX_SEATS} step={1}
             value={Math.min(s.maxPlayers, CF_MAX_SEATS)} format={L.players}

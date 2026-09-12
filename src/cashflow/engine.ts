@@ -5,9 +5,9 @@ import {
   MAX_CHILDREN, PROFESSIONS, RAT_BOARD, RAT_SIZE, cfCard, professionById,
 } from './data';
 import {
-  canEscape, charityCost, currentId, currentPlayer, dreamPrice, isLegal,
-  monthlyCashflow, ownsRental, passiveIncome, progress, settlement, tableCard,
-  totalExpenses,
+  autopilotAction, canEscape, charityCost, currentId, currentPlayer, dreamPrice,
+  isLegal, monthlyCashflow, ownsRental, passiveIncome, progress, settlement,
+  tableCard, totalExpenses, waitingOn,
 } from './rules';
 import type {
   CFAction, CFDeck, CFEvent, CFPlayer, CFReduction, CFSettings, CFState, DebtKey,
@@ -25,6 +25,7 @@ export const CF_DEFAULTS: Omit<CFSettings, 'seed'> = {
   strictLoans: true,
   turnLimit: 0,
   fastGoal: 50000,
+  turnTimer: 0,
 };
 
 export function createCashflow(settings: CFSettings, seats: SeatSpec[]): CFState {
@@ -88,6 +89,8 @@ export function createCashflow(settings: CFSettings, seats: SeatSpec[]): CFState
     decided: false,
     fastOwners: {},
     turnNumber: 0,
+    round: 0,
+    history: [],
     winnerId: null,
     winReason: null,
     nextId: 1,
@@ -99,6 +102,7 @@ const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
 export function reduce(prev: CFState, action: CFAction): CFReduction {
   const events: CFEvent[] = [];
   if (prev.phase === 'game_over') return { state: prev, events };
+  if (action?.type === 'TIME_OUT') return timeOut(prev, action.playerId);
   if (!isLegal(prev, action)) return { state: prev, events };
 
   const s = clone(prev);
@@ -140,10 +144,54 @@ function chooseDream(s: CFState, events: CFEvent[], me: CFPlayer, spaceId: numbe
   if (waiting) return;
   s.turnNumber = 1;
   s.seatIndex = 0;
+  s.round = 1;
+  recordHistory(s);
   beginTurn(s, events);
 }
 
-const advanceSeat = (s: CFState): void => { s.seatIndex = (s.seatIndex + 1) % s.seats.length; };
+function advanceSeat(s: CFState): void {
+  s.seatIndex = (s.seatIndex + 1) % s.seats.length;
+  // Back at the first seat is a new round - the unit a turn limit counts in.
+  if (s.seatIndex === 0) {
+    s.round += 1;
+    recordHistory(s);
+  }
+}
+
+const limitReached = (s: CFState): boolean =>
+  s.settings.turnLimit > 0 && s.round > s.settings.turnLimit;
+
+/** One point on the closing chart. A second point for the same round (the
+ *  game ending part-way through one) replaces the first. */
+function recordHistory(s: CFState): void {
+  const progressNow: Record<string, number> = {};
+  for (const id of s.seats) progressNow[id] = Math.round(progress(s, s.players[id]) * 1000) / 1000;
+  const last = s.history[s.history.length - 1];
+  if (last && last.round === s.round) s.history.pop();
+  s.history.push({ round: s.round, progress: progressNow });
+}
+
+/**
+ * A player whose clock ran out, or who has left the table, has their
+ * pending decision made for them - the least committal legal move - until
+ * the table stops waiting on them. The host says when; the engine decides
+ * what that means, so every client logs the same thing.
+ */
+function timeOut(prev: CFState, pid: string): CFReduction {
+  if (!waitingOn(prev).includes(pid)) return { state: prev, events: [] };
+  let state = prev;
+  const events: CFEvent[] = [{ type: 'TIMED_OUT', playerId: pid }];
+  for (let guard = 0; guard < 20 && waitingOn(state).includes(pid); guard++) {
+    const a = autopilotAction(state, pid);
+    if (!a) break;
+    const r = reduce(state, a);
+    if (r.state.version === state.version) break;
+    state = r.state;
+    events.push(...r.events);
+  }
+  if (state === prev) return { state: prev, events: [] };
+  return { state, events };
+}
 
 /** Settle whose turn it is, skipping anyone out or sitting turns out, and
  *  lift a player onto the Fast Track the moment they qualify. */
@@ -158,6 +206,8 @@ function beginTurn(s: CFState, events: CFEvent[]): void {
   // Every pass either finds a player who can move or takes one skipped
   // turn off somebody, so this always ends; the guard is belt and braces.
   for (let guard = 0; guard < s.seats.length * 8; guard++) {
+    // Past the turn limit nobody starts another turn; checkWin ends the game.
+    if (limitReached(s)) return;
     const p = currentPlayer(s);
     if (p.out) { advanceSeat(s); continue; }
     if (p.skipTurns > 0) {
@@ -597,6 +647,7 @@ function finish(
 ): void {
   s.winnerId = winnerId;
   s.winReason = reason;
+  recordHistory(s);
   s.phase = 'game_over';
   s.card = null;
   events.push({ type: 'GAME_OVER', winnerId, reason });
@@ -615,7 +666,7 @@ function checkWin(s: CFState, events: CFEvent[]): void {
   });
   if (rich) { finish(s, events, rich, 'cashflow'); return; }
 
-  if (s.settings.turnLimit > 0 && s.turnNumber > s.settings.turnLimit * s.seats.length) {
+  if (limitReached(s)) {
     let best: string | null = null;
     let bestScore = -Infinity;
     for (const id of alive) {

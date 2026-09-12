@@ -7,7 +7,8 @@ import {
 } from './data';
 import { CF_DEFAULTS, createCashflow, reduce } from './engine';
 import {
-  currentId, dreamPrice, legalActions, maxLoan, monthlyCashflow, passiveIncome, totalExpenses,
+  autopilotAction, currentId, dreamPrice, legalActions, maxLoan, monthlyCashflow, passiveIncome,
+  totalExpenses, waitingOn,
 } from './rules';
 import type { CFAction, CFEvent, CFSettings, CFState } from './types';
 
@@ -60,6 +61,50 @@ function playBots(seed: number, n = 4, cap = 40000, patch: Partial<CFSettings> =
   }
   return { s, log, events, stuck };
 }
+
+/* ------------------------- the clock and the limit ------------------------- */
+
+describe('the clock', () => {
+  it('picks a dream for a player who timed out while the table chose', () => {
+    let s = createCashflow(settings(5), seats(3, false));
+    s = reduce(s, { type: 'START_GAME', playerId: 'p0' }).state;
+    s = reduce(s, { type: 'CHOOSE_DREAM', playerId: 'p0', spaceId: DREAM_IDS[0] }).state;
+    expect(waitingOn(s)).toEqual(['p1', 'p2']);
+    const r = reduce(s, { type: 'TIME_OUT', playerId: 'p1' });
+    expect(r.events[0]).toEqual({ type: 'TIMED_OUT', playerId: 'p1' });
+    expect(r.state.players.p1.dream).not.toBeNull();
+    expect(waitingOn(r.state)).toEqual(['p2']);
+  });
+
+  it('plays out a timed-out turn without buying anything, and nobody else\'s', () => {
+    const s = started(7);
+    expect(reduce(s, { type: 'TIME_OUT', playerId: 'p1' }).state).toBe(s);
+    const r = reduce(s, { type: 'TIME_OUT', playerId: 'p0' });
+    expect(waitingOn(r.state)).not.toContain('p0');
+    const bought = r.events.some((e) => e.type === 'BOUGHT_STOCK' || e.type === 'BOUGHT_HOLDING'
+      || e.type === 'CHARITY' || (e.type === 'LOAN' && !e.forced));
+    expect(bought).toBe(false);
+  });
+
+  it('gives every player the same number of turns under a round limit', () => {
+    let s = started(11, 3, { turnLimit: 4 });
+    // p0's first turn began as the last dream was chosen.
+    const turns: Record<string, number> = { p0: 1, p1: 0, p2: 0 };
+    for (let guard = 0; s.phase !== 'game_over' && guard < 2000; guard++) {
+      const [pid] = waitingOn(s);
+      if (!pid) break;
+      const r = reduce(s, autopilotAction(s, pid)!);
+      for (const e of r.events) {
+        if (e.type === 'TURN_STARTED' || e.type === 'TURN_SKIPPED') turns[e.playerId] += 1;
+      }
+      s = r.state;
+    }
+    expect(s.phase).toBe('game_over');
+    expect(s.winReason).toBe('limit');
+    expect(turns).toEqual({ p0: 4, p1: 4, p2: 4 });
+    expect(s.history.map((h) => h.round)).toEqual([1, 2, 3, 4, 5]);
+  });
+});
 
 /* ------------------------------ the tables ---------------------------- */
 

@@ -74,7 +74,7 @@ export default function CashflowGame() {
 
   if (!room || !s) return null;
 
-  const round = Math.max(1, Math.floor((Math.max(s.turnNumber, 1) - 1) / s.seats.length) + 1);
+  const round = Math.max(1, s.round);
 
   return (
     <div className="cfGame">

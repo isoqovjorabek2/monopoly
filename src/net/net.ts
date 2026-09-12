@@ -3,7 +3,7 @@ import type { GameEvent } from '../game/types';
 import type { CFEvent } from '../cashflow/types';
 import {
   type ChatMessage, type Down, type RoomSnapshot, type Up,
-  localSecret, redactForGuests, toPeerId, unwrap, wrap,
+  epochCode, localSecret, redactForGuests, toPeerId, unwrap, wrap,
 } from './protocol';
 import { tr } from '../i18n';
 
@@ -61,6 +61,14 @@ const ICE = {
 const HEARTBEAT_MS = 5000;
 const DEAD_AFTER_MS = 16000;
 const CONNECT_TIMEOUT_MS = 15000;
+/** How long a vanished host is given to come back - a refresh, a tunnel,
+ *  a laptop lid - before the table is handed to somebody else. */
+const HOST_RESUME_MS = 15000;
+/** And how long each successor in turn gets to actually appear. */
+const TAKEOVER_MS = 20000;
+/** Generations a guest will look through when a room code seems dead: the
+ *  table may have been handed over while this tab was away. */
+const EPOCH_SEARCH = 5;
 
 export type NetStatus =
   | 'idle' | 'starting' | 'online' | 'connecting'
@@ -75,6 +83,10 @@ export interface HostHandlers {
 export interface GuestHandlers {
   onDown: (msg: Down) => void;
   onStatus: (status: NetStatus, detail?: string) => void;
+  /** The host has been unreachable long enough to be treated as gone. Called
+   *  once per waiting window, counting from 0, so the table can hand itself
+   *  to the next player in line - or give up when the line runs out. */
+  onHostGone?: (attempt: number) => void;
 }
 
 const friendlyError = (err: unknown): string => {
@@ -118,8 +130,25 @@ export class HostNet {
   private pingSent = new Map<string, number>();
   private timer: number | null = null;
   private seq = 0;
+  private epoch: number;
+  /** A host that has just refreshed finds its own id still registered for a
+   *  few seconds. That is worth waiting out rather than failing the room. */
+  private takenRetries = 0;
 
-  constructor(private code: string, private h: HostHandlers) {}
+  constructor(
+    private code: string,
+    private h: HostHandlers,
+    opts: { epoch?: number; secrets?: Record<string, string> } = {},
+  ) {
+    this.epoch = opts.epoch ?? 0;
+    for (const [pid, secret] of Object.entries(opts.secrets ?? {})) this.secrets.set(pid, secret);
+  }
+
+  /** The seat secrets, to be handed back after a refresh so returning
+   *  players keep proving who they are. */
+  exportSecrets(): Record<string, string> {
+    return Object.fromEntries(this.secrets);
+  }
 
   /** Mark a seat as one no connection may ever claim. */
   reserve(playerId: string): void {
@@ -133,11 +162,24 @@ export class HostNet {
 
   start(): void {
     this.h.onStatus('starting');
-    const peer = new Peer(toPeerId(this.code), { debug: 0, config: ICE });
+    const peer = new Peer(toPeerId(epochCode(this.code, this.epoch)), { debug: 0, config: ICE });
     this.peer = peer;
 
-    peer.on('open', () => this.h.onStatus('online'));
-    peer.on('error', (err) => this.h.onStatus('error', friendlyError(err)));
+    peer.on('open', () => { this.takenRetries = 0; this.h.onStatus('online'); });
+    peer.on('error', (err) => {
+      const type = (err as { type?: string })?.type;
+      // Our own id from a moment ago, still held by the broker: wait for it.
+      if (type === 'unavailable-id' && this.takenRetries < 8) {
+        this.takenRetries += 1;
+        if (this.peer === peer) {
+          this.peer = null;
+          try { peer.destroy(); } catch { /* already gone */ }
+          window.setTimeout(() => { if (!this.peer) this.start(); }, 1500);
+        }
+        return;
+      }
+      this.h.onStatus('error', friendlyError(err));
+    });
     peer.on('disconnected', () => {
       // The broker link dropped; existing data channels are unaffected.
       try { peer.reconnect(); } catch { /* nothing useful to do */ }
@@ -286,12 +328,37 @@ export class GuestNet {
   private timeout: number | null = null;
   private retries = 0;
   private closedByUs = false;
+  private epoch: number;
+  private searchTo: number;
+  /** Whether this tab has ever been in the room. Before that, a dead code is
+   *  a wrong code; after it, it is a host that has gone away. */
+  private everOpen = false;
+  private lostAt = 0;
+  private attempt = 0;
 
   constructor(
     private code: string,
     private me: { playerId: string; name: string; token: import('../game/types').TokenId },
     private h: GuestHandlers,
-  ) {}
+    epoch = 0,
+  ) {
+    this.epoch = epoch;
+    this.searchTo = epoch + EPOCH_SEARCH;
+  }
+
+  /** The generation this tab is talking to, so it can be saved and resumed. */
+  currentEpoch(): number {
+    return this.epoch;
+  }
+
+  /** Point this guest at another host generation and start dialling it. */
+  retarget(epoch: number): void {
+    this.epoch = epoch;
+    this.searchTo = epoch;
+    this.lostAt = Date.now();
+    this.retries = 0;
+    this.dial();
+  }
 
   start(): void {
     this.h.onStatus('connecting');
@@ -301,25 +368,41 @@ export class GuestNet {
     peer.on('open', () => this.dial());
     peer.on('error', (err) => {
       if (this.closedByUs) return;
+      if ((err as { type?: string })?.type === 'peer-unavailable') {
+        // Nobody is answering on that id. Either the table has been handed on
+        // since this tab last saw it, or the host is away and may come back.
+        if (!this.everOpen && this.epoch < this.searchTo) {
+          this.epoch += 1;
+          this.dial();
+          return;
+        }
+        if (this.everOpen) { this.onLost(); return; }
+      }
       this.h.onStatus('error', friendlyError(err));
     });
   }
 
   private dial(): void {
-    if (!this.peer) return;
-    const conn = this.peer.connect(toPeerId(this.code), { reliable: true });
+    if (!this.peer || this.closedByUs) return;
+    if (this.timeout) window.clearTimeout(this.timeout);
+    const conn = this.peer.connect(toPeerId(epochCode(this.code, this.epoch)), { reliable: true });
     this.conn = conn;
 
-    // No 'open' inside the window almost always means NAT traversal failed.
+    // No 'open' inside the window almost always means NAT traversal failed -
+    // unless this tab was in the room a moment ago, in which case the host
+    // going quiet is the likelier story, and one we can act on.
     this.timeout = window.setTimeout(() => {
-      if (!conn.open && !this.closedByUs) {
-        this.h.onStatus('error', hasRelay ? tr().net.noRelay : tr().net.noDirect);
-      }
+      if (conn.open || this.closedByUs) return;
+      if (this.everOpen) { this.onLost(); return; }
+      this.h.onStatus('error', hasRelay ? tr().net.noRelay : tr().net.noDirect);
     }, CONNECT_TIMEOUT_MS);
 
     conn.on('open', () => {
       if (this.timeout) window.clearTimeout(this.timeout);
       this.retries = 0;
+      this.everOpen = true;
+      this.lostAt = 0;
+      this.attempt = 0;
       this.h.onStatus('online');
       // Sending before 'open' silently drops the message, so HELLO goes here.
       this.send({
@@ -342,15 +425,29 @@ export class GuestNet {
     conn.on('error', () => this.onLost());
   }
 
+  /**
+   * The host stopped answering. Keep dialling for a while - a refreshing
+   * host is back in a few seconds and keeps its id - and when that window
+   * closes, tell the store, which decides who takes the table over.
+   */
   private onLost(): void {
     if (this.closedByUs) return;
-    if (this.retries >= 4) {
+    const now = Date.now();
+    if (!this.lostAt) this.lostAt = now;
+    const waitMs = this.attempt === 0 ? HOST_RESUME_MS : TAKEOVER_MS;
+
+    if (now - this.lostAt >= waitMs) {
+      const attempt = this.attempt;
+      this.attempt += 1;
+      this.lostAt = now;
+      if (this.h.onHostGone) { this.h.onHostGone(attempt); return; }
       this.h.onStatus('error', tr().net.lost);
       return;
     }
+
     this.retries += 1;
     this.h.onStatus('reconnecting', tr().net.reconnecting(this.retries));
-    window.setTimeout(() => { if (!this.closedByUs) this.dial(); }, 800 * this.retries);
+    window.setTimeout(() => { if (!this.closedByUs) this.dial(); }, 1200);
   }
 
   send(msg: Up): void {

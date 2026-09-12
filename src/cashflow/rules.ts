@@ -271,3 +271,49 @@ export function isLegal(s: CFState, a: CFAction): boolean {
       return true;
   }
 }
+
+/* ------------------------------ the clock ------------------------------ */
+
+/** Who the table is waiting on right now - the only players a timer or a
+ *  dropped connection can hold the game up for. Selling into someone
+ *  else's card is optional, so it never makes anyone wait. */
+export function waitingOn(s: CFState): string[] {
+  const live = (id: string): boolean => Boolean(s.players[id]) && !s.players[id].out;
+  if (s.phase === 'dreams') return s.seats.filter((id) => live(id) && s.players[id].dream == null);
+  if (s.phase === 'roll' || s.phase === 'choose_deal' || s.phase === 'turn_end') {
+    const id = currentId(s);
+    return live(id) ? [id] : [];
+  }
+  return [];
+}
+
+/**
+ * The choice made for a player who ran out of time or left the table: the
+ * least committal legal move. It never buys, borrows, sells or donates -
+ * it picks a dream, rolls the usual dice, takes a small deal, ends the turn.
+ */
+export function autopilotAction(s: CFState, pid: string): CFAction | null {
+  const me = s.players[pid];
+  if (!me) return null;
+  const legal = legalActions(s, pid);
+  switch (s.phase) {
+    case 'dreams':
+      return legal.find((a) => a.type === 'CHOOSE_DREAM') ?? null;
+    case 'roll':
+      return legal.find((a) => a.type === 'ROLL' && a.dice === defaultDice(me))
+        ?? legal.find((a) => a.type === 'ROLL') ?? null;
+    case 'choose_deal':
+      return legal.find((a) => a.type === 'DRAW_DEAL' && a.deck === 'small') ?? null;
+    case 'turn_end':
+      return legal.find((a) => a.type === 'END_TURN') ?? null;
+    default:
+      return null;
+  }
+}
+
+/** What the clock is timing. The host's timeout and every player's
+ *  on-screen countdown restart together whenever this changes. */
+export const clockKey = (s: CFState): string => `${s.phase}|${s.turnNumber}|${s.seatIndex}`;
+
+/** Seconds on the clock for the decision in front of the table. 0 = none. */
+export const clockSeconds = (s: CFState): number => s.settings.turnTimer ?? 0;
