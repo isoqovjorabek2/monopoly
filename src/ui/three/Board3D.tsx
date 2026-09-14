@@ -2,7 +2,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
   AdditiveBlending, CanvasTexture, DoubleSide, MathUtils, NeutralToneMapping,
-  PMREMGenerator, SRGBColorSpace, Vector3, type Mesh,
+  PMREMGenerator, SRGBColorSpace, ShaderChunk, Vector3, type Mesh,
 } from 'three';
 import { ART, TABLE } from '../../art/art';
 import { useArtTexture } from './artTexture';
@@ -13,7 +13,7 @@ import {
   BASE_H, HALF, TILE_H, TOTAL,
   buildingPositions, tileLayout, tokenPosition,
 } from './layout';
-import { makeTileEmissive, makeTileFace, onFaceArtReady, setFaceQuality } from './tileFace';
+import { makeTileEmissive, makeTileFace, onFaceArtReady, setFaceLabels, setFaceQuality } from './tileFace';
 import { Building3D, Token3D } from './Token3D';
 import { Dice3D } from './Dice3D';
 import { Beacon3D } from './Beacon3D';
@@ -27,6 +27,21 @@ import { disposeEnvironment, tableEnvironment } from './tableEnvironment';
  * animPos exactly like the 2D board does, so both renderers stay
  * interchangeable and the engine never learns that 3D exists.
  * ------------------------------------------------------------------ */
+
+/* A slightly sharper read of the tile faces.
+ *
+ * A face is drawn at 168-336 texels per tile and shown at 25-70 screen
+ * pixels, so the GPU samples a mip level several steps down, and trilinear
+ * filtering averages a glyph into its background. A small negative LOD bias
+ * asks for the next level up. Kept modest (-0.5): much further and the faces
+ * shimmer as the camera eases, which is worse than soft. Needs the three-
+ * argument texture() that WebGL2 has; three r163+ is WebGL2-only. */
+const MAP_SAMPLE = 'texture2D( map, vMapUv )';
+const SHARP_MAP_FRAGMENT = ShaderChunk.map_fragment.replace(MAP_SAMPLE, 'texture2D( map, vMapUv, -0.5 )');
+function sharpenFace(shader: { fragmentShader: string }): void {
+  shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', SHARP_MAP_FRAGMENT);
+}
+const sharpenFaceKey = (): string => 'tile-face-lod-bias';
 
 function Tile({ space, name, tax, ownerColor, mortgaged, highlight, artRev, onSelect, onHover }: {
   space: Space;
@@ -99,6 +114,8 @@ function Tile({ space, name, tax, ownerColor, mortgaged, highlight, artRev, onSe
           // A mortgaged deed is out of play; its band should read as dead
           // ink rather than lit inlay.
           emissiveIntensity={glow ? (mortgaged ? 0.08 : 0.55) : 0}
+          onBeforeCompile={sharpenFace}
+          customProgramCacheKey={sharpenFaceKey}
         />
         <meshStandardMaterial attach="material-3" color="#08170f" roughness={0.9} />
         <meshStandardMaterial attach="material-4" color="#0a1f15" roughness={0.85} />
@@ -309,8 +326,12 @@ function Medallion({ yaw }: { yaw: number }) {
  * which barely changes - going to 69 degrees grows the far row by about 17%
  * while the near row gives up 2%. Past roughly 75 the board starts reading
  * as a plan rather than an object, and the gain flattens out anyway.
+ *
+ * Now 73 degrees (1.28 rad), just short of that line: tile names were still
+ * being reported as barely readable at 69, and the far row is where they
+ * were worst.
  */
-const ELEVATION = 1.2;
+const ELEVATION = 1.28;
 
 const FOV = MathUtils.degToRad(38);
 
@@ -524,6 +545,9 @@ export default function Board3D({
   // forty canvases are, and they are built during this render's children.
   setFaceQuality(quality);
   setPlateQuality(quality);
+  // Phone-sized screens print the shortest labels (see boardLabel.ts).
+  const [compact] = useState(() => Math.min(window.innerWidth, window.innerHeight) < 520);
+  setFaceLabels(compact);
   const t = useT();
   const current = state.seats[state.seatIndex];
 

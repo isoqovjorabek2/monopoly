@@ -6,6 +6,7 @@ import { BoardIcon, House, Hotel, Piece, type SpaceIcon } from './Pieces';
 import { Dice } from './Dice';
 import { fmt } from './bits';
 import { spaceName, spaceShort, useT, type Dict } from '../i18n';
+import { LABEL_TIERS, abbreviate, labelAdvance, longestWord } from './boardLabel';
 
 /* ---------------- geometry -------------------------------------------
  * The grid is [corner, 9 units, corner] on both axes. Token positions are
@@ -103,11 +104,15 @@ const Tile = memo(function Tile({
       ? SPACE_ICON[space.id] ?? KIND_ICON[space.kind]
       : undefined;
 
-  // A tile is only about eight characters wide. Names wrap at spaces on
-  // their own, but a single long word ("MEDITERRANEAN") has no break
-  // opportunity, so the type size is fitted to the longest word instead
-  // of being allowed to break mid-word.
-  const longestWord = Math.max(...short.split(/\s+/).map((w) => w.length), 1);
+  // Three labels, one shown: the board picks by its own width (see
+  // board.css). Each carries its longest word so the type is sized to fit
+  // that word rather than being allowed to break it. See boardLabel.ts for
+  // why shortening, not shrinking, is what makes a phone board readable.
+  const labels = [
+    { tier: 'full' as const, text: short },
+    { tier: 'mid' as const, text: abbreviate(short, LABEL_TIERS.mid) },
+    { tier: 'tiny' as const, text: abbreviate(short, LABEL_TIERS.tiny) },
+  ];
 
   return (
     <button
@@ -125,14 +130,15 @@ const Tile = memo(function Tile({
       style={{
         gridColumn: col,
         gridRow: row,
-        ['--maxword' as string]: longestWord,
         ...(band ? { ['--band' as string]: band } : {}),
         ...(ownerColor ? { ['--own' as string]: ownerColor } : {}),
       } as React.CSSProperties}
       onClick={() => onInspect(space.id)}
       onPointerEnter={(e) => { if (e.pointerType === 'mouse') onPeek(space.id); }}
       onPointerLeave={(e) => { if (e.pointerType === 'mouse') onPeek(null); }}
-      onFocus={() => onPeek(space.id)}
+      // Keyboard focus only. A tap focuses the tile too, and on touch the
+      // stage shows its own, larger reading card for the same square.
+      onFocus={(e) => { if (e.currentTarget.matches(':focus-visible')) onPeek(space.id); }}
       onBlur={() => onPeek(null)}
       aria-label={t.board.tileAria(
         spaceName(t, space.id),
@@ -161,9 +167,23 @@ const Tile = memo(function Tile({
 
       <span className="tile__body">
         {icon && <BoardIcon icon={icon} className="tile__icon" />}
-        <span className="tile__name">{short}</span>
+        {labels.map((l) => (
+          <span
+            key={l.tier}
+            className={`tile__name tile__name--${l.tier}`}
+            style={{
+              ['--mw' as string]: longestWord(l.text),
+              ['--adv' as string]: labelAdvance(l.text, l.tier),
+            } as React.CSSProperties}
+            aria-hidden
+          >
+            {l.text}
+          </span>
+        ))}
         {space.price != null && <span className="tile__price">{space.price}</span>}
-        {space.taxAmount != null && <span className="tile__price">{t.board.payTile(space.taxAmount)}</span>}
+        {/* Just the amount: "Pay 200" is wider than a laptop-sized tile and
+            wrapped off the bottom of it, and the tile already says it is a tax. */}
+        {space.taxAmount != null && <span className="tile__price">{space.taxAmount}</span>}
       </span>
 
       {houses > 0 && (

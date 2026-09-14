@@ -122,10 +122,15 @@
   background-repeat: no-repeat;
   background-size: 92% auto;
   mix-blend-mode: screen;
-  /* Screened over dark felt, an ornament loses most of its saturation, so
-     it needs more of itself than a corner emblem on bare board does. */
-  opacity: 0.42;
+  /* Quieter than it was (0.42): it sits directly behind the name, and at
+     laptop sizes it was competing with the one thing on the tile that has
+     to be read. */
+  opacity: 0.26;
   pointer-events: none;
+}
+/* Below this the ornament is only noise under nine-pixel type. */
+@container (max-width: 599px) {
+  .tile__motif { display: none; }
 }
 .tile--bottom .tile__motif { background-position: center 92%; }
 .tile--top    .tile__motif { background-position: center 8%; }
@@ -201,34 +206,65 @@
 }
 
 
+/* Tile type, sized from the tile rather than from the board.
+
+   The old rule scaled with the board (1.5cqi) and bottomed out at 5.5px,
+   which is where every phone and most laptops ended up: measured at 5.5-6px
+   on a phone held sideways and 6-11px on a 1280x720 laptop. Now the label is
+   shortened to fit first (three tiers, below), and the size is whatever
+   makes its longest word span the tile: usable width over the word's length
+   in Oswald's average capital advance (~0.54em with this tracking). That
+   lands at 8-9px on a phone and 10-13px on a laptop.
+
+   Weight 600 rather than 400: a thin condensed face is the first thing to
+   disappear at small sizes, and weight is what survives. Full opacity and a
+   hard one-pixel shadow instead of a soft one, which a small glyph cannot
+   afford to share its edge with. */
 .tile__name {
+  --name-min: 7px;
+  --name-max: 13px;
+  /* Average capital advance, in em. Set per label by the renderer
+     (labelAdvance in boardLabel.ts): wider for Cyrillic, and wider for short
+     labels, where one wide letter - the W in WORKS - moves the average. */
+  --adv: 0.54;
   font-family: var(--font-display);
-  font-weight: 400;
-  /* Fit to the longest word so nothing ever breaks mid-word. --maxword is
-     set per tile by the renderer; 13cqi is the usable tile width in the
-     display face's average character width. */
-  font-size: clamp(5.5px, min(1.5cqi, calc(13.5cqi / var(--maxword, 8))), 11px);
-  line-height: 1.06;
-  letter-spacing: 0.01em;
+  font-weight: 600;
+  font-size: clamp(var(--name-min), calc((var(--unit) - 4px) / (var(--mw, 8) * var(--adv))), var(--name-max));
+  line-height: 1.04;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
-  /* Below the floor a word gets hyphenated instead of shrinking into
-     illegibility. break-word only fires when hyphenation cannot help. */
-  hyphens: auto;
-  overflow-wrap: break-word;
-  word-break: normal;
-  opacity: 0.94;
-  /* Letterpress: the type sits in the felt rather than on top of it. */
-  text-shadow: 0 1px 0 rgb(0 0 0 / 0.55);
+  color: var(--ivory-100);
+  /* The label is cut so no word outgrows the tile; this only catches a
+     font that renders wider than measured. */
+  overflow-wrap: anywhere;
+  text-shadow: 0 1px 0 rgb(0 0 0 / 0.85), 0 0 1px rgb(0 0 0 / 0.7);
   /* A flex item sizes to max-content by default, which makes the name
      overflow the tile instead of wrapping at its spaces. */
   width: 100%;
   min-width: 0;
 }
+/* Which label is printed depends on how wide the board is, not the window:
+   the same board is a different size beside a player list, in focus mode
+   or zoomed. .board is the size container. */
+.tile__name--mid,
+.tile__name--tiny { display: none; }
+@container (max-width: 899px) {
+  .tile__name--full { display: none; }
+  .tile__name--mid { display: block; }
+}
+@container (max-width: 479px) {
+  .tile__name--mid { display: none; }
+  .tile__name--tiny { display: block; }
+}
+
 .tile__price {
   font-family: var(--font-num);
-  font-size: clamp(4.5px, 1.3cqi, 9px);
-  color: var(--brass-300);
+  font-weight: 600;
+  font-size: clamp(7px, calc(var(--unit) * 0.26), 12px);
+  white-space: nowrap;
+  color: var(--brass-200);
   font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 0 rgb(0 0 0 / 0.85);
 }
 .tile__icon {
   width: clamp(9px, 2.9cqi, 20px);
@@ -240,8 +276,8 @@
 .tile--corner .tile__icon { width: clamp(12px, 3.6cqi, 26px); height: clamp(12px, 3.6cqi, 26px); }
 
 .tile--corner .tile__name {
-  font-size: clamp(6px, min(1.9cqi, calc(20cqi / var(--maxword, 8))), 12px);
-  letter-spacing: 0.05em;
+  font-size: clamp(var(--name-min), calc((var(--corner-size) - 10px) / (var(--mw, 8) * var(--adv))), 14px);
+  letter-spacing: 0.04em;
 }
 
 /* Side tiles rotate their text to face inward, like the real board. The
@@ -258,7 +294,11 @@
 }
 .tile--left  .tile__body { transform: translate(-50%, -50%) rotate(90deg); }
 .tile--right .tile__body { transform: translate(-50%, -50%) rotate(-90deg); }
-.tile--top   .tile__body { transform: rotate(180deg); }
+/* The top row prints upright. On a printed board it faces the player
+   opposite; on a screen everyone sits on the same side, and upside-down
+   type costs a reader far more than it adds in authenticity. The side rows
+   stay turned: their text runs along a tile too narrow to hold it level. */
+.tile--top   .tile__body { transform: none; }
 .tile--left  .tile__band,
 .tile--right .tile__band { position: relative; z-index: 2; }
 
@@ -675,7 +715,37 @@
 }
 .tilePeek__owner { font-size: var(--t-xs); }
 
-@media (max-width: 780px) {
-  /* No pointer to hover with; a tap opens the deed card instead. */
-  .tilePeek { display: none; }
+/* The flat board's own positioning context, so the reading card can float
+   over it the way it floats over the 3D scene. */
+.stage2d { position: relative; }
+
+/* Read on touch.
+
+   A phone has no hover, so the hover label never appeared there and the
+   only way to learn a square's name was the deed modal - which nobody
+   finds by accident. A first tap on a tile now shows this, over the middle
+   of the board where there are no tiles to cover, at the screen's own type
+   size; a second tap on the same tile, or Details, opens the deed. */
+.tilePeek--reading {
+  top: 50%;
+  bottom: auto;
+  transform: translate(-50%, -50%);
+  z-index: 9;
+  width: min(88%, 320px);
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: var(--r-lg);
+  white-space: normal;
+  pointer-events: auto;
+  animation: peekIn var(--dur-fast) var(--ease-out);
+}
+.tilePeek__head { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.tilePeek--reading .tilePeek__band { width: 12px; height: 12px; }
+.tilePeek--reading .tilePeek__name { font-size: var(--t-md); line-height: 1.25; }
+.tilePeek__row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
+.tilePeek__details { margin-top: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .tilePeek--reading { animation: none; }
 }

@@ -100,6 +100,56 @@ export function BoardStage({
   // whatever size the screen actually is.
   const [peek, setPeek] = useState<number | null>(null);
 
+  /* Read first, open second - on touch only.
+   *
+   * A mouse can hover to read a square, so its click means "open the deed".
+   * A finger cannot hover, and on a phone-sized board the printed name is a
+   * handful of letters at best. So a tap reads: the square's full name and
+   * price, large, over the middle of the board. Tapping the same square
+   * again (or Details) opens the deed. Keyboard Enter carries no pointer
+   * type and keeps opening the deed directly, as before. */
+  const [reading, setReading] = useState<number | null>(null);
+  const pointer = useRef<string | null>(null);
+  const stage = useRef<HTMLDivElement>(null);
+  const notePointer = useCallback((e: React.PointerEvent) => { pointer.current = e.pointerType; }, []);
+
+  const choose = useCallback((id: number) => {
+    const how = pointer.current;
+    pointer.current = null;
+    if (how !== 'touch' && how !== 'pen') {
+      setReading(null);
+      onInspect(id);
+      return;
+    }
+    if (reading === id) {
+      setReading(null);
+      onInspect(id);
+    } else {
+      setReading(id);
+    }
+  }, [onInspect, reading]);
+
+  useEffect(() => {
+    if (reading == null) return undefined;
+    const away = (e: PointerEvent) => {
+      if (!stage.current?.contains(e.target as Node)) setReading(null);
+    };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setReading(null); };
+    document.addEventListener('pointerdown', away);
+    window.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('pointerdown', away);
+      window.removeEventListener('keydown', esc);
+    };
+  }, [reading]);
+
+  const openReading = useCallback(() => {
+    if (reading == null) return;
+    const id = reading;
+    setReading(null);
+    onInspect(id);
+  }, [reading, onInspect]);
+
   // Bumping this remounts the Canvas, which is the only reliable way back
   // from a lost context: the renderer, its programs and every texture on
   // the GPU went with it, so the scene is rebuilt rather than resumed.
@@ -198,15 +248,32 @@ export function BoardStage({
       state={state}
       animPos={animPos}
       rolling={rolling}
-      onInspect={onInspect}
+      onInspect={choose}
       highlight={highlight}
     />
   );
 
-  if (mode === '2d' || failed) return flat;
+  const readingCard = reading != null && (
+    <TilePeek
+      state={state}
+      spaceId={reading}
+      reading
+      onDetails={openReading}
+      onDismiss={() => setReading(null)}
+    />
+  );
+
+  if (mode === '2d' || failed) {
+    return (
+      <div className="stage2d" ref={stage} onPointerDownCapture={notePointer}>
+        {flat}
+        {readingCard}
+      </div>
+    );
+  }
 
   return (
-    <div className="stage3d" data-ready={ready || undefined}>
+    <div className="stage3d" data-ready={ready || undefined} ref={stage} onPointerDownCapture={notePointer}>
       {/* The flat board stands in until the 3D chunk and its textures are
           ready, then cross-fades out. */}
       <div className="stage3d__under" ref={under} aria-hidden={ready}>{flat}</div>
@@ -221,7 +288,7 @@ export function BoardStage({
                 animPos={animPos}
                 rolling={rolling}
                 highlight={highlight}
-                onInspect={onInspect}
+                onInspect={choose}
                 onHover={setPeek}
                 spotlight={spotlight}
                 quality={tier}
@@ -232,13 +299,22 @@ export function BoardStage({
           </div>
         </Suspense>
       </ErrorBoundary>
-      <TilePeek state={state} spaceId={peek} />
+      {readingCard || <TilePeek state={state} spaceId={peek} />}
     </div>
   );
 }
 
-/** Names the square under the pointer, in real text at real size. */
-function TilePeek({ state, spaceId }: { state: GameState; spaceId: number | null }) {
+/** Names a square in real text at real size: under the pointer, or - on
+ *  touch - the one just tapped, with a way on to its deed. */
+function TilePeek({
+  state, spaceId, reading = false, onDetails, onDismiss,
+}: {
+  state: GameState;
+  spaceId: number | null;
+  reading?: boolean;
+  onDetails?: () => void;
+  onDismiss?: () => void;
+}) {
   const t = useT();
   if (spaceId == null) return null;
   const space = BOARD[spaceId];
@@ -246,20 +322,49 @@ function TilePeek({ state, spaceId }: { state: GameState; spaceId: number | null
   const owner = st?.owner ? state.players[st.owner] : null;
   const houses = st?.houses ?? 0;
 
-  return (
-    <div className="tilePeek" aria-hidden>
-      {space.group && (
-        <span className="tilePeek__band" style={{ background: GROUP_COLOR[space.group] }} />
-      )}
-      <span className="tilePeek__name">{spaceName(t, spaceId)}</span>
+  const band = space.group && (
+    <span className="tilePeek__band" style={{ background: GROUP_COLOR[space.group] }} />
+  );
+  const name = <span className="tilePeek__name">{spaceName(t, spaceId)}</span>;
+  const numbers = (
+    <>
       {space.price != null && <span className="tilePeek__num">${space.price}</span>}
       {space.taxAmount != null && <span className="tilePeek__num">{t.common.pay(`$${space.taxAmount}`)}</span>}
-      {owner && (
-        <span className="tilePeek__owner" style={{ color: owner.color }}>
-          {owner.name}
-          {houses === 5 ? t.board.hotelSuffix : houses > 0 ? ` · ${t.common.housesShort(houses)}` : ''}
-          {st?.mortgaged ? t.board.mortgagedSuffix : ''}
-        </span>
+    </>
+  );
+  const ownership = owner ? (
+    <span className="tilePeek__owner" style={{ color: owner.color }}>
+      {owner.name}
+      {houses === 5 ? t.board.hotelSuffix : houses > 0 ? ` · ${t.common.housesShort(houses)}` : ''}
+      {st?.mortgaged ? t.board.mortgagedSuffix : ''}
+    </span>
+  ) : space.price != null ? <span className="tilePeek__owner">{t.board.unowned}</span> : null;
+
+  if (!reading) {
+    return (
+      <div className="tilePeek" aria-hidden>
+        {band}
+        {name}
+        {numbers}
+        {owner && ownership}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="tilePeek tilePeek--reading"
+      role="status"
+      aria-live="polite"
+      // Tapping the card itself puts it away; its button is the way on.
+      onClick={(e) => { if (e.target === e.currentTarget) onDismiss?.(); }}
+    >
+      <span className="tilePeek__head">{band}{name}</span>
+      <span className="tilePeek__row">{numbers}{ownership}</span>
+      {onDetails && (
+        <button type="button" className="btn btn--sm btn--block tilePeek__details" onClick={onDetails}>
+          {t.board.details}
+        </button>
       )}
     </div>
   );

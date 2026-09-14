@@ -2,6 +2,7 @@ import { CanvasTexture, LinearFilter, LinearMipmapLinearFilter, SRGBColorSpace }
 import { GROUP_COLOR } from '../../game/board';
 import { CORNER_EMBLEM, cornerArt, groupArt, type GroupMotif } from '../../art/art';
 import type { Space } from '../../game/types';
+import { LABEL_TIERS, abbreviate } from '../boardLabel';
 import type { Edge } from './layout';
 
 /* Tile faces are drawn into a canvas and used as a texture rather than
@@ -32,6 +33,18 @@ let faceDprCap = 2;
 
 export function setFaceQuality(quality: 'high' | 'low'): void {
   faceDprCap = quality === 'high' ? 2 : 1;
+}
+
+/* The longest word a face prints (see boardLabel.ts).
+ *
+ * Decided by the screen rather than the quality tier: a four-core laptop is
+ * "low" quality but still shows tiles fifty pixels wide, while a phone held
+ * sideways shows them at about twenty-five. Set once per mount; the faces
+ * are memoised on their text, so a later change would not redraw them. */
+let labelCap: number = LABEL_TIERS.mid;
+
+export function setFaceLabels(compact: boolean): void {
+  labelCap = compact ? LABEL_TIERS.tiny : LABEL_TIERS.mid;
 }
 const FELT_TOP = '#17402c';
 const FELT_BOTTOM = '#0e2a1c';
@@ -361,7 +374,9 @@ export function makeTileFace(
   } else {
     const motif = motifFor(space);
     const img = motif && art(groupArt(motif));
-    if (img) engrave(c, img, w / 2, bodyH * 0.52, Math.min(w * 1.25, bodyH * 0.95), 0.4);
+    // 0.22, down from 0.4: this sits directly behind the name, and the name
+    // is the one thing on the face that has to survive being minified.
+    if (img) engrave(c, img, w / 2, bodyH * 0.52, Math.min(w * 1.25, bodyH * 0.95), 0.22);
   }
 
   // Glyph
@@ -381,11 +396,13 @@ export function makeTileFace(
   c.fillStyle = INK;
   c.textAlign = 'center';
   c.textBaseline = 'middle';
-  const maxW = w * 0.88;
-  const words = text.name.toUpperCase().split(' ');
+  const maxW = w * 0.9;
+  // Shortened before it is sized: fewer, larger letters are what survive the
+  // trip down to a tile a couple of dozen pixels wide.
+  const words = abbreviate(text.name, labelCap).toUpperCase().split(' ');
   // Start high and let fitText step down: short names should not be pinned
   // to the size that a 13-character name happens to need.
-  const size = Math.min(...words.map((word) => fitText(c, word, maxW, isCorner ? 34 : 29)));
+  let size = Math.min(...words.map((word) => fitText(c, word, maxW, isCorner ? 46 : 44)));
   // 600, not 400. Oswald's regular is a thin condensed face: lovely at the
   // size a deed card shows it and gone entirely by the time the far row has
   // foreshortened it to a few pixels tall. Weight is what survives distance.
@@ -399,6 +416,15 @@ export function makeTileFace(
     else { if (line) lines.push(line); line = word; }
   }
   if (line) lines.push(line);
+
+  // Larger type can now run into the price below it; give up size before
+  // letting the two overlap.
+  const hasPrice = space.price != null || space.taxAmount != null;
+  const room = (hasPrice ? bodyH * 0.8 : bodyH * 0.96) - textTop + size * 0.5;
+  if (lines.length * size * 1.12 > room) {
+    size = Math.max(12, Math.floor(room / (lines.length * 1.12)));
+    c.font = `600 ${size}px Oswald, "Arial Narrow", sans-serif`;
+  }
 
   // Heavier than it was: the type now sits over engraved ornament rather
   // than flat felt, and a thin shadow is not enough to lift it off.
@@ -425,10 +451,18 @@ export function makeTileFace(
 
   // Price
   if (space.price != null || space.taxAmount != null) {
-    c.font = `500 ${size * 0.78}px "Roboto Mono", monospace`;
     const label = space.taxAmount != null
       ? (text.tax ?? `PAY ${space.taxAmount}`).toUpperCase()
       : `${space.price}`;
+    // Tied to the name's size, but bounded: a short name no longer means a
+    // price large enough to crowd it. Then fitted, because a tax label is a
+    // word and a number ("НАЛОГ 200") and can be wider than the tile.
+    let priceSize = Math.min(30, Math.max(18, size * 0.7));
+    c.font = `700 ${priceSize}px "Roboto Mono", monospace`;
+    while (c.measureText(label).width > maxW && priceSize > 12) {
+      priceSize -= 1;
+      c.font = `700 ${priceSize}px "Roboto Mono", monospace`;
+    }
     c.lineWidth = Math.max(2, size * 0.16);
     c.strokeText(label, w / 2, bodyH * 0.86);
     c.fillStyle = GOLD;

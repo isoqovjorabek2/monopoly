@@ -490,6 +490,8 @@ export const en = {
     mortgagedSuffix: ' · mortgaged',
     /** Under a tax square's name. The 3D face prints it in capitals. */
     payTile: (n: number) => `Pay ${n}`,
+    /** On the card a tap on a tile shows; opens that square's deed. */
+    details: 'Details',
     hud: {
       preroll: 'to roll',
       awaiting_buy: 'is deciding whether to buy',

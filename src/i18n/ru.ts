@@ -485,6 +485,7 @@ export const ru: Dict = {
     hotelSuffix: ' · отель',
     mortgagedSuffix: ' · в залоге',
     payTile: (n) => `Налог ${n}`,
+    details: 'Подробнее',
     hud: {
       preroll: 'бросает кубики',
       awaiting_buy: 'решает, покупать ли',

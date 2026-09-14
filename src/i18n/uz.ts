@@ -484,6 +484,7 @@ export const uz: Dict = {
     hotelSuffix: ' · mehmonxona',
     mortgagedSuffix: ' · garovda',
     payTile: (n) => `Soliq ${n}`,
+    details: 'Batafsil',
     hud: {
       preroll: 'zar tashlaydi',
       awaiting_buy: 'sotib olishni o‘ylamoqda',
