@@ -1,6 +1,7 @@
-# The public lobby directory. Binds 127.0.0.1:9100; nginx publishes it at
-# /lobbies/. Holds nothing on disk and nothing that outlives a room, so it
-# needs no write access to anything and is restarted rather than recovered.
+# The public lobby directory and the table log. Binds 127.0.0.1:9100; nginx
+# publishes it at /lobbies/. The directory holds nothing on disk; the table
+# log writes to /var/lib/lobbies, the one place it may write, which the
+# status panel (same user) reads from.
 [Unit]
 Description=Monopoly public lobby directory (localhost only)
 After=network-online.target
@@ -11,6 +12,10 @@ Type=exec
 User=opspanel
 Group=opspanel
 ExecStart=/usr/bin/python3 /opt/opspanel/lobbies.py
+# /var/lib/lobbies, created and made writable despite ProtectSystem=strict.
+StateDirectory=lobbies
+StateDirectoryMode=0750
+Environment=LOBBIES_STATE=/var/lib/lobbies
 Restart=always
 RestartSec=3
 

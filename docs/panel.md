@@ -99,7 +99,12 @@ property. Run it on the droplet with `python3 /opt/opspanel/test_auth.py`.
 
 | Card | Reading |
 | --- | --- |
-| Services | `coturn`, `nginx`, `aitutor`: active or not, and for how long. |
+| Right now | Tables open, games in progress, tables waiting in a lobby, players online and disconnected, bots seated, public rooms listed. |
+| Live tables | Every open table - public, private and solo - with its code, game, whether it has started, the round and whose move it is, each seat (name, bot or human, host, online or dropped, bankrupt, cash), how long it has been open and when it last reported. Also the host's device (phone or desktop) and language. |
+| Last 24 hours | Tables opened (by game, and public / private / solo), games started and finished, average game length, distinct player names, peak players online, tables opened from a phone, connection drops, tables that went quiet. A players-online chart (one point per 5 minutes) and tables opened per day for the last week. |
+| Recently ended | The last 60 tables to close: players, winner or where it stopped, how long it ran, and whether it was left or went quiet. |
+| Activity | A feed of the last 24 hours: opened, joined, left, dropped, reconnected, started, finished, closed. |
+| Services | `coturn`, `nginx`, `lobbies`, `aitutor`: active or not, and for how long. |
 | Relay | Allocations in the last 24h, how many are still open, bytes each way, and the split between `turns:` on 443 and plain `turn:` on 3478. |
 | Web traffic | Requests over 24h bucketed by hour, split into page loads / assets / `/api`, with status codes and bytes served. |
 | Certificate | Days left — read from the socket, per SNI name. |
@@ -123,11 +128,29 @@ sessions would have made the relay look busy because the panel was watching
 it. Only sessions that actually allocated a relay are counted; the rest are
 reported separately as what they are.
 
-**It cannot tell you who is playing.** Monopoly rooms live in the host's
-browser and never reach this server — that is the design, not a gap. So the
-panel reports page loads and relay allocations and stops there. Anything
-more would mean adding telemetry that contradicts what the project promises
-on its front page.
+**It knows who is playing only because tables say so.** The game still lives
+in the host's browser and nothing about play goes through this server. What
+the tables section shows comes from reports: whoever runs a table (a room's
+host, or the browser a solo game is in) posts the table's shape to
+`/lobbies/report` when it changes and every 20 seconds
+(`src/net/telemetry.ts`). Guests never report. The lobby service keeps live
+tables in memory and appends every change to a day file in
+`/var/lib/lobbies`; the panel reads those files and never talks to the
+service over HTTP, and the service never serves them back out. A table that
+stops reporting for 90 seconds is closed as "went quiet", and one that comes
+back within the hour (a refresh, a host hand-over) resumes rather than
+counting twice.
+
+What is recorded: room code, game, public/private/solo, phase, round, whose
+move, winner, and each seat's name, bot or human, online or not, cash and
+net worth (passive income for Cashflow), plus the host's device class and
+language. No IP addresses (there are none to record - see below), no chat,
+no moves. Day files are deleted after 30 days.
+
+Two limits worth knowing. Reports come from browsers, so anyone who wants to
+can post a fake one; the service caps and sanitises them (500 live tables,
+8 seats, 18-character names) but cannot prove them. And "distinct players"
+counts names, not people.
 
 One more limit worth knowing: because nginx splits 443 by TLS name and
 passes the stream through untouched, every request in the access log has a
@@ -143,6 +166,7 @@ true.
 | Unit | `ops/opspanel.service` → `/etc/systemd/system/opspanel.service` |
 | Config | `/etc/opspanel/config.json` — secrets and allowlist, never in git |
 | Tests | `ops/test_auth.py` → `/opt/opspanel/test_auth.py` |
+| Table log | Written by `ops/lobbies.py` (`lobbies.service`, `StateDirectory=lobbies`) to `/var/lib/lobbies`: `tables.json` (live and recently ended, rewritten every few seconds) and `events-YYYY-MM-DD.jsonl` (30 days) |
 | Runs as | `opspanel`, in `adm` (nginx logs) and `systemd-journal` (coturn logs) |
 | Deps | Python 3 standard library only |
 

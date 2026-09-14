@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import { PAPER } from './art/art';
 import { ErrorBoundary } from './ui/ErrorBoundary';
+import { startTelemetry } from './net/telemetry';
 import './styles/global.css';
 import './styles/board.css';
 import './styles/app.css';
@@ -11,6 +12,9 @@ import './styles/app.css';
 // deploy base, which only exists at runtime. Set once here rather than
 // threading an inline style through every card that wants paper under it.
 document.documentElement.style.setProperty('--paper-img', `url("${PAPER}")`);
+
+// Tables tell the operator's panel what they look like. Never blocks play.
+startTelemetry();
 
 const root = document.getElementById('root');
 if (root) {

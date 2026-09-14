@@ -87,6 +87,49 @@ export function close(id: string): Promise<boolean> {
   return post('close', { id });
 }
 
+/** One seat at a table, as the operator's panel sees it. */
+export interface TableSeatReport {
+  id: string;
+  name: string;
+  color: string;
+  token: string;
+  bot: boolean;
+  host: boolean;
+  connected: boolean;
+  cash: number;
+  /** Net worth in Monopoly; passive income in Cashflow. */
+  worth: number;
+  out: boolean;
+  track?: string;
+}
+
+/** Everything the panel is told about a table. Rooms both public and
+ *  private report, and solo games too - see telemetry.ts. */
+export interface TableReport {
+  id: string;
+  kind: 'monopoly' | 'cashflow';
+  mode: 'public' | 'private' | 'solo';
+  phase: 'lobby' | 'playing' | 'over';
+  round: number;
+  turn: string | null;
+  winner: string | null;
+  maxSeats: number;
+  epoch: number;
+  device: 'mobile' | 'desktop';
+  lang: string;
+  players: TableSeatReport[];
+}
+
+export function reportTable(report: TableReport): Promise<boolean> {
+  return post('report', report);
+}
+
+/** The table was left on purpose. A table that just stops reporting is
+ *  treated the same way a minute and a half later. */
+export function closeTable(id: string): Promise<boolean> {
+  return post('report/close', { id });
+}
+
 export async function listRooms(): Promise<PublicRoom[]> {
   if (!hasDirectory) return [];
   try {
