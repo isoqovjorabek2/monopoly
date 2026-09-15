@@ -1784,10 +1784,24 @@
 @media (max-width: 780px) {
   .game { padding: var(--s-2); padding-bottom: 62px; }
   /* Keep the header to one row - a second row costs board height, which
-     is the one thing a phone has none of. */
-  .game__top { flex-wrap: nowrap; gap: var(--s-1); }
+     is the one thing a phone has none of. The buttons collapse to icons so
+     the row fits a 400px portrait phone; if even that is tight the row
+     scrolls within itself rather than pushing the whole page sideways. */
+  .game__top {
+    flex-wrap: nowrap;
+    gap: var(--s-1);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .game__top::-webkit-scrollbar { display: none; }
+  .game__top > * { flex: none; }
+  .game__top .spacer { flex: 1 1 0; min-width: 0; }
   .game__top .chip { display: none; }
-  .game__turn { font-size: 10px; }
+  .game__top .btn__label { display: none; }
+  .game__top .btn__icon { display: block; }
+  .game__top .btn--sm { padding: 4px 8px; }
+  .game__top .langSwitch__item { min-width: 0; padding: 4px 6px; }
+  .game__turn { font-size: 10px; white-space: nowrap; }
   .game__layout { grid-template-columns: 1fr; }
   /* Phone: the rails are sheets, so the width is the board's to take - but
      the fixed tab bar and the view controls still own part of the height,

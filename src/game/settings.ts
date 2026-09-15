@@ -34,6 +34,7 @@ export const CLASSIC: GameSettings = {
   dealsEnabled: false,
   fillWithBots: false,
   botLevel: 'normal',
+  takeovers: 'ask',
   seed: 0,
 };
 

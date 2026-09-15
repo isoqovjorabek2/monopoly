@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HostNet } from './net';
+import { HostNet, hashSecret } from './net';
 import {
   epochCode, redactForGuests, rehydrateForHost, wrap, type RoomSnapshot, type Up,
 } from './protocol';
@@ -85,6 +85,43 @@ describe('seat security', () => {
       expect(c.open, id).toBe(false);
     }
     expect(seen).toEqual([]);
+  });
+});
+
+describe('a table handed to a new host', () => {
+  it('still turns away a guest who claims a seat without its secret', async () => {
+    // The new host never saw anyone's secret - only the hashes the room carried.
+    const keys = { p_victim: await hashSecret('secret-owner') };
+    const seen: string[] = [];
+    const host = new HostNet('ROOM', { onUp: (from) => seen.push(from), onPresence: () => {}, onStatus: () => {} }, { epoch: 1, seatKeys: keys });
+
+    const thief = new FakeConn();
+    attachTo(host, thief);
+    thief.emit('data', wrap(hello('p_victim', 'guessed')));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(thief.sent.some((m) => m.t === 'BYE')).toBe(true);
+    expect(seen).toEqual([]);
+
+    const owner = new FakeConn();
+    attachTo(host, owner);
+    owner.emit('data', wrap(hello('p_victim', 'secret-owner')));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(owner.open).toBe(true);
+    expect(seen).toEqual(['p_victim']);
+  });
+
+  it('hands the room the hash of each secret a guest first claims a seat with', async () => {
+    const got: Record<string, string> = {};
+    const host = new HostNet('ROOM', {
+      onUp: () => {}, onPresence: () => {}, onStatus: () => {},
+      onSeatKey: (pid, hash) => { got[pid] = hash; },
+    });
+    const c = new FakeConn();
+    attachTo(host, c);
+    c.emit('data', wrap(hello('p_a', 'mine')));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(got.p_a).toBe(await hashSecret('mine'));
+    expect(got.p_a).not.toContain('mine');
   });
 });
 

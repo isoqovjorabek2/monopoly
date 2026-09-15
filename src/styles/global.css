@@ -6,6 +6,13 @@
 
 html, body, #root { height: 100%; }
 
+/* Nothing may ever push the page wider than the window; `clip` (where
+   supported) does it without making body a scroll container. */
+html, body { overflow-x: hidden; }
+@supports (overflow: clip) {
+  html, body { overflow-x: clip; }
+}
+
 body {
   margin: 0;
   background: var(--bg-app);
@@ -15,7 +22,6 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  overflow-x: hidden;
 }
 
 /* Warm room light behind everything, plus a fine grain overlay. Flat fills
@@ -171,6 +177,8 @@ input, select, textarea { font: inherit; color: inherit; }
 }
 .btn--ghost:hover:not(:disabled) { background: rgb(255 255 255 / 0.05); }
 .btn--sm { min-height: 34px; padding: 6px 12px; font-size: var(--t-xs); border-radius: var(--r-sm); }
+/* Shown only where a media query swaps the button's words for its icon. */
+.btn__icon { display: none; }
 .btn--block { width: 100%; }
 
 .field {

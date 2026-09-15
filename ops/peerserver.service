@@ -1,0 +1,41 @@
+# Matchmaking for the game: the PeerJS signalling server. Binds 127.0.0.1:9300;
+# nginx publishes it at /peer/ with WebSocket upgrade. It only introduces two
+# browsers to each other - game traffic goes directly between them, or through
+# coturn - so it holds no game state and needs no disk.
+#
+# Installed with: mkdir -p /opt/peerserver && cd /opt/peerserver &&
+#   npm install --omit=dev peer@1.0.2
+[Unit]
+Description=Monopoly matchmaking (PeerJS signalling, localhost only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=peerserver
+Group=peerserver
+WorkingDirectory=/opt/peerserver
+ExecStart=/usr/bin/node /opt/peerserver/node_modules/peer/dist/bin/peerjs.js \
+  --host 127.0.0.1 --port 9300 --path /peer --key mply --proxied \
+  --concurrent_limit 1000 --alive_timeout 60000 \
+  --cors https://aytingchi.uz https://www.aytingchi.uz https://isoqovjorabek2.github.io \
+         http://localhost:5173 http://localhost:5317
+Restart=always
+RestartSec=3
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+IPAddressAllow=localhost
+IPAddressDeny=any
+MemoryMax=160M
+
+[Install]
+WantedBy=multi-user.target

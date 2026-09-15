@@ -19,12 +19,14 @@ import {
 } from '../cashflow/rules';
 import type { CFAction, CFEvent, CFRules, CFSettings, CFState } from '../cashflow/types';
 import { GuestNet, HostNet, type NetStatus } from '../net/net';
-import { currentAccount, signOut, useAccount } from '../net/account';
+import { currentAccount, isAccountId, signOut, useAccount } from '../net/account';
+import { fetchTable, membersOf, uploadTable } from '../net/saves';
 import { announce as announceRoom, close as closeRoom } from '../net/directory';
 import {
   type ChatMessage, type Down, type GameKind, type RoomSnapshot, type SeatInfo, type Up,
   cleanText, generateRoomCode, localPlayerId, rehydrateForHost,
 } from '../net/protocol';
+import type { TakeoverPolicy } from '../game/types';
 
 export type Screen = 'home' | 'lobby' | 'game';
 export type Role = 'host' | 'guest' | 'local';
@@ -101,8 +103,15 @@ interface Store {
 
   dispatch: (action: AnyAction) => void;
   sendChat: (text: string) => void;
-  /** A signed-in watcher takes over a bot's seat. */
+  /** A signed-in watcher takes over a bot's seat - or asks to. */
   takeSeat: (target: string) => void;
+  /** The host lets a waiting watcher take the seat they asked for, or not. */
+  answerSeatRequest: (uid: string, allow: boolean) => void;
+  /** Pick a saved table back up: rejoin it if somebody is hosting it, and
+   *  host it from the server's copy if nobody is. */
+  resumeTable: (code: string, epoch: number) => void;
+  /** After a game ends: the same table, back in its lobby, for another. */
+  rematch: () => void;
 
   inspect: (spaceId: number | null) => void;
   openSheet: (sheet: Store['sheet']) => void;
@@ -134,6 +143,13 @@ let pendingHostResume: SavedGame | null = null;
 /** Seat count as the directory last heard it, so a change can be sent at
  *  once rather than waiting out the heartbeat. */
 let listedSeats = -1;
+/* Uploading the table to the server: at most this often, and once more after
+ * the last change so the save is never more than a beat behind. */
+const UPLOAD_EVERY_MS = 30_000;
+let uploadTimer: number | null = null;
+let lastUpload = 0;
+/** A table being resumed from the server's copy, if nobody answers for it. */
+let pendingServerResume: string | null = null;
 let logSeq = 0;
 
 /* ------------------------------------------------------------------ *
@@ -378,6 +394,40 @@ export const useStore = create<Store>((set, get) => {
     scheduleBots();
     scheduleClock();
     writeSave();
+    scheduleUpload();
+  };
+
+  /**
+   * Whether this tab is the one that keeps the server's copy of the table.
+   * The host does, if a signed-in player is hosting; otherwise the first
+   * signed-in player in seat order who is still here does. Exactly one tab,
+   * worked out from the same snapshot everywhere, so saves never race.
+   */
+  const keepsTheSave = (room: RoomSnapshot): boolean => {
+    const account = currentAccount();
+    if (!account || !(room.game || room.cf)) return false;
+    const accountSeat = (seatId: string): boolean =>
+      isAccountId(seatId) || Boolean(room.owners?.[seatId]);
+    const me = get().me.playerId;
+    if (!membersOf(room).includes(account.uid)) return false;
+    if (accountSeat(room.hostId)) return room.hostId === me;
+    const first = room.seats.find((s) => !s.isBot && s.connected && accountSeat(s.playerId));
+    return first?.playerId === me;
+  };
+
+  const scheduleUpload = (): void => {
+    const room = get().room;
+    if (!room || !keepsTheSave(room)) return;
+    const over = (room.game?.phase ?? room.cf?.phase) === 'game_over';
+    const wait = over ? 0 : Math.max(0, lastUpload + UPLOAD_EVERY_MS - Date.now());
+    if (uploadTimer && !over) return;
+    if (uploadTimer) window.clearTimeout(uploadTimer);
+    uploadTimer = window.setTimeout(() => {
+      uploadTimer = null;
+      lastUpload = Date.now();
+      const latest = get().room;
+      if (latest && keepsTheSave(latest)) void uploadTable(latest);
+    }, wait);
   };
 
   /* ---------------------------- the save --------------------------- */
@@ -409,21 +459,31 @@ export const useStore = create<Store>((set, get) => {
     host = new HostNet(code, {
       onUp: handleUp,
       seatFor,
+      onSeatKey: (playerId, hash) => {
+        const cur = snapshot();
+        if (!cur || cur.seatKeys?.[playerId] === hash) return;
+        publish({ ...cur, seatKeys: { ...(cur.seatKeys ?? {}), [playerId]: hash } });
+      },
       onPresence: (playerId, connected, ping) => {
         const cur = snapshot();
         if (!cur) return;
-        // A watcher who leaves is simply gone; there is no seat to grey out.
+        // A watcher who leaves is simply gone; there is no seat to grey out,
+        // and nothing left to ask the host on their behalf.
         const watchers = connected
           ? cur.watchers
           : cur.watchers?.filter((w) => w.uid !== playerId);
+        const seatRequests = connected
+          ? cur.seatRequests
+          : cur.seatRequests?.filter((r) => r.uid !== playerId);
         publish({
           ...cur,
           watchers,
+          seatRequests,
           seats: cur.seats.map((s) => (s.playerId === playerId ? { ...s, connected, ping } : s)),
         });
       },
       onStatus: (status, detail) => set({ netStatus: status, netError: detail ?? null }),
-    }, { epoch, secrets });
+    }, { epoch, secrets, seatKeys: get().room?.seatKeys });
     // This tab plays from the host seat and never connects to itself, and a
     // bot never connects at all, so those seats can only ever be claimed by
     // somebody pretending to be them.
@@ -464,6 +524,50 @@ export const useStore = create<Store>((set, get) => {
       netStatus: saved.role === 'host' ? 'starting' : 'idle',
     });
     if (saved.role === 'host') startHost(saved.code, epoch, saved.secrets);
+    publish(room);
+  };
+
+  /**
+   * Host a saved table from the server's copy. The copy is the redacted one
+   * every guest holds, so the dice and the undrawn cards are dealt afresh -
+   * nobody at the table ever knew them. Everyone else comes back in as a
+   * guest: their pass, or their seat's secret, finds their seat.
+   */
+  const restoreFromServer = async (code: string): Promise<void> => {
+    const account = currentAccount();
+    const saved = account ? await fetchTable(code) : null;
+    if (!account || !saved) {
+      set({ netStatus: 'error', netError: tr().net.unavailable });
+      return;
+    }
+    const src = saved.room;
+    const mine = src.seats.find((s) => s.playerId === account.uid || src.owners?.[s.playerId] === account.uid);
+    if (!mine) {
+      set({ netStatus: 'error', netError: tr().net.unavailable });
+      return;
+    }
+    teardown();
+    const epoch = Math.max(src.epoch, saved.epoch) + 1;
+    const room = rehydrateForHost({
+      ...src,
+      epoch,
+      hostId: mine.playerId,
+      watchers: [],
+      seatRequests: [],
+      seats: src.seats.map((s) => ({
+        ...s,
+        isHost: s.playerId === mine.playerId,
+        connected: s.isBot || s.playerId === mine.playerId,
+      })),
+    }, randomSeed());
+    const positions: Record<string, number> = {};
+    for (const id of room.game?.seats ?? []) positions[id] = room.game!.players[id].position;
+    set((s) => ({
+      role: 'host', code, room, screen: 'game', animPos: positions, listed: false,
+      log: [], cfLog: [], chat: [], netError: null, netStatus: 'starting',
+      me: { ...s.me, playerId: mine.playerId },
+    }));
+    startHost(code, epoch);
     publish(room);
   };
 
@@ -747,19 +851,46 @@ export const useStore = create<Store>((set, get) => {
   };
 
   /**
-   * A watcher takes over a bot. Everything is checked here, on the host: the
-   * connection must be bound to its own account (so it is a watcher who
-   * proved who they are, not a seated player hopping chairs), the target must
-   * be a bot still in the game, and the account must not already play a seat.
+   * A watcher asks for a bot's seat. Everything is checked here, on the host:
+   * the connection must be bound to its own account (a watcher who proved who
+   * they are, not a seated player hopping chairs), the target must be a bot
+   * still in the game, and the account must not already play a seat. Then the
+   * table's policy decides: straight in, a question for the host, or no.
    */
   const takeOverSeat = (from: string, target: string): void => {
     const room = snapshot();
     if (!room || !host || typeof target !== 'string') return;
     const uid = host.accountOf(from);
     if (!uid || from !== uid) return;
-    if (seatFor(uid) !== uid || room.seats.some((s) => s.playerId === uid)) return;
+    if (!mayTakeOver(room, uid, target)) return;
+    const policy: TakeoverPolicy = room.settings.takeovers ?? 'ask';
+    if (policy === 'off') return;
+    if (policy === 'anyone') { applyTakeOver(uid, target); return; }
+    const name = room.watchers?.find((w) => w.uid === uid)?.name ?? tr().defaults.player;
+    // One question per watcher: asking for another bot replaces the first.
+    publish({
+      ...room,
+      seatRequests: [...(room.seatRequests ?? []).filter((r) => r.uid !== uid), { uid, name, target }],
+    });
+  };
+
+  const mayTakeOver = (room: RoomSnapshot, uid: string, target: string): boolean => {
+    if (seatFor(uid) !== uid || room.seats.some((s) => s.playerId === uid)) return false;
     const seat = room.seats.find((s) => s.playerId === target);
-    if (!seat || !seat.isBot) return;
+    if (!seat || !seat.isBot) return false;
+    if (room.game) return Boolean(room.game.players[target]) && !room.game.players[target].bankrupt;
+    return Boolean(room.cf?.players[target]);
+  };
+
+  /** Hand the seat over, once whatever the table's policy asked for is met. */
+  const applyTakeOver = (uid: string, target: string): void => {
+    const room = snapshot();
+    if (!room || !host) return;
+    // Still here, still watching, and the bot still free.
+    if (host.accountOf(uid) !== uid || !mayTakeOver(room, uid, target)) {
+      publish({ ...room, seatRequests: (room.seatRequests ?? []).filter((r) => r.uid !== uid) });
+      return;
+    }
     const watcher = room.watchers?.find((w) => w.uid === uid);
     const name = watcher?.name ?? tr().defaults.player;
 
@@ -787,6 +918,8 @@ export const useStore = create<Store>((set, get) => {
         : s)),
       owners: { ...(room.owners ?? {}), [target]: uid },
       watchers: (room.watchers ?? []).filter((w) => w.uid !== uid),
+      // This watcher's question is answered, and nobody else can have that bot.
+      seatRequests: (room.seatRequests ?? []).filter((r) => r.uid !== uid && r.target !== target),
     };
     // The seat stays reserved against guest claims; the pass is the way in.
     host.setOwner(target, uid);
@@ -803,6 +936,7 @@ export const useStore = create<Store>((set, get) => {
   const handleDown = (msg: Down): void => {
     switch (msg.t) {
       case 'WELCOME':
+        pendingServerResume = null;
         // The host says which seat this connection plays. Signed in, that is
         // wherever the account sits - its own id, a bot it took over, or its
         // own id again while it only watches.
@@ -822,7 +956,10 @@ export const useStore = create<Store>((set, get) => {
         if (cur && msg.snapshot.epoch === cur.epoch && msg.snapshot.rev <= cur.rev) return;
         const wasInGame = Boolean(cur && inGame(cur));
         set({ room: msg.snapshot, screen: inGame(msg.snapshot) ? 'game' : 'lobby' });
+        // The host started a rematch: last game's log is not this game's.
+        if (wasInGame && !inGame(msg.snapshot)) set({ log: [], cfLog: [], animPos: {} });
         cfFloats(cur?.cf ?? null, msg.snapshot.cf);
+        scheduleUpload();
         if (msg.snapshot.game && !wasInGame) {
           const pos: Record<string, number> = {};
           for (const id of msg.snapshot.game.seats) pos[id] = msg.snapshot.game.players[id].position;
@@ -847,7 +984,7 @@ export const useStore = create<Store>((set, get) => {
         return;
 
       case 'REJECT':
-        set({ netError: msg.reason });
+        set({ netError: msg.reason === 'seat_denied' ? tr().account.seatDenied : msg.reason });
         window.setTimeout(() => set({ netError: null }), 3000);
         return;
 
@@ -927,9 +1064,21 @@ export const useStore = create<Store>((set, get) => {
   const beat = (): void => {
     const { room, listed, role } = get();
     if (!room || !listed || role !== 'host') return;
-    // A started game cannot be joined, so it does not belong on a list of
-    // rooms you can join.
-    if (inGame(room)) { stopListing(); return; }
+    // A started game stays on the list only while a signed-in player could
+    // still come in and take over a bot. Once there is no seat to take, it
+    // is no longer a table anyone can join.
+    let live: { openSeats: number; round: number } | undefined;
+    if (inGame(room)) {
+      const g = room.game;
+      const bots = g
+        ? room.seats.filter((s) => s.isBot && g.players[s.playerId] && !g.players[s.playerId].bankrupt).length
+        : 0;
+      if (!g || g.phase === 'game_over' || bots === 0 || (room.settings.takeovers ?? 'ask') === 'off') {
+        stopListing();
+        return;
+      }
+      live = { openSeats: bots, round: g.round };
+    }
     listedSeats = room.seats.length;
     void announceRoom({
       id: room.roomId,
@@ -937,6 +1086,7 @@ export const useStore = create<Store>((set, get) => {
       seats: room.seats.length,
       maxSeats: room.settings.maxPlayers,
       settings: room.settings,
+      live,
     });
   };
 
@@ -1035,6 +1185,12 @@ export const useStore = create<Store>((set, get) => {
             const saved = pendingHostResume;
             pendingHostResume = null;
             restoreHost(saved, saved.epoch);
+            return;
+          }
+          // Nobody is hosting a table this player saved: host it themselves.
+          if (status === 'error' && pendingServerResume === code) {
+            pendingServerResume = null;
+            void restoreFromServer(code);
             return;
           }
           if (status === 'online') pendingHostResume = null;
@@ -1159,10 +1315,9 @@ export const useStore = create<Store>((set, get) => {
       }
       if (seats.length < 2) return;
 
-      // Off the public list before the first roll: joining a game in
-      // progress is not supported, so leaving it listed would be an
-      // invitation to a door that does not open.
-      stopListing();
+      // A listed table stays listed into its game while it has bots to take
+      // over; the heartbeat decides, and says so at once.
+      if (get().listed) window.setTimeout(beat, 0);
 
       const specs: SeatSpec[] = seats.map((s) => ({
         id: s.playerId,
@@ -1226,6 +1381,48 @@ export const useStore = create<Store>((set, get) => {
     takeSeat: (target) => {
       const { role, me } = get();
       if (role === 'guest') guest?.send({ t: 'TAKE_SEAT', playerId: me.playerId, target });
+    },
+
+    rematch: () => {
+      const { role, room } = get();
+      if (!room || role === 'guest') return;
+      if ((room.game?.phase ?? room.cf?.phase) !== 'game_over') return;
+      // Everyone stays seated. Signed-in watchers who stayed to the end get a
+      // chair for the next one, while there are chairs.
+      const seats = [...room.seats];
+      for (const w of room.watchers ?? []) {
+        if (seats.length >= seatLimit(room) || seats.some((x) => x.playerId === w.uid)) continue;
+        const taken = new Set(seats.map((x) => x.token));
+        const token = TOKENS.find((tk) => !taken.has(tk.id))?.id ?? 'topper';
+        seats.push(emptySeat(w.uid, w.name, token, seats.length, false));
+      }
+      set({ screen: 'lobby', log: [], cfLog: [], animPos: {}, inspecting: null });
+      publish({
+        ...room,
+        game: null,
+        cf: null,
+        seats,
+        watchers: [],
+        seatRequests: [],
+        // A new game deals new dice and new decks.
+        settings: { ...room.settings, seed: randomSeed() },
+      });
+      if (get().listed) startListing();
+    },
+
+    resumeTable: (code, epoch) => {
+      pendingServerResume = code;
+      get().joinRoom(code, epoch);
+    },
+
+    answerSeatRequest: (uid, allow) => {
+      const room = snapshot();
+      if (!room || get().role !== 'host') return;
+      const request = room.seatRequests?.find((r) => r.uid === uid);
+      if (!request) return;
+      if (allow) { applyTakeOver(uid, request.target); return; }
+      publish({ ...room, seatRequests: (room.seatRequests ?? []).filter((r) => r.uid !== uid) });
+      host?.send(uid, { t: 'REJECT', reason: 'seat_denied' });
     },
 
     inspect: (spaceId) => set({ inspecting: spaceId }),

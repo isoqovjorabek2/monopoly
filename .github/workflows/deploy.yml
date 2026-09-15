@@ -1,11 +1,11 @@
-name: Build and deploy to GitHub Pages
+name: Test, build and deploy
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
-# Allow one concurrent deployment; a newer push supersedes an in-flight one.
+# One deployment at a time; a newer push supersedes an in-flight one.
 concurrency:
   group: pages
   cancel-in-progress: true
@@ -16,49 +16,86 @@ permissions:
   id-token: write
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - run: npm ci
 
       # The rules engine is the part that has to be correct, so a failing
-      # test blocks the deploy rather than shipping a broken board.
-      - name: Run the engine test suite
+      # test blocks both deploys rather than shipping a broken board.
+      - name: Engine, network and dictionary tests
         run: npm test
 
-      - name: Build
-        run: npm run build
+      # The server side, where a mistake is a hole rather than a bug: forged
+      # passes, sign-in state, save permissions, the panel's allowlist.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: pip install cryptography
+      - name: Account and panel auth tests
+        run: |
+          python ops/test_accounts.py
+          python ops/test_auth.py
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The TURN relay, if one is set up. Absent secrets build a STUN-only
+      # client. These end up readable in the bundle - see docs/turn.md - but
+      # keeping them in repo secrets keeps them out of git history.
+      - name: Build for GitHub Pages (served from /monopoly/)
         env:
-          # Pages serves this from /<repo>/, which vite.config.ts defaults to.
           BASE_PATH: /monopoly/
-          # The TURN relay, if one is set up. Absent secrets build a
-          # STUN-only client, which is exactly what shipped before.
-          # These end up readable in the bundle - see docs/turn.md - but
-          # keeping them in repo secrets keeps them out of git history.
           VITE_TURN_URLS: ${{ secrets.TURN_URLS }}
           VITE_TURN_USERNAME: ${{ secrets.TURN_USERNAME }}
           VITE_TURN_CREDENTIAL: ${{ secrets.TURN_CREDENTIAL }}
-
-      # SPA fallback: the app uses hash routing, but this keeps a stray
-      # deep link from returning GitHub's 404 page.
-      - name: Add SPA fallback and disable Jekyll
         run: |
+          npm run build
+          # SPA fallback: the app uses hash routing, but this keeps a stray
+          # deep link from returning GitHub's 404 page.
           cp dist/index.html dist/404.html
           touch dist/.nojekyll
+          mv dist dist-pages
 
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - name: Build for aytingchi.uz (served from /)
+        env:
+          BASE_PATH: /
+          VITE_TURN_URLS: ${{ secrets.TURN_URLS }}
+          VITE_TURN_USERNAME: ${{ secrets.TURN_USERNAME }}
+          VITE_TURN_CREDENTIAL: ${{ secrets.TURN_CREDENTIAL }}
+        run: |
+          npm run build
+          mv dist dist-aytingchi
+
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
         with:
-          path: dist
+          path: dist-pages
 
-  deploy:
+      - uses: actions/upload-artifact@v7
+        with:
+          name: aytingchi
+          path: dist-aytingchi
+          retention-days: 7
+
+  deploy-pages:
     needs: build
     runs-on: ubuntu-latest
     environment:
@@ -66,4 +103,40 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
+
+  # The same build, at the site root, onto the droplet. The key can do one
+  # thing: hand ops/aytingchi-deploy.sh a tarball on stdin. See that script.
+  deploy-aytingchi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: aytingchi
+      url: https://aytingchi.uz/
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: aytingchi
+          path: site
+
+      - name: Upload to the droplet
+        env:
+          DEPLOY_KEY: ${{ secrets.AYTINGCHI_DEPLOY_KEY }}
+          KNOWN_HOSTS: ${{ secrets.AYTINGCHI_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          tar -czf - -C site . | ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o BatchMode=yes root@159.223.6.35 deploy
+
+      - name: Check the site serves this build
+        run: |
+          want=$(grep -o 'assets/index-[^"]*\.js' site/index.html)
+          for i in 1 2 3 4 5; do
+            if curl -fsS https://aytingchi.uz/ | grep -q "$want"; then echo "live: $want"; exit 0; fi
+            sleep 3
+          done
+          echo "aytingchi.uz is not serving $want" >&2
+          exit 1

@@ -25,6 +25,11 @@ export const entryRu: EntryDict = {
     paste: 'Вставьте код или ссылку',
     invited: (code) => `Вас пригласили за стол ${code}. Нажмите «Войти», когда будете готовы.`,
     publicTitle: 'Открытые публичные столы',
+    yourGames: 'Ваши игры',
+    yourGamesHint: 'Сохраняются на aytingchi.uz во время игры. «Продолжить» возвращает за стол или запускает его из сохранения, если никто не держит стол.',
+    resume: 'Продолжить',
+    forget: 'Убрать',
+    savedMeta: (game, round, names) => `${game} · раунд ${round} · ${names}`,
   },
 
   practice: {

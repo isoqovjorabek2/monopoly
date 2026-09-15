@@ -320,6 +320,43 @@ describe('loans', () => {
     expect(c && c.kind === 'loan' && c.lender).toBe('p2');
   });
 
+  it('passes a bankrupt grantor’s share to their creditor', () => {
+    let s = game();
+    s.properties[3].owner = 'p1';
+    const share: DealTerm = { kind: 'share', grantor: 'to', spaces: [3], pct: 30, rounds: 10 };
+    s = sign(s, offer('p0', 'p1', { terms: [share] }));
+    s = hotelRow({ ...s });
+    s.properties[37].owner = 'p2';
+    s.properties[39].owner = 'p2';
+    s.players.p1.cash = 0;
+    s.seatIndex = 1;
+    s.phase = 'preroll';
+    s = landOn(s, 39);
+    expect(s.phase).toBe('must_raise');
+    s = apply(s, { type: 'DECLARE_BANKRUPTCY', playerId: 'p1' });
+    const c = s.contracts.find((x) => x.kind === 'share');
+    expect(c && c.kind === 'share' && c.grantor).toBe('p2');
+    for (const x of s.contracts) {
+      const parties = x.kind === 'loan' ? [x.lender, x.borrower] : [x.grantor, x.holder];
+      expect(parties).not.toContain('p1');
+    }
+  });
+
+  it('voids a bankrupt grantor’s share when the estate goes to the bank', () => {
+    let s = game();
+    s.properties[3].owner = 'p1';
+    const share: DealTerm = { kind: 'share', grantor: 'to', spaces: [3], pct: 30, rounds: 10 };
+    s = sign(s, offer('p0', 'p1', { terms: [share] }));
+    s.players.p1.cash = 0;
+    s.seatIndex = 1;
+    s.phase = 'preroll';
+    s = landOn(s, 4); // Income Tax, owed to the bank
+    expect(s.phase).toBe('must_raise');
+    s = apply(s, { type: 'DECLARE_BANKRUPTCY', playerId: 'p1' });
+    expect(s.players.p1.bankrupt).toBe(true);
+    expect(s.contracts).toHaveLength(0);
+  });
+
   it('can be paid off early, and only by the borrower', () => {
     let s = game();
     s = sign(s, offer('p0', 'p1', { terms: [loan(200, 260, 8)] }));
@@ -564,3 +601,131 @@ function check(s: GameState, g: number, i: number): void {
   }
   for (const [id, n] of Object.entries(pct)) if (n > 100) bad(`square ${id} shares ${n}%`);
 }
+
+/* ---------------------------- counter-offers ---------------------------- */
+
+import { counterOffer } from './ai';
+import { flipOffer } from './deals';
+
+describe('counter-offers', () => {
+  it('withdraw the offer they answer, and say so', () => {
+    let s = game();
+    s.properties[39].owner = 'p1';
+    s = apply(s, { type: 'PROPOSE_TRADE', playerId: 'p0', offer: offer('p0', 'p1', { giveCash: 100, wantProperties: [39] }) });
+    const original = s.trades[0];
+    const back = { ...flipOffer(original), wantCash: 350, counterTo: original.id };
+    const r = reduce(s, { type: 'PROPOSE_TRADE', playerId: 'p1', offer: back });
+    expect(r.state.trades).toHaveLength(1);
+    expect(r.state.trades[0]).toMatchObject({ from: 'p1', to: 'p0', wantCash: 350, counterTo: original.id });
+    expect(r.events.map((e) => e.type)).toEqual(['TRADE_COUNTERED']);
+    // No cooldown: the two are still talking.
+    expect(r.state.tradeCooldowns).toEqual(s.tradeCooldowns);
+  });
+
+  it('cannot withdraw somebody else’s offer', () => {
+    let s = game();
+    s = apply(s, { type: 'PROPOSE_TRADE', playerId: 'p0', offer: offer('p0', 'p1', { giveCash: 10 }) });
+    const r = reduce(s, { type: 'PROPOSE_TRADE', playerId: 'p2', offer: offer('p2', 'p0', { giveCash: 5, counterTo: s.trades[0].id }) });
+    expect(r.state.trades.map((t) => t.from).sort()).toEqual(['p0', 'p2']);
+    expect(r.state.trades.find((t) => t.from === 'p2')?.counterTo).toBeUndefined();
+  });
+
+  it('flip every contract to the other chair and back again', () => {
+    const o = offer('p0', 'p1', {
+      giveCash: 10, wantProperties: [39],
+      terms: [
+        { kind: 'share', grantor: 'to', spaces: [39], pct: 20, rounds: 5 },
+        { kind: 'loan', lender: 'from', principal: 100, repay: 120, rounds: 3 },
+      ],
+    });
+    const f = flipOffer(o);
+    expect(f).toMatchObject({ from: 'p1', to: 'p0', wantCash: 10, giveProperties: [39] });
+    expect(f.terms).toEqual([
+      { kind: 'share', grantor: 'from', spaces: [39], pct: 20, rounds: 5 },
+      { kind: 'loan', lender: 'to', principal: 100, repay: 120, rounds: 3 },
+    ]);
+    expect(flipOffer(f)).toEqual(o);
+  });
+
+  it('a bot counters a person’s offer that falls just short, with one it would take', () => {
+    const s = createGame({ ...CLASSIC, ...DEALS, seed: 5 }, [
+      { id: 'p0', name: 'Human', token: 'topper', color: '#fff', isBot: false },
+      { id: 'p1', name: 'Bot', token: 'boot', color: '#fff', isBot: true },
+    ]);
+    let g = reduce(s, { type: 'START_GAME', playerId: 'p0' }).state;
+    for (const id of [16, 18]) g.properties[id].owner = 'p0';
+    g.properties[19].owner = 'p1';
+    // The human lowballs the deed that completes their set.
+    g = apply(g, { type: 'PROPOSE_TRADE', playerId: 'p0', offer: offer('p0', 'p1', { giveCash: 250, wantProperties: [19] }) });
+    const t = g.trades[0];
+    expect(acceptMargin(g, 'p1', t)).toBeLessThanOrEqual(0);
+    const c = counterOffer(g, 'p1', t);
+    expect(c).not.toBeNull();
+    expect(c!.counterTo).toBe(t.id);
+    expect(c!.wantCash).toBeGreaterThan(250);
+    expect(canTrade(g, c!)).toBe(true);
+    expect(acceptMargin(g, 'p1', c!)).toBeGreaterThan(0);
+    const a = botDecide(g, 'p1');
+    expect(a?.type).toBe('PROPOSE_TRADE');
+  });
+
+  it('a bot never counters a counter, or another bot', () => {
+    const s = createGame({ ...CLASSIC, ...DEALS, seed: 5 }, seats(2, true));
+    const g = reduce(s, { type: 'START_GAME', playerId: 'p0' }).state;
+    g.properties[19].owner = 'p1';
+    const fromBot = { ...offer('p0', 'p1', { giveCash: 200, wantProperties: [19] }), id: 'x', createdAt: 1 };
+    expect(counterOffer(g, 'p1', fromBot)).toBeNull();
+    g.players.p0.isBot = false;
+    expect(counterOffer(g, 'p1', { ...fromBot, counterTo: 'earlier' })).toBeNull();
+  });
+});
+
+
+/* ------------------------------ deal-making bots ------------------------------ */
+
+import { botTradeOffer, passPurchase, shareSale } from './ai';
+
+describe('bots that deal', () => {
+  it('sell a cut of their best rent when short, instead of only borrowing', () => {
+    const s = createGame({ ...CLASSIC, ...DEALS, seed: 21 }, seats(3, true));
+    const g = reduce(s, { type: 'START_GAME', playerId: 'p0' }).state;
+    for (const id of [37, 39]) { g.properties[id].owner = 'p0'; g.properties[id].houses = 3; }
+    g.housesRemaining -= 6;
+    g.players.p0.cash = 30;
+    g.players.p1.cash = 3000;
+    const o = shareSale(g, 'p0', 'normal');
+    expect(o).not.toBeNull();
+    expect(o!.terms?.[0]).toMatchObject({ kind: 'share', grantor: 'from', pct: 30 });
+    expect(o!.wantCash).toBeGreaterThan(0);
+    expect(canTrade(g, o!)).toBe(true);
+    // The buyer bot it chose would take it.
+    expect(acceptMargin(g, o!.to, o!)).toBeGreaterThan(0);
+  });
+
+  it('offer a person money for a free stay on the square they are about to roll onto', () => {
+    const s = createGame({ ...CLASSIC, ...DEALS, seed: 21 }, [
+      { id: 'p0', name: 'Bot', token: 'topper', color: '#fff', isBot: true },
+      { id: 'p1', name: 'Human', token: 'boot', color: '#fff', isBot: false },
+    ]);
+    const g = reduce(s, { type: 'START_GAME', playerId: 'p0' }).state;
+    for (const id of [37, 39]) { g.properties[id].owner = 'p1'; g.properties[id].houses = 5; }
+    g.hotelsRemaining -= 2;
+    g.players.p0.position = 32; // seven short of Boardwalk
+    g.players.p0.cash = 1500;
+    const o = passPurchase(g, 'p0', 'normal');
+    expect(o).not.toBeNull();
+    expect(o!.terms?.[0]).toMatchObject({ kind: 'pass', grantor: 'to', discountPct: 100, uses: 1 });
+    expect(o!.to).toBe('p1');
+    expect(canTrade(g, o!)).toBe(true);
+    // It is what the bot opens with when there is no swap worth proposing.
+    expect(botTradeOffer(g, 'p0', 'normal')?.terms?.[0].kind).toBe('pass');
+  });
+
+  it('never ask another bot for a pass it would only refuse', () => {
+    const s = createGame({ ...CLASSIC, ...DEALS, seed: 21 }, seats(2, true));
+    const g = reduce(s, { type: 'START_GAME', playerId: 'p0' }).state;
+    for (const id of [37, 39]) { g.properties[id].owner = 'p1'; g.properties[id].houses = 5; }
+    g.players.p0.position = 32;
+    expect(passPurchase(g, 'p0', 'normal')).toBeNull();
+  });
+});

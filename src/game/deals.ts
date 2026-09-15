@@ -151,6 +151,29 @@ export function cleanTerms(terms: DealTerm[] | undefined): DealTerm[] | undefine
   });
 }
 
+/**
+ * The same deal from the other chair: what one side gave, it now asks for,
+ * and every contract keeps its meaning with its sides swapped. The start of a
+ * counter-offer, for players and bots alike.
+ */
+export function flipOffer(o: TradeBody): TradeBody {
+  const flip = (side: TradeSide): TradeSide => (side === 'from' ? 'to' : 'from');
+  const terms = o.terms?.map((t): DealTerm => (t.kind === 'loan'
+    ? { ...t, lender: flip(t.lender) }
+    : { ...t, grantor: flip(t.grantor), spaces: [...t.spaces] }));
+  return {
+    from: o.to,
+    to: o.from,
+    giveCash: o.wantCash,
+    giveProperties: [...o.wantProperties],
+    giveJailCards: o.wantJailCards,
+    wantCash: o.giveCash,
+    wantProperties: [...o.giveProperties],
+    wantJailCards: o.giveJailCards,
+    ...(terms && terms.length > 0 ? { terms } : {}),
+  };
+}
+
 /** Round a loan falls due, a share ends, counted from now. */
 export const roundsLeft = (s: GameState, until: number | null): number | null =>
   (until === null ? null : Math.max(0, until - s.round));

@@ -49,6 +49,7 @@ export function logLine(e: GameEvent, seq: number): LogLine | null {
     case 'TRADE_PROPOSED': return line(e.offer.from);
     case 'TRADE_ACCEPTED': return line(e.offer.to, 'good');
     case 'TRADE_DECLINED': return line(e.offer.to);
+    case 'TRADE_COUNTERED': return line(e.offer.to);
     case 'TRADE_EXPIRED': return line(e.offer.from);
     case 'FREE_PARKING': return line(e.playerId, 'good');
     case 'TIMED_OUT': return line(e.playerId, 'bad');
@@ -106,6 +107,7 @@ export function describe(s: GameState, e: GameEvent, t: Dict): string {
     case 'TRADE_PROPOSED': return L.tradeProposed(name(e.offer.from), name(e.offer.to));
     case 'TRADE_ACCEPTED': return L.tradeAccepted(name(e.offer.to), name(e.offer.from));
     case 'TRADE_DECLINED': return L.tradeDeclined(name(e.offer.to));
+    case 'TRADE_COUNTERED': return t.table.log.countered(name(e.offer.to), name(e.offer.from));
     case 'TRADE_EXPIRED': return L.tradeExpired(name(e.offer.from), name(e.offer.to));
     case 'FREE_PARKING': return L.freeParking(name(e.playerId), money(e.amount));
     case 'TIMED_OUT': return L.timedOut(name(e.playerId));

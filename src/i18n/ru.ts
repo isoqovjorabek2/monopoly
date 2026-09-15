@@ -3,6 +3,7 @@ import { cfRu } from './cf-ru';
 import { dealsRu } from './deals-ru';
 import { accountRu } from './account-ru';
 import { entryRu } from './entry-ru';
+import { tableRu } from './table-ru';
 
 /* Russian. Log lines are in the present tense on purpose: the past tense
  * agrees with the speaker's gender ("заплатил" / "заплатила"), and a player
@@ -730,4 +731,5 @@ export const ru: Dict = {
   deals: dealsRu,
   account: accountRu,
   entry: entryRu,
+  table: tableRu,
 };

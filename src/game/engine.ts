@@ -993,9 +993,18 @@ function doProposeTrade(
   };
   const terms = cleanTerms(o.terms);
   if (terms) offer.terms = terms;
-  s.trades = s.trades.filter((t) => !(t.from === o.from && t.to === o.to));
+  // A counter-offer answers one particular offer from the other side, and
+  // takes its place: that offer is withdrawn, with no cooldown, because the
+  // two players are still talking.
+  const original = typeof o.counterTo === 'string'
+    ? s.trades.find((t) => t.id === o.counterTo && t.from === o.to && t.to === o.from)
+    : undefined;
+  s.trades = s.trades.filter((t) => !(t.from === o.from && t.to === o.to) && t !== original);
+  if (original) offer.counterTo = original.id;
   s.trades.push(offer);
-  events.push({ type: 'TRADE_PROPOSED', offer });
+  events.push(original
+    ? { type: 'TRADE_COUNTERED', offer: original, counter: offer }
+    : { type: 'TRADE_PROPOSED', offer });
 }
 
 function doAcceptTrade(s: GameState, events: GameEvent[], pid: string, tradeId: string): void {
@@ -1151,6 +1160,13 @@ function settleContractsOnBankruptcy(
     if (c.holder === pid) {
       if (!heir) { endContract(s, events, c.id, 'void'); continue; }
       c.holder = heir;
+    }
+    // The grantor's promise rides with the deeds: it passes to the creditor
+    // along with them, or dies with the estate. To the creditor who already
+    // holds it, it binds nobody.
+    if (c.grantor === pid) {
+      if (!heir || heir === c.holder) { endContract(s, events, c.id, 'void'); continue; }
+      c.grantor = heir;
     }
     if (!heir && c.spaces.some((id) => deeds.includes(id))) {
       c.spaces = c.spaces.filter((id) => !deeds.includes(id));

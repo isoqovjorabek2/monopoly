@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { ACCOUNT_KEY } from './accountKey';
+import { deviceKey, devicePublicKeyNow, encodePoint, isPoint, type PublicPoint } from './deviceKey';
 
 /* ------------------------------------------------------------------ *
  * Player accounts.
@@ -66,6 +67,9 @@ export interface PassClaims {
   sub: string;
   name: string;
   exp: number;
+  /** The browser key the pass was issued to. A host checks the player can
+   *  sign with it before believing the pass is theirs. */
+  cnf: PublicPoint;
 }
 
 /** Account ids are u_ ids. Nothing else is, so a guest id can never be
@@ -73,6 +77,17 @@ export interface PassClaims {
 export const isAccountId = (id: string): boolean => typeof id === 'string' && id.startsWith('u_');
 
 /* --------------------------- verification -------------------------- */
+
+/** Whether a pass names a browser key, read without checking the signature. */
+function passHasKey(pass: string): boolean {
+  try {
+    const body = pass.split('.')[1] ?? '';
+    const c = JSON.parse(atob(body.replace(/-/g, '+').replace(/_/g, '/'))) as { cnf?: unknown };
+    return isPoint(c.cnf);
+  } catch {
+    return false;
+  }
+}
 
 const b64uBytes = (text: string): Uint8Array<ArrayBuffer> => {
   const b64 = text.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (text.length % 4)) % 4);
@@ -129,8 +144,11 @@ export async function verifyPass(
     if (c.iss !== ISSUER || c.aud !== AUDIENCE) return null;
     if (typeof c.exp !== 'number' || c.exp <= now) return null;
     if (typeof c.sub !== 'string' || !isAccountId(c.sub) || c.sub.length > 40) return null;
+    // A pass not bound to a browser key is a bearer token, and a host would
+    // be handing its seat to whoever copied the string. Refused outright.
+    if (!isPoint(c.cnf)) return null;
     const name = typeof c.name === 'string' ? c.name.slice(0, 18) : '';
-    return { sub: c.sub, name, exp: c.exp };
+    return { sub: c.sub, name, exp: c.exp, cnf: { x: c.cnf.x, y: c.cnf.y } };
   } catch {
     return null;
   }
@@ -144,6 +162,9 @@ function readStored(): Account | null {
     if (!raw) return null;
     const a = JSON.parse(raw) as Account;
     if (!a || !isAccountId(a.uid) || typeof a.pass !== 'string') return null;
+    // Passes from before browser keys existed would be refused by every host,
+    // so they are dropped here and the player is simply asked to sign in.
+    if (!passHasKey(a.pass)) return null;
     // Expired passes are dropped here; a forged one would be refused by
     // every host, so there is nothing to gain checking the signature twice.
     if (typeof a.exp !== 'number' || a.exp <= Date.now() / 1000) return null;
@@ -197,8 +218,12 @@ export function signOut(): void {
 
 const returnAddress = (mode: 'popup' | 'page'): string =>
   `${window.location.origin}${window.location.pathname}${mode === 'popup' ? '?signin=popup' : ''}`;
-const startUrl = (mode: 'popup' | 'page'): string =>
-  `${AUTH_BASE}/google/start?return=${encodeURIComponent(returnAddress(mode))}`;
+const startUrl = (mode: 'popup' | 'page', point: PublicPoint): string =>
+  `${AUTH_BASE}/google/start?return=${encodeURIComponent(returnAddress(mode))}&dpk=${encodePoint(point)}`;
+
+// Made at load, so the sign-in click has the public key in hand and can open
+// its window synchronously - a popup opened after an await is blocked.
+if (typeof window !== 'undefined' && typeof indexedDB !== 'undefined') void deviceKey();
 
 /* The popup cannot be relied on to reach the page that opened it: Google's
  * sign-in pages sever `window.opener` on the way through. Both windows share
@@ -218,10 +243,24 @@ export function signIn(): void {
   const h = 640;
   const left = Math.max(0, window.screenX + (window.outerWidth - w) / 2);
   const top = Math.max(0, window.screenY + (window.outerHeight - h) / 2);
-  const popup = window.open(startUrl('popup'), 'mply-signin', `popup,width=${w},height=${h},left=${left},top=${top}`);
-  if (!popup) {
-    try { sessionStorage.setItem(RETURN_HASH_KEY, window.location.hash); } catch { /* private mode */ }
-    window.location.assign(startUrl('page'));
+  const ready = devicePublicKeyNow();
+  // Open now, while the click still counts; point it at Google once the key
+  // is known if it was not already.
+  const popup = window.open(ready ? startUrl('popup', ready) : 'about:blank', 'mply-signin',
+    `popup,width=${w},height=${h},left=${left},top=${top}`);
+  if (!ready) {
+    void deviceKey().then((k) => {
+      if (!k) {
+        popup?.close();
+        useAccount.setState({ pending: false, error: 'unavailable' });
+        return;
+      }
+      if (popup) popup.location.href = startUrl('popup', k.publicKey);
+      else redirectToSignIn(k.publicKey);
+    });
+    if (!popup) return;
+  } else if (!popup) {
+    redirectToSignIn(ready);
     return;
   }
   const watch = window.setInterval(() => {
@@ -231,6 +270,11 @@ export function signIn(): void {
     window.clearInterval(watch);
     if (useAccount.getState().pending) useAccount.setState({ pending: false });
   }, 700);
+}
+
+function redirectToSignIn(point: PublicPoint): void {
+  try { sessionStorage.setItem(RETURN_HASH_KEY, window.location.hash); } catch { /* private mode */ }
+  window.location.assign(startUrl('page', point));
 }
 
 type AuthNote = { mplyAuth: 'done' } | { mplyAuthError: AccountStore['error'] };

@@ -130,5 +130,7 @@ game.
 - Only bots can be taken over, so a mid-game join needs a bot at the table.
   A human who left for good is played by the timeout autopilot, not offered
   as a seat.
-- Started games are not listed publicly, so a mid-game join is by room code
-  or invite link.
+- Started games appear in the public room list only while they still have a
+  bot seat to take (`inProgress` + `openSeats` in the lobby heartbeat), and
+  only signed-in players are shown those rows. Otherwise a mid-game join is
+  by room code or invite link.

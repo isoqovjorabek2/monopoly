@@ -520,8 +520,12 @@
   .cfGame__layout { grid-template-columns: minmax(0, 1fr); padding: var(--s-2) var(--s-2) 72px; }
   .cfGame__rail,
   .cfGame__side { display: none; }
-  /* A phone header has room for what you tap, not for a title. */
-  .cfGame__top { gap: 6px; padding: var(--s-2); }
+  /* A phone header has room for what you tap, not for a title. If the row
+     still runs long it scrolls within itself, never the page. */
+  .cfGame__top { gap: 6px; padding: var(--s-2); overflow-x: auto; scrollbar-width: none; }
+  .cfGame__top::-webkit-scrollbar { display: none; }
+  .cfGame__top > * { flex: none; }
+  .cfGame__top .spacer { flex: 1 1 0; min-width: 0; }
   .cfGame__top .btn { white-space: nowrap; }
   .cfGame__title,
   .cfGame__helpLabel { display: none; }

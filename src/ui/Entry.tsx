@@ -9,6 +9,7 @@ import { normaliseCode, type GameKind } from '../net/protocol';
 import { useStore } from '../store/store';
 import { Avatar } from './bits';
 import { PublicRooms } from './PublicRooms';
+import { forgetTable, listTables, type SavedTable } from '../net/saves';
 
 /* ==================================================================== *
  * The front door's card.
@@ -44,6 +45,7 @@ export function EntryCard({ pick, urlCode }: { pick: GameKind; urlCode: string }
   const hostRoom = useStore((s) => s.hostRoom);
   const joinRoom = useStore((s) => s.joinRoom);
   const playSolo = useStore((s) => s.playSolo);
+  const resumeTable = useStore((s) => s.resumeTable);
   const account = useAccount((s) => s.account);
 
   const [name, setName] = useState(me.name);
@@ -238,6 +240,7 @@ export function EntryCard({ pick, urlCode }: { pick: GameKind; urlCode: string }
                   {!nameOk ? E.needName : urlCode ? E.join.invited(urlCode) : E.join.codeHint}
                 </span>
               </form>
+              {account && <YourGames onResume={(code, epoch) => go(() => resumeTable(code, epoch))} />}
               <PublicRooms onJoin={(id) => go(() => joinRoom(id))} />
             </>
           )}
@@ -259,6 +262,59 @@ export function EntryCard({ pick, urlCode }: { pick: GameKind; urlCode: string }
         </motion.section>
       </AnimatePresence>
     </div>
+  );
+}
+
+/** The signed-in player's saved tables, newest first. */
+function YourGames({ onResume }: { onResume: (code: string, epoch: number) => void }) {
+  const t = useT();
+  const E = t.entry.join;
+  const uid = useAccount((s) => s.account?.uid);
+  const [tables, setTables] = useState<SavedTable[] | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    setTables(null);
+    void listTables().then((list) => { if (live) setTables(list); });
+    return () => { live = false; };
+  }, [uid]);
+
+  if (!tables || tables.length === 0) return null;
+  const game = (k: SavedTable['kind']) => (k === 'cashflow' ? t.cf.picker.cashflow.name : t.cf.picker.monopoly.name);
+
+  return (
+    <section className="rooms yourGames" aria-labelledby="your-games">
+      <header className="rooms__head">
+        <h2 className="rooms__title" id="your-games">{E.yourGames}</h2>
+      </header>
+      <p className="rooms__empty">{E.yourGamesHint}</p>
+      <ul className="rooms__list">
+        {tables.map((g) => {
+          const age = Math.max(0, Math.floor(Date.now() / 1000 - g.updatedAt));
+          const ago = age < 60 ? t.rooms.justOpened : age < 3600 ? t.rooms.minAgo(Math.floor(age / 60)) : t.rooms.hoursAgo(Math.floor(age / 3600));
+          return (
+            <li key={g.code} className="roomRow">
+              <span className="roomRow__who">
+                <span className="roomRow__host num truncate">{g.code}</span>
+                <span className="roomRow__meta truncate">
+                  {E.savedMeta(game(g.kind), g.round, g.names.join(', '))} · {ago}
+                </span>
+              </span>
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() => { void forgetTable(g.code); setTables((list) => (list ?? []).filter((x) => x.code !== g.code)); }}
+              >
+                {E.forget}
+              </button>
+              <button type="button" className="btn btn--primary btn--sm" onClick={() => onResume(g.code, g.epoch)}>
+                {E.resume}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 

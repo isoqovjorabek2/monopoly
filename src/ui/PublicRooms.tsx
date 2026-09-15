@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useT, type Dict } from '../i18n';
+import { useAccount } from '../net/account';
 import { hasDirectory, listRooms, type PublicRoom } from '../net/directory';
 
 /* ------------------------------------------------------------------ *
  * Tables anyone can walk up to.
  *
  * Private rooms have always worked by passing a code to someone you know.
- * This is the other half: hosts who tick "list publicly" appear here, and
- * stop appearing 45 seconds after they close the tab or the first roll is
- * made - a game in progress cannot be joined, so listing one would be an
- * invitation to a door that does not open.
+ * This is the other half: hosts who choose a public table appear here, and
+ * stop appearing 45 seconds after they close the tab. A game that has
+ * started stays listed only while it has a bot a signed-in player could take
+ * over; once there is no seat to take, it is no longer a door that opens.
  *
  * The list is the only thing on this page that needs a server, so it is
  * built to be absent: no directory, no section, and every other way in
@@ -25,6 +26,7 @@ function ago(t: Dict, seconds: number): string {
 
 export function PublicRooms({ onJoin }: { onJoin: (code: string) => void }) {
   const t = useT();
+  const signedIn = useAccount((s) => s.account !== null);
   const [rooms, setRooms] = useState<PublicRoom[] | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -47,6 +49,9 @@ export function PublicRooms({ onJoin }: { onJoin: (code: string) => void }) {
   if (!hasDirectory) return null;
 
   const [emptyBefore, emptyStrong, emptyAfter] = t.rooms.empty;
+  // A running game is a door only for a signed-in player, who can take a
+  // bot's seat over; to anyone else the row is a promise the join refuses.
+  const visible = signedIn ? rooms : rooms?.filter((r) => !r.inProgress) ?? null;
 
   return (
     <section className="rooms" aria-labelledby="rooms-title">
@@ -65,11 +70,11 @@ export function PublicRooms({ onJoin }: { onJoin: (code: string) => void }) {
       {/* Three states, all of them designed: not yet asked, asked and empty,
           asked and full. The middle one is the common case for a small game
           and it should not look like a failure. */}
-      {rooms === null ? (
+      {visible === null ? (
         <ul className="rooms__list" aria-hidden>
           {[0, 1].map((i) => <li key={i} className="roomRow roomRow--ghost" />)}
         </ul>
-      ) : rooms.length === 0 ? (
+      ) : visible.length === 0 ? (
         <p className="rooms__empty">
           {emptyBefore}
           <strong>{emptyStrong}</strong>{emptyAfter}
@@ -77,8 +82,8 @@ export function PublicRooms({ onJoin }: { onJoin: (code: string) => void }) {
       ) : (
         <ul className="rooms__list">
           <AnimatePresence initial={false}>
-            {rooms.map((room, i) => {
-              const full = room.seats >= room.maxSeats;
+            {visible.map((room, i) => {
+              const full = !room.inProgress && room.seats >= room.maxSeats;
               return (
                 <motion.li
                   key={room.id}
@@ -93,6 +98,10 @@ export function PublicRooms({ onJoin }: { onJoin: (code: string) => void }) {
                   <span className="roomRow__who">
                     <span className="roomRow__host truncate">{room.host}</span>
                     <span className="roomRow__meta">
+                      {room.inProgress && (
+                        <><span className="roomRow__live">{t.table.live.inProgress(room.round ?? 0)}</span>{' · '}</>
+                      )}
+                      {room.inProgress && <>{t.table.live.openSeats(room.openSeats ?? 0)} · </>}
                       {t.presets[room.preset]?.name ?? t.rooms.custom}
                       {room.deviations > 0 && (
                         <> · <span title={t.rooms.changedRules}>
@@ -103,18 +112,20 @@ export function PublicRooms({ onJoin }: { onJoin: (code: string) => void }) {
                     </span>
                   </span>
 
-                  <span className="roomRow__seats num" title={t.rooms.seatsTaken(room.seats, room.maxSeats)}>
-                    {room.seats}/{room.maxSeats}
-                  </span>
+                  {!room.inProgress && (
+                    <span className="roomRow__seats num" title={t.rooms.seatsTaken(room.seats, room.maxSeats)}>
+                      {room.seats}/{room.maxSeats}
+                    </span>
+                  )}
 
                   <button
                     type="button"
                     className="btn btn--sm"
                     disabled={full}
-                    title={full ? t.rooms.tableFull : t.rooms.joinHost(room.host)}
+                    title={full ? t.rooms.tableFull : room.inProgress ? t.table.live.watchTitle : t.rooms.joinHost(room.host)}
                     onClick={() => onJoin(room.id)}
                   >
-                    {full ? t.common.full : t.common.join}
+                    {full ? t.common.full : room.inProgress ? t.table.live.watch : t.common.join}
                   </button>
                 </motion.li>
               );

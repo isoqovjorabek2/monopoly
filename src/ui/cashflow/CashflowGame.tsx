@@ -3,6 +3,8 @@ import '../../styles/cashflow.css';
 import { cfDescribe } from '../../cashflow/describe';
 import { useT } from '../../i18n';
 import { useStore } from '../../store/store';
+import { SeatRequestsDock } from '../Account';
+import { tableNeed, useAlertsSwitch, useTableAlert } from '../alerts';
 import { FxLayer, useFx } from '../Fx';
 import { useGameKeys } from '../Help';
 import { LangSwitch } from '../LangSwitch';
@@ -44,6 +46,11 @@ export default function CashflowGame() {
   const s = room?.cf ?? null;
   const myId = me.playerId;
   const mine = s?.players[myId] ?? null;
+  const role = useStore((st) => st.role);
+
+  const alerts = useAlertsSwitch();
+  const need = useMemo(() => tableNeed(t, room, myId, role === 'host'), [t, room, myId, role]);
+  useTableAlert(need, alerts.on);
 
   /* Table effects, only ever for the local player. */
   const [fx, fire] = useFx();
@@ -87,6 +94,15 @@ export default function CashflowGame() {
         <button type="button" className="btn btn--ghost btn--sm" onClick={toggleSound} aria-pressed={soundOn}>
           {soundOn ? t.game.soundOn : t.game.soundOff}
         </button>
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          onClick={alerts.toggle}
+          aria-pressed={alerts.on}
+          title={alerts.blocked ? t.table.alerts.blocked : t.table.alerts.title}
+        >
+          {alerts.on ? t.table.alerts.on : t.table.alerts.off}
+        </button>
         <LangSwitch />
         <button
           type="button"
@@ -111,6 +127,7 @@ export default function CashflowGame() {
         </main>
 
         <aside className="cfGame__side" data-open={sheet === 'log' || undefined}>
+          <SeatRequestsDock />
           <CFActions s={s} myId={myId} dispatch={dispatch} />
           {mine && <CFStatement s={s} p={mine} interactive dispatch={dispatch} />}
           <FeedView lines={lines} chat={chat} onSend={sendChat} />
@@ -134,7 +151,14 @@ export default function CashflowGame() {
 
       <DreamPicker s={s} myId={myId} dispatch={dispatch} />
       <PlayerStatementModal s={s} playerId={viewing} onClose={() => setViewing(null)} />
-      {s.phase === 'game_over' && <CFGameOver s={s} myId={myId} onLeave={leave} />}
+      {s.phase === 'game_over' && (
+        <CFGameOver
+          s={s}
+          myId={myId}
+          onLeave={leave}
+          onRematch={role !== 'guest' ? useStore.getState().rematch : undefined}
+        />
+      )}
       <CFHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
       <FxLayer request={fx} />
     </div>

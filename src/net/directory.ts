@@ -31,6 +31,10 @@ export interface PublicRoom {
   preset: string;
   deviations: number;
   age: number;
+  /** Already started, with `openSeats` bots a signed-in player could take. */
+  inProgress?: boolean;
+  openSeats?: number;
+  round?: number;
 }
 
 /** Which preset a room is playing, and how far it has drifted from it. */
@@ -71,6 +75,7 @@ async function post(path: string, body: unknown): Promise<boolean> {
 /** Say this room exists, and keep saying it. Also the heartbeat. */
 export function announce(room: {
   id: string; host: string; seats: number; maxSeats: number; settings: GameSettings;
+  live?: { openSeats: number; round: number };
 }): Promise<boolean> {
   const { preset, deviations } = describeRules(room.settings);
   return post('announce', {
@@ -80,6 +85,7 @@ export function announce(room: {
     maxSeats: room.maxSeats,
     preset,
     deviations,
+    ...(room.live ? { inProgress: true, openSeats: room.live.openSeats, round: room.live.round } : {}),
   });
 }
 

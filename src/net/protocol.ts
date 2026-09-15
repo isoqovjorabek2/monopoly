@@ -56,7 +56,18 @@ export interface RoomSnapshot {
   /** Signed-in players watching a game in progress, who may take over a
    *  bot's seat. */
   watchers?: { uid: string; name: string }[];
+  /** Seat id -> SHA-256 of the secret a guest first claimed it with. Only a
+   *  hash, so it is safe for every tab to hold - and every tab has to hold
+   *  it, because any of them may become the host and need to check a guest
+   *  coming back. Without it a new host knew no secrets at all, and anyone
+   *  who had seen a seat id could sit down in that seat. */
+  seatKeys?: Record<string, string>;
+  /** Watchers asking to take over a bot, waiting on the host. In the room
+   *  rather than in the host's tab, so a host hand-over does not lose them. */
+  seatRequests?: SeatRequest[];
 }
+
+export interface SeatRequest { uid: string; name: string; target: string }
 
 export interface ChatMessage {
   id: string;
@@ -85,7 +96,10 @@ export type Up =
   | { t: 'CHAT'; playerId: string; text: string }
   | { t: 'PONG'; playerId: string; seq: number }
   /** A signed-in watcher takes over a bot's seat in a game in progress. */
-  | { t: 'TAKE_SEAT'; playerId: string; target: string };
+  | { t: 'TAKE_SEAT'; playerId: string; target: string }
+  /** The answer to a CHALLENGE: the host's nonce, signed with the key the
+   *  player's pass was issued to. */
+  | { t: 'PROOF'; playerId: string; sig: string };
 
 /* ----------------------------- host -> guest ----------------------------- */
 export type Down =
@@ -96,6 +110,8 @@ export type Down =
   | { t: 'CHAT'; message: ChatMessage }
   | { t: 'REJECT'; reason: string }
   | { t: 'PING'; seq: number }
+  /** Prove the pass you just showed is yours: sign this for this room. */
+  | { t: 'CHALLENGE'; nonce: string }
   | { t: 'BYE'; reason: ByeReason };
 
 export type ByeReason =

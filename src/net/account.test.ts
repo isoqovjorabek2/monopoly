@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import fixture from './account.fixture.json';
 import { isAccountId, verifyPass, type PassClaims } from './account';
 import { HostNet } from './net';
+import { proofMessage, type PublicPoint } from './deviceKey';
 import { wrap, type Up } from './protocol';
 import { createGame, handOverSeat, reduce } from '../game/engine';
 import { CLASSIC } from '../game/settings';
@@ -17,9 +18,11 @@ import type { GameAction } from '../game/types';
 const at = fixture.mintedAt + 60;
 
 describe('passes', () => {
-  it('accepts a pass the server signed', async () => {
+  it('accepts a pass the server signed, with the browser key it names', async () => {
     const claims = await verifyPass(fixture.pass, fixture.jwk, at);
-    expect(claims).toEqual({ sub: 'u_fixture0000000000000', name: 'Fixture', exp: expect.any(Number) });
+    expect(claims).toEqual({
+      sub: 'u_fixture0000000000000', name: 'Fixture', exp: expect.any(Number), cnf: fixture.point,
+    });
   });
 
   it('refuses it under any other key', async () => {
@@ -68,12 +71,48 @@ class FakeConn {
 const attachTo = (host: HostNet, conn: FakeConn) =>
   (host as unknown as { attach: (c: FakeConn) => void }).attach(conn);
 
-/** Passes are "pass:<uid>"; anything else fails. Keeps these tests about the
- *  door, not about cryptography, which is tested above. */
-const fakeVerify = async (pass: unknown): Promise<PassClaims | null> =>
-  (typeof pass === 'string' && pass.startsWith('pass:') ? { sub: pass.slice(5), name: 'X', exp: 9e9 } : null);
+/* Every account in these tests holds a real browser key, and a pass is
+ * "pass:<uid>". The pass check is faked - it is tested above - but the
+ * challenge each browser has to answer is real ECDSA. */
+const keys = new Map<string, { pair: CryptoKeyPair; point: PublicPoint }>();
+async function keyFor(uid: string) {
+  let k = keys.get(uid);
+  if (!k) {
+    const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+    const jwk = await crypto.subtle.exportKey('jwk', pair.publicKey);
+    k = { pair, point: { x: jwk.x!, y: jwk.y! } };
+    keys.set(uid, k);
+  }
+  return k;
+}
+const fakeVerify = async (pass: unknown): Promise<PassClaims | null> => {
+  if (typeof pass !== 'string' || !pass.startsWith('pass:')) return null;
+  const uid = pass.slice(5);
+  return { sub: uid, name: 'X', exp: 9e9, cnf: (await keyFor(uid)).point };
+};
 
-const settle = () => new Promise((r) => setTimeout(r, 0));
+const settle = (ms = 0) => new Promise((r) => setTimeout(r, ms));
+const b64u = (buf: ArrayBuffer) =>
+  btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+/** Answer the host's challenge as `signer`'s browser would, for `room`. */
+async function answer(conn: FakeConn, signer: string, room = 'ROOM', epoch = 0) {
+  for (let i = 0; i < 50 && !conn.sent.some((m) => m.t === 'CHALLENGE'); i++) await settle(5);
+  const ch = conn.sent.find((m) => m.t === 'CHALLENGE') as { nonce?: string } | undefined;
+  if (!ch?.nonce) throw new Error('no challenge');
+  const sig = await crypto.subtle.sign(
+    { name: 'ECDSA', hash: 'SHA-256' }, (await keyFor(signer)).pair.privateKey,
+    new TextEncoder().encode(proofMessage(room, epoch, ch.nonce)),
+  );
+  conn.emit('data', wrap({ t: 'PROOF', playerId: 'x', sig: b64u(sig) }));
+  for (let i = 0; i < 20; i++) await settle(5);
+}
+
+/** Show a pass for `uid` and answer the challenge with its own key. */
+async function signInOn(conn: FakeConn, uid: string, playerId = uid) {
+  conn.emit('data', wrap(hello(playerId, { auth: `pass:${uid}` })));
+  await answer(conn, uid);
+}
 
 function makeHost(seatFor: (uid: string) => string = (uid) => uid) {
   const ups: { from: string; msg: Up }[] = [];
@@ -96,8 +135,7 @@ describe('the host, with passes', () => {
     host.setOwner('bot_ada', 'u_asil');
     const c = new FakeConn();
     attachTo(host, c);
-    c.emit('data', wrap(hello('whatever', { auth: 'pass:u_asil' })));
-    await settle();
+    await signInOn(c, 'u_asil', 'whatever');
     expect(ups).toHaveLength(1);
     expect(ups[0].from).toBe('bot_ada');
     expect(ups[0].msg).toMatchObject({ t: 'HELLO', playerId: 'bot_ada', verified: 'u_asil' });
@@ -124,6 +162,48 @@ describe('the host, with passes', () => {
     expect(ups).toHaveLength(0);
   });
 
+  it('binds nothing on a valid pass until the browser proves it holds the key', async () => {
+    const { host, ups } = makeHost();
+    const c = new FakeConn();
+    attachTo(host, c);
+    c.emit('data', wrap(hello('u_asil', { auth: 'pass:u_asil' })));
+    await settle(20);
+    expect(c.sent.some((m) => m.t === 'CHALLENGE')).toBe(true);
+    expect(ups).toHaveLength(0);
+    expect(host.accountOf('u_asil')).toBeUndefined();
+  });
+
+  it('refuses a copied pass: the thief cannot sign for the key it names', async () => {
+    const { host, ups } = makeHost();
+    const thief = new FakeConn();
+    attachTo(host, thief);
+    thief.emit('data', wrap(hello('u_victim', { auth: 'pass:u_victim' })));
+    await answer(thief, 'u_thief');
+    expect(thief.sent.some((m) => m.reason === 'auth_invalid')).toBe(true);
+    expect(thief.open).toBe(false);
+    expect(ups).toHaveLength(0);
+  });
+
+  it('refuses a proof made for another table', async () => {
+    const { host, ups } = makeHost();
+    const c = new FakeConn();
+    attachTo(host, c);
+    c.emit('data', wrap(hello('u_asil', { auth: 'pass:u_asil' })));
+    await answer(c, 'u_asil', 'SOME-OTHER-ROOM');
+    expect(c.sent.some((m) => m.reason === 'auth_invalid')).toBe(true);
+    expect(ups).toHaveLength(0);
+  });
+
+  it('refuses a proof made for an earlier host of this table', async () => {
+    const { host, ups } = makeHost();
+    const c = new FakeConn();
+    attachTo(host, c);
+    c.emit('data', wrap(hello('u_asil', { auth: 'pass:u_asil' })));
+    await answer(c, 'u_asil', 'ROOM', 3);
+    expect(c.sent.some((m) => m.reason === 'auth_invalid')).toBe(true);
+    expect(ups).toHaveLength(0);
+  });
+
   it('refuses a pass that does not check out', async () => {
     const { host, ups } = makeHost();
     const c = new FakeConn();
@@ -138,12 +218,10 @@ describe('the host, with passes', () => {
     const { host } = makeHost();
     const phone = new FakeConn();
     attachTo(host, phone);
-    phone.emit('data', wrap(hello('u_asil', { auth: 'pass:u_asil' })));
-    await settle();
+    await signInOn(phone, 'u_asil');
     const laptop = new FakeConn();
     attachTo(host, laptop);
-    laptop.emit('data', wrap(hello('u_asil', { auth: 'pass:u_asil' })));
-    await settle();
+    await signInOn(laptop, 'u_asil');
     expect(phone.sent.some((m) => m.reason === 'elsewhere')).toBe(true);
     expect(phone.open).toBe(false);
     host.send('u_asil', { t: 'PING', seq: 9 });
@@ -157,8 +235,7 @@ describe('the host, with passes', () => {
     for (const uid of ['u_hostacct', 'u_stranger']) {
       const c = new FakeConn();
       attachTo(host, c);
-      c.emit('data', wrap(hello(uid, { auth: `pass:${uid}` })));
-      await settle();
+      await signInOn(c, uid);
       expect(c.sent.some((m) => m.reason === 'seat_taken'), uid).toBe(true);
     }
     expect(ups).toHaveLength(0);
@@ -168,8 +245,7 @@ describe('the host, with passes', () => {
     const { host } = makeHost();
     const c = new FakeConn();
     attachTo(host, c);
-    c.emit('data', wrap(hello('u_asil', { auth: 'pass:u_asil' })));
-    await settle();
+    await signInOn(c, 'u_asil');
     host.rebind('u_asil', 'bot_ada');
     host.send('bot_ada', { t: 'PING', seq: 1 });
     expect(c.sent.some((m) => m.t === 'PING')).toBe(true);

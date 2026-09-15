@@ -7,6 +7,7 @@ import { cfEn } from './cf-en';
 import { dealsEn } from './deals-en';
 import { accountEn } from './account-en';
 import { entryEn } from './entry-en';
+import { tableEn } from './table-en';
 
 /* ------------------------------------------------------------------ *
  * English, and the shape every other language has to fill in.
@@ -585,6 +586,7 @@ export const en = {
 
   /** The front door's three ways in. */
   entry: entryEn,
+  table: tableEn,
 };
 
 export type Dict = typeof en;

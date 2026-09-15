@@ -189,3 +189,23 @@
 
 /* A long button label (Russian runs to two lines) stays centred. */
 .modePanel .btn--lg { text-align: center; text-wrap: balance; }
+
+/* A watcher asking the host for a seat: an offer card with no body. */
+.seatRequest__head { cursor: default; }
+.seatRequest__head:hover { background: transparent; }
+.seatRequest .offerCard__who { white-space: normal; }
+
+.offerCard__counter {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  font-size: var(--t-2xs);
+  font-weight: 600;
+  color: var(--brass-100);
+  background: color-mix(in oklab, var(--brass-500) 26%, transparent);
+  vertical-align: 1px;
+}
+
+.gameOver__note { margin: 0; text-align: center; }
+
+.roomRow__live { color: var(--success-400); font-weight: 600; }

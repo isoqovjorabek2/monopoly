@@ -22,6 +22,23 @@ export const accountEn = {
   noSeats: 'Every seat is played by a person. You can watch until the game ends.',
   watchers: (names: string) => `Watching: ${names}`,
 
+  /* ------------------------ the host decides ------------------------ */
+  policy: {
+    label: 'Joining a game in progress',
+    hint: 'Signed-in players can take over a bot once the game has started.',
+    ask: 'Ask me',
+    anyone: 'Anyone signed in',
+    off: 'No one',
+  },
+  askNote: 'The host is asked before you sit down.',
+  asked: 'Asked the host…',
+  waitingHost: (bot: string) => `Waiting for the host to let you take over ${bot}.`,
+  closed: 'The host is not letting anyone take over a bot in this game. You can watch.',
+  seatDenied: 'The host kept that seat for the bot.',
+  request: (name: string, bot: string) => `${name} wants to take over ${bot}`,
+  allow: 'Let them in',
+  deny: 'No',
+
   log: {
     seatTaken: (name: string, bot: string) => `${name} took over ${bot}'s seat.`,
   },

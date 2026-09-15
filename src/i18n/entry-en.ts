@@ -30,6 +30,11 @@ export const entryEn = {
     paste: 'Paste a code or link',
     invited: (code: string) => `You were invited to ${code}. Press Join when you are ready.`,
     publicTitle: 'Open public tables',
+    yourGames: 'Your games',
+    yourGamesHint: 'Saved on aytingchi.uz while they are played. Resume rejoins the table, or restarts it from the save if nobody is hosting.',
+    resume: 'Resume',
+    forget: 'Remove',
+    savedMeta: (game: string, round: number, names: string) => `${game} · round ${round} · ${names}`,
   },
 
   practice: {

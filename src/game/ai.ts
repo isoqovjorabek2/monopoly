@@ -1,12 +1,12 @@
 import { BOARD, GROUPS } from './board';
-import { contractsOf, loanDebt, principalOut, repayAt, sharedPct, sideId } from './deals';
+import { contractsOf, flipOffer, loanDebt, principalOut, repayAt, sharedPct, sideId } from './deals';
 import { rand } from './rng';
 import {
   calculateRent, canTrade, countRailroads, hasUnmortgagedMonopoly, legalActions, maxRaisable,
   netWorth, ownedBy, ownsFullGroup, tradeKey, transferFee, unmortgageCost,
 } from './rules';
 import type {
-  BotLevel, ColorGroup, DealTerm, GameAction, GameState, TradeBody,
+  BotLevel, ColorGroup, DealTerm, GameAction, GameState, TradeBody, TradeOffer,
 } from './types';
 
 /* ------------------------------------------------------------------ *
@@ -427,6 +427,123 @@ export function loanRequest(s: GameState, pid: string, level: BotLevel): TradeBo
   return best;
 }
 
+/**
+ * A bot's answer to a person's offer that is close but not quite enough: the
+ * same deal back, with the cash moved until the bot would take it. Only for
+ * people - two bots countering each other would haggle forever - and never
+ * in reply to a counter, so a negotiation ends in a yes or a no.
+ */
+export function counterOffer(s: GameState, pid: string, t: TradeOffer): TradeBody | null {
+  if (t.to !== pid || t.counterTo) return null;
+  const them = s.players[t.from];
+  if (!them || them.isBot || them.bankrupt) return null;
+  const margin = acceptMargin(s, pid, t);
+  if (margin > 0 || margin < -300) return null;
+
+  const counter: TradeBody = { ...flipOffer(t), counterTo: t.id };
+  let short = roundUp10(-margin + 30);
+  // Offer less first; ask for more only for what is left.
+  const cut = Math.min(counter.giveCash, short);
+  counter.giveCash -= cut;
+  short -= cut;
+  counter.wantCash += short;
+  if (counter.wantCash > them.cash) return null;
+  if (!canTrade(s, counter)) return null;
+  return acceptMargin(s, pid, counter) > 0 ? counter : null;
+}
+
+/** Opponents this bot has not been turned down by lately. */
+const talkable = (s: GameState, pid: string): string[] => s.seats.filter((them) => {
+  const other = s.players[them];
+  if (them === pid || !other || other.bankrupt) return false;
+  const cooled = s.tradeCooldowns[tradeKey(pid, them)];
+  return cooled === undefined || s.turnNumber - cooled >= TRADE_COOLDOWN;
+});
+
+/**
+ * Deal Maker: a bot short of cash sells a cut of its best-earning deed's rent
+ * rather than mortgaging it - the deed keeps earning, and keeps the set
+ * whole for building. Priced a little under what the cut is expected to pay,
+ * and offered to whoever can best afford it.
+ */
+export function shareSale(s: GameState, pid: string, level: BotLevel): TradeBody | null {
+  if (!s.settings.dealsEnabled) return null;
+  const me = s.players[pid];
+  if (me.cash >= cashFloor(s, pid, level) * 0.6) return null;
+
+  const terms = (id: number): DealTerm[] => [{ kind: 'share', grantor: 'from', spaces: [id], pct: 30, rounds: 10 }];
+  const blank = (to: string, id: number): TradeBody => ({
+    from: pid, to, giveCash: 0, giveProperties: [], giveJailCards: 0,
+    wantCash: 0, wantProperties: [], wantJailCards: 0, terms: terms(id),
+  });
+
+  // The deed whose cut is worth most, and still has 30% of its rent unsold.
+  let bestDeed: number | null = null;
+  let bestValue = 0;
+  for (const id of ownedBy(s, pid)) {
+    if (s.properties[id].mortgaged || sharedPct(s, id) > 70) continue;
+    const v = termValue(s, blank(pid, id), terms(id)[0]);
+    if (v > bestValue) { bestValue = v; bestDeed = id; }
+  }
+  if (bestDeed === null) return null;
+
+  let best: TradeBody | null = null;
+  let bestCash = 0;
+  for (const them of talkable(s, pid)) {
+    const other = s.players[them];
+    // A person is offered it a little under value. A bot buyer holds out for
+    // its usual margin, so it is priced just inside that - still a sale the
+    // seller needs more than the buyer does.
+    const price = other.isBot
+      ? Math.floor((bestValue - ACCEPT_DEMAND[other.botLevel] - 20) / 10) * 10
+      : roundUp10(bestValue * 0.85);
+    if (price < 50 || other.cash - price < cashFloor(s, them, other.botLevel)) continue;
+    const offer = { ...blank(them, bestDeed), wantCash: price };
+    if (!canTrade(s, offer)) continue;
+    if (other.isBot && acceptMargin(s, them, offer) <= 0) continue;
+    if (other.cash > bestCash) { bestCash = other.cash; best = offer; }
+  }
+  return best;
+}
+
+/**
+ * Deal Maker: before rolling, a bot within reach of somebody's expensive
+ * square offers to buy one free stay on it. Only people are asked - a bot
+ * owner values the pass at the rent it forgoes and would always refuse - and
+ * only when the rent would really hurt.
+ */
+export function passPurchase(s: GameState, pid: string, level: BotLevel): TradeBody | null {
+  if (!s.settings.dealsEnabled || s.phase !== 'preroll') return null;
+  const me = s.players[pid];
+  if (me.inJail) return null;
+
+  let best: TradeBody | null = null;
+  let bestRisk = 0;
+  for (let d = 2; d <= 12; d++) {
+    const id = (me.position + d) % 40;
+    const st = s.properties[id];
+    if (!st?.owner || st.owner === pid || st.mortgaged) continue;
+    const owner = s.players[st.owner];
+    if (!owner || owner.isBot || owner.bankrupt) continue;
+    const rent = rentNow(s, id, st.owner);
+    const odds = (6 - Math.abs(d - 7)) / 36;
+    if (rent < me.cash * 0.5 || odds < 2 / 36) continue;
+    const cooled = s.tradeCooldowns[tradeKey(pid, st.owner)];
+    if (cooled !== undefined && s.turnNumber - cooled < TRADE_COOLDOWN) continue;
+    const price = roundUp10(rent * Math.max(odds * 2, 0.15));
+    if (me.cash - price < cashFloor(s, pid, level) * 0.5) continue;
+    const offer: TradeBody = {
+      from: pid, to: st.owner, giveCash: price, giveProperties: [], giveJailCards: 0,
+      wantCash: 0, wantProperties: [], wantJailCards: 0,
+      terms: [{ kind: 'pass', grantor: 'to', spaces: [id], discountPct: 100, uses: 1 }],
+    };
+    if (!canTrade(s, offer)) continue;
+    const risk = rent * odds;
+    if (risk > bestRisk) { bestRisk = risk; best = offer; }
+  }
+  return best;
+}
+
 /** The best offer this bot will open with, across the whole table. */
 export function botTradeOffer(s: GameState, pid: string, level: BotLevel): TradeBody | null {
   const style = TRADE_STYLE[level];
@@ -456,7 +573,9 @@ export function botTradeOffer(s: GameState, pid: string, level: BotLevel): Trade
     const gain = tradeGain(s, pid, offer);
     if (gain > bestGain) { bestGain = gain; best = offer; }
   }
-  return best ?? loanRequest(s, pid, level);
+  // Nothing to swap: deals made out of need, most useful first - insurance
+  // against the square ahead, then selling a cut of income, then borrowing.
+  return best ?? passPurchase(s, pid, level) ?? shareSale(s, pid, level) ?? loanRequest(s, pid, level);
 }
 
 function scoreAction(s: GameState, pid: string, a: GameAction, level: BotLevel): number {
@@ -551,10 +670,12 @@ function scoreAction(s: GameState, pid: string, a: GameAction, level: BotLevel):
       return -300;
 
     case 'PROPOSE_TRADE':
+      // A counter answers a person waiting on this bot; it beats a flat no.
+      if (a.offer.counterTo) return 95;
       // Only ever composed when it already clears this bot's own bar, so
       // it outranks rolling: the offer resolves while the turn goes on. A
       // loan request is composed out of need, not gain.
-      if (a.offer.terms?.some((t) => t.kind === 'loan')) return 120;
+      if (a.offer.terms?.length) return 120;
       return 118 + Math.min(tradeGain(s, pid, a.offer), 400) / 10;
 
     case 'ACCEPT_TRADE': {
@@ -630,6 +751,16 @@ export function botDecide(s: GameState, pid: string): GameAction | null {
   if (!isCurrent && (s.phase === 'preroll' || s.phase === 'turn_end')) {
     options = options.filter((a) => a.type === 'ACCEPT_TRADE' || a.type === 'DECLINE_TRADE');
     if (options.length === 0) return null;
+  }
+
+  // An offer from a person that falls just short gets a counter, not a no.
+  if (s.settings.allowTrades) {
+    for (const a of options) {
+      if (a.type !== 'DECLINE_TRADE') continue;
+      const t = s.trades.find((x) => x.id === a.tradeId);
+      const counter = t ? counterOffer(s, pid, t) : null;
+      if (counter) options = [...options, { type: 'PROPOSE_TRADE', playerId: pid, offer: counter }];
+    }
   }
 
   // Mortgaging to reach a price is there for a human who is short of it; a

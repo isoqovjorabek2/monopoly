@@ -134,11 +134,18 @@ def live_rooms() -> list[dict]:
             "preset": room["preset"],
             "deviations": room["deviations"],
             "age": int(now - room["opened"]),
+            "inProgress": room.get("inProgress", False),
+            "openSeats": room.get("openSeats", 0),
+            "round": room.get("round", 0),
         })
-    # Joinable first, then the ones with people already in them, then newest:
-    # a full room is not an option and an empty one is a worse bet than a
-    # table that already has three players waiting.
-    out.sort(key=lambda r: (r["seats"] >= r["maxSeats"], -r["seats"], r["age"]))
+    # Lobbies with room first, then games with a bot seat to take, then the
+    # rest: a full room is not an option, and an empty one is a worse bet than
+    # a table that already has three players waiting.
+    out.sort(key=lambda r: (
+        r["inProgress"],
+        (not r["inProgress"]) and r["seats"] >= r["maxSeats"],
+        -r["seats"], r["age"],
+    ))
     return out
 
 
@@ -476,6 +483,11 @@ class Handler(BaseHTTPRequestHandler):
                 seats = max(0, min(8, int(body.get("seats", 0))))
                 max_seats = max(2, min(8, int(body.get("maxSeats", 6))))
                 deviations = max(0, min(30, int(body.get("deviations", 0))))
+                # A game already under way stays listed while it has bots a
+                # signed-in player could take over.
+                in_progress = body.get("inProgress") is True
+                open_seats = max(0, min(8, int(body.get("openSeats", 0)))) if in_progress else 0
+                round_ = max(0, min(9999, int(body.get("round", 0)))) if in_progress else 0
             except (TypeError, ValueError):
                 return self._send(400, {"error": "bad numbers"})
 
@@ -491,6 +503,9 @@ class Handler(BaseHTTPRequestHandler):
                 "maxSeats": max_seats,
                 "preset": preset,
                 "deviations": deviations,
+                "inProgress": in_progress,
+                "openSeats": open_seats,
+                "round": round_,
                 "ip": ip,
                 "seen": now,
                 "opened": existing["opened"] if existing else now,

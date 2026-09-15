@@ -11,6 +11,9 @@ interface ImportMetaEnv {
   readonly VITE_TURN_CREDENTIAL?: string;
   /** Where player sign-in lives. Defaults to https://aytingchi.uz/auth. */
   readonly VITE_AUTH_URL?: string;
+  /** The matchmaking server's host. Defaults to aytingchi.uz; `public` uses
+   *  PeerJS's own free server. */
+  readonly VITE_PEER_HOST?: string;
   /** The public lobby directory. Defaults to https://aytingchi.uz/lobbies. */
   readonly VITE_LOBBY_URL?: string;
 }

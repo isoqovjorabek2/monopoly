@@ -3,6 +3,7 @@ import { cfUz } from './cf-uz';
 import { dealsUz } from './deals-uz';
 import { accountUz } from './account-uz';
 import { entryUz } from './entry-uz';
+import { tableUz } from './table-uz';
 
 /* Uzbek, in the Latin alphabet. Oʻ and gʻ are written with ‘ (U+2018) and
  * the tutuq belgisi with ’ (U+2019) rather than the modifier letters: every
@@ -729,4 +730,5 @@ export const uz: Dict = {
   deals: dealsUz,
   account: accountUz,
   entry: entryUz,
+  table: tableUz,
 };

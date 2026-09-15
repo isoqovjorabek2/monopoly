@@ -52,6 +52,8 @@ export type TokenId =
 
 export type BotLevel = 'easy' | 'normal' | 'hard';
 
+export type TakeoverPolicy = 'ask' | 'anyone' | 'off';
+
 export interface Player {
   id: string;
   name: string;
@@ -169,6 +171,8 @@ export interface TradeOffer {
   wantJailCards: number;
   /** Deal Maker contracts that come with the swap. Absent in classic play. */
   terms?: DealTerm[];
+  /** The offer this one answers. Sending it withdraws that offer. */
+  counterTo?: string;
   createdAt: number;
 }
 
@@ -225,6 +229,9 @@ export interface GameSettings {
   dealsEnabled: boolean;
   fillWithBots: boolean;
   botLevel: BotLevel;
+  /** Who may take over a bot's seat once the game has started: the host
+   *  decides each time, any signed-in player, or nobody. */
+  takeovers: TakeoverPolicy;
   /** Deterministic seed. Same seed + same actions = same game. */
   seed: number;
 }
@@ -352,6 +359,8 @@ export type GameEvent =
   | { type: 'TRADE_PROPOSED'; offer: TradeOffer }
   | { type: 'TRADE_ACCEPTED'; offer: TradeOffer }
   | { type: 'TRADE_DECLINED'; offer: TradeOffer }
+  /** `counter` answers `offer`, which is withdrawn in its favour. */
+  | { type: 'TRADE_COUNTERED'; offer: TradeOffer; counter: TradeOffer }
   | { type: 'TRADE_EXPIRED'; offer: TradeOffer }
   | { type: 'TURN_STARTED'; playerId: string; turnNumber: number }
   | { type: 'FREE_PARKING'; playerId: string; amount: number }

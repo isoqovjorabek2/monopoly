@@ -1,5 +1,5 @@
 # Player sign-in. Binds 127.0.0.1:9200; nginx publishes it at /auth/.
-# Holds no player data at all: it signs a pass and forgets the request.
+# Signs passes, and keeps saved tables for signed-in players for 14 days.
 [Unit]
 Description=Monopoly player accounts (Google sign-in, localhost only)
 After=network-online.target
@@ -10,6 +10,10 @@ Type=exec
 User=playerauth
 Group=playerauth
 ExecStart=/usr/bin/python3 /opt/opspanel/accounts.py
+# Saved tables. The one place it may write.
+StateDirectory=playerauth
+StateDirectoryMode=0750
+Environment=ACCOUNTS_STATE=/var/lib/playerauth
 Restart=always
 RestartSec=3
 

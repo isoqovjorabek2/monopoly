@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CLASSIC, PRESETS, TOKENS } from '../game/settings';
-import type { BotLevel, GameSettings } from '../game/types';
+import type { BotLevel, GameSettings, TakeoverPolicy } from '../game/types';
 import type { CFRules } from '../cashflow/types';
 import { useT } from '../i18n';
 import { hasDirectory } from '../net/directory';
@@ -451,6 +451,16 @@ function BotSettings({ s, set }: { s: GameSettings; set: (patch: Partial<GameSet
         <p className="muted small">{L.difficultyNote}</p>
       </div>
       <Toggle label={L.fillBots} checked={s.fillWithBots} onChange={(v) => set({ fillWithBots: v })} />
+      <div className="labelled">
+        <span className="switch__label">{t.account.policy.label}</span>
+        <Segmented
+          label={t.account.policy.label}
+          value={s.takeovers ?? 'ask'}
+          onChange={(v) => set({ takeovers: v as TakeoverPolicy })}
+          options={(['ask', 'anyone', 'off'] as const).map((p) => ({ value: p, label: t.account.policy[p] }))}
+        />
+        <p className="muted small">{t.account.policy.hint}</p>
+      </div>
     </>
   );
 }

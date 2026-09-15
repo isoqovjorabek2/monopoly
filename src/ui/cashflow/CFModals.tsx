@@ -60,7 +60,9 @@ export function PlayerStatementModal({ s, playerId, onClose }: { s: CFState; pla
   );
 }
 
-export function CFGameOver({ s, myId, onLeave }: { s: CFState; myId: string; onLeave: () => void }) {
+export function CFGameOver({
+  s, myId, onLeave, onRematch,
+}: { s: CFState; myId: string; onLeave: () => void; onRematch?: () => void }) {
   const t = useT();
   const L = t.cf.log;
   const winner = s.winnerId ? s.players[s.winnerId] : null;
@@ -91,7 +93,17 @@ export function CFGameOver({ s, myId, onLeave }: { s: CFState; myId: string; onL
           </li>
         ))}
       </ol>
-      <button type="button" className="btn btn--primary btn--block" onClick={onLeave}>{t.cf.gameOver.home}</button>
+      {onRematch ? (
+        <>
+          <button type="button" className="btn btn--primary btn--block" onClick={onRematch}>{t.table.rematch.again}</button>
+          <p className="muted small gameOver__note">{t.table.rematch.note}</p>
+        </>
+      ) : (
+        <p className="muted small gameOver__note">{t.table.rematch.waiting}</p>
+      )}
+      <button type="button" className={`btn btn--block ${onRematch ? 'btn--ghost' : 'btn--primary'}`} onClick={onLeave}>
+        {t.cf.gameOver.home}
+      </button>
     </Modal>
   );
 }

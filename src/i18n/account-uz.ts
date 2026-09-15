@@ -20,6 +20,22 @@ export const accountUz: AccountDict = {
   noSeats: 'Hamma joyda odamlar o‘ynayapti. O‘yin tugaguncha kuzatishingiz mumkin.',
   watchers: (names) => `Kuzatmoqda: ${names}`,
 
+  policy: {
+    label: 'Boshlangan o‘yinga qo‘shilish',
+    hint: 'Kirgan o‘yinchilar o‘yin boshlangach bot o‘rnini egallashi mumkin.',
+    ask: 'Mendan so‘rash',
+    anyone: 'Har bir kirgan',
+    off: 'Hech kim',
+  },
+  askNote: 'O‘tirishingizdan oldin stol egasidan so‘raladi.',
+  asked: 'Stol egasidan so‘raldi…',
+  waitingHost: (bot) => `Stol egasi ${bot} o‘rnini berishini kutmoqdamiz.`,
+  closed: 'Stol egasi bu o‘yinda bot o‘rnini egallashga ruxsat bermayapti. Kuzatishingiz mumkin.',
+  seatDenied: 'Stol egasi bu joyni botda qoldirdi.',
+  request: (name, bot) => `${name} ${bot} o‘rnini egallamoqchi`,
+  allow: 'Ruxsat berish',
+  deny: 'Yo‘q',
+
   log: {
     seatTaken: (name, bot) => `${name} ${bot}ning o‘rnini egalladi.`,
   },

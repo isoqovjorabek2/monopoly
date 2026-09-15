@@ -10,6 +10,7 @@ import { BoardTools, readBoardZoom, useFocusMode, writeBoardZoom, ZOOM_STEPS } f
 import { DeedCard } from './DeedCard';
 import {
   AuctionPanel, GameOver, IncomingTrades, LogFeed, PlayerRail, PortfolioModal, TradePanel,
+  type CounterSeed,
 } from './Panels';
 import { Modal, fmt, useCountdown } from './bits';
 import { BoardIcon } from './Pieces';
@@ -17,8 +18,17 @@ import { FxLayer, useFx } from './Fx';
 import { cardArt, deckBack } from '../art/art';
 import { HelpModal, useGameKeys } from './Help';
 import { ContractGlyph, ContractsModal, myContractCount } from './Deals';
-import { TakeSeatPanel } from './Account';
+import { SeatRequestsDock, TakeSeatPanel } from './Account';
+import { tableNeed, useAlertsSwitch, useTableAlert } from './alerts';
 import { LangSwitch } from './LangSwitch';
+
+/* Shared props for the header buttons' icons, which stand in for the labels
+   on narrow screens (`.btn__icon` is hidden until a breakpoint asks for it). */
+const glyph = {
+  className: 'btn__icon', width: 14, height: 14, viewBox: '0 0 16 16',
+  'aria-hidden': true, fill: 'none', stroke: 'currentColor',
+  strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round',
+} as const;
 
 export function Game() {
   const t = useT();
@@ -63,6 +73,7 @@ export function Game() {
     pinTimer.current = window.setTimeout(() => setPinned(null), 7000);
   }, [openSheet]);
   const [tradeOpen, setTradeOpen] = useState(false);
+  const [counterSeed, setCounterSeed] = useState<CounterSeed | null>(null);
   const [contractsOpen, setContractsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [renderMode, setRenderMode] = useState<RenderMode>(readRenderMode);
@@ -90,6 +101,11 @@ export function Game() {
 
   const state = room?.game ?? null;
   const myId = me.playerId;
+  const role = useStore((s) => s.role);
+
+  const alerts = useAlertsSwitch();
+  const need = useMemo(() => tableNeed(t, room, myId, role === 'host'), [t, room, myId, role]);
+  useTableAlert(need, alerts.on);
 
   /* Table effects. These watch the state everyone already has rather than
    * needing new events across the wire, so a guest sees its own windfall
@@ -164,15 +180,41 @@ export function Game() {
           aria-pressed={renderMode === '3d'}
           title={renderMode === '3d' ? t.game.toFlat : t.game.to3d}
         >
-          {renderMode === '3d' ? t.game.board3d : t.game.boardFlat}
+          {renderMode === '3d' ? (
+            <svg {...glyph}><path d="M2.5 3.5h11v9h-11z" /><path d="M2.5 8h11M8 3.5v9" /></svg>
+          ) : (
+            <svg {...glyph}><path d="M8 2.2l4.8 2.4v6.8L8 13.8 3.2 11.4V4.6z" /><path d="M8 13.8V7.4M3.2 4.6L8 7.4l4.8-2.8" /></svg>
+          )}
+          <span className="btn__label">{renderMode === '3d' ? t.game.board3d : t.game.boardFlat}</span>
         </button>
         <button
           type="button"
           className="btn btn--ghost btn--sm"
           onClick={toggleSound}
           aria-pressed={soundOn}
+          title={soundOn ? t.game.soundOn : t.game.soundOff}
         >
-          {soundOn ? t.game.soundOn : t.game.soundOff}
+          <svg {...glyph}>
+            <path d="M2.5 6.2h2.8l3.2-2.7v9l-3.2-2.7H2.5z" fill="currentColor" stroke="none" />
+            {soundOn
+              ? <path d="M10.8 5.2a4 4 0 010 5.6M12.8 3.6a6.4 6.4 0 010 8.8" />
+              : <path d="M10.8 5.8l3.4 4.4M14.2 5.8l-3.4 4.4" />}
+          </svg>
+          <span className="btn__label">{soundOn ? t.game.soundOn : t.game.soundOff}</span>
+        </button>
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          onClick={alerts.toggle}
+          aria-pressed={alerts.on}
+          title={alerts.blocked ? t.table.alerts.blocked : t.table.alerts.title}
+        >
+          <svg {...glyph}>
+            <path d="M8 2.4a3.6 3.6 0 013.6 3.6c0 2.8.9 3.9 1.4 4.4H3c.5-.5 1.4-1.6 1.4-4.4A3.6 3.6 0 018 2.4z" />
+            <path d="M6.7 12.6a1.4 1.4 0 002.6 0" />
+            {!alerts.on && <path d="M3.2 2.8l9.8 10.4" />}
+          </svg>
+          <span className="btn__label">{alerts.on ? t.table.alerts.on : t.table.alerts.off}</span>
         </button>
         <LangSwitch />
         <button
@@ -181,7 +223,7 @@ export function Game() {
           onClick={() => setHelpOpen(true)}
           title={t.game.helpTitle}
         >
-          {t.game.howToPlay}
+          <span className="btn__label">{t.game.howToPlay}</span>
           <kbd className="kbd">?</kbd>
         </button>
       </header>
@@ -229,12 +271,18 @@ export function Game() {
         </main>
 
         <aside className="game__side" data-open={sheet === 'log' || undefined}>
-          <IncomingTrades state={state} myId={myId} dispatch={dispatch} />
+          <SeatRequestsDock />
+          <IncomingTrades
+            state={state}
+            myId={myId}
+            dispatch={dispatch}
+            onCounter={(offer) => { setCounterSeed({ offer }); setTradeOpen(true); }}
+          />
           <ActionBar
             state={state}
             myId={myId}
             dispatch={dispatch}
-            onTrade={() => setTradeOpen(true)}
+            onTrade={() => { setCounterSeed(null); setTradeOpen(true); }}
             onContracts={() => setContractsOpen(true)}
           />
           <LogFeed log={log} chat={chat} state={state} onSend={useStore.getState().sendChat} />
@@ -274,8 +322,9 @@ export function Game() {
         state={state}
         myId={myId}
         open={tradeOpen && !iAmBankrupt}
-        onClose={() => setTradeOpen(false)}
+        onClose={() => { setTradeOpen(false); setCounterSeed(null); }}
         dispatch={dispatch}
+        counter={counterSeed}
       />
       <ContractsModal
         state={state}
@@ -286,7 +335,13 @@ export function Game() {
       />
       {state.phase === 'auction' && <AuctionPanel state={state} myId={myId} dispatch={dispatch} />}
       <CardModal state={state} myId={myId} isMyTurn={isMyTurn} dispatch={dispatch} />
-      {state.phase === 'game_over' && <GameOver state={state} onLeave={leave} />}
+      {state.phase === 'game_over' && (
+        <GameOver
+          state={state}
+          onLeave={leave}
+          onRematch={role !== 'guest' ? useStore.getState().rematch : undefined}
+        />
+      )}
       <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
       <FxLayer request={fx} />
     </div>

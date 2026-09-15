@@ -7,6 +7,7 @@ import {
 } from './protocol';
 import { tr } from '../i18n';
 import { isAccountId, verifyPass, type PassClaims } from './account';
+import { makeNonce, proofMessage, signProof, verifyProof } from './deviceKey';
 
 /* ------------------------------------------------------------------ *
  * Star topology, host-authoritative. Guests send intents and never
@@ -59,7 +60,25 @@ const ICE = {
   ],
 };
 
+/* ------------------------------------------------------------------ *
+ * Matchmaking.
+ *
+ * Two browsers need somebody to introduce them before they can talk. That
+ * used to be PeerJS's free public server, which has no uptime promise and
+ * was the one part of joining a table this project did not run. It now runs
+ * on aytingchi.uz beside the relay (ops/peerserver.service). Only the
+ * introduction goes through it; the game itself is still browser to browser.
+ *
+ * VITE_PEER_HOST=public goes back to the public server, e.g. for a fork.
+ * ------------------------------------------------------------------ */
+const PEER_HOST = import.meta.env.VITE_PEER_HOST ?? 'aytingchi.uz';
+const BROKER = PEER_HOST === 'public'
+  ? {}
+  : { host: PEER_HOST, port: 443, secure: true, path: '/peer', key: 'mply' };
+
 const HEARTBEAT_MS = 5000;
+/** How long a player has to answer a sign-in challenge. */
+const CHALLENGE_MS = 20000;
 const DEAD_AFTER_MS = 16000;
 const CONNECT_TIMEOUT_MS = 15000;
 /** How long a vanished host is given to come back - a refresh, a tunnel,
@@ -82,6 +101,15 @@ export interface HostHandlers {
   seatFor?: (uid: string) => string;
   onPresence: (playerId: string, connected: boolean, ping: number) => void;
   onStatus: (status: NetStatus, detail?: string) => void;
+  /** A guest seat's secret, hashed, the first time it is claimed - for the
+   *  room to carry to whoever hosts next. */
+  onSeatKey?: (playerId: string, hash: string) => void;
+}
+
+/** Hex SHA-256 of a seat secret. */
+export async function hashSecret(secret: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`mply-seat|${secret}`));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 export interface GuestHandlers {
@@ -146,6 +174,14 @@ export class HostNet {
    * They stay reserved against guest claims; only that account gets in. */
   private owners = new Map<string, string>();
   private verify: (pass: unknown) => Promise<PassClaims | null>;
+  /* Hashed secrets inherited from an earlier host, for seats whose raw
+   * secret this host never saw. */
+  private seatKeys = new Map<string, string>();
+  /* Connections that showed a valid pass and have been challenged to prove
+   * it is theirs. Nothing is bound until the proof checks out. */
+  private challenged = new Map<DataConnection, {
+    msg: Extract<Up, { t: 'HELLO' }>; claims: PassClaims; nonce: string; at: number;
+  }>();
 
   constructor(
     private code: string,
@@ -153,10 +189,13 @@ export class HostNet {
     opts: {
       epoch?: number;
       secrets?: Record<string, string>;
+      /** Seat secret hashes from the room this host takes over. */
+      seatKeys?: Record<string, string>;
       verify?: (pass: unknown) => Promise<PassClaims | null>;
     } = {},
   ) {
     this.epoch = opts.epoch ?? 0;
+    for (const [pid, hash] of Object.entries(opts.seatKeys ?? {})) this.seatKeys.set(pid, hash);
     this.verify = opts.verify ?? ((pass) => verifyPass(pass));
     for (const [pid, secret] of Object.entries(opts.secrets ?? {})) this.secrets.set(pid, secret);
   }
@@ -202,7 +241,7 @@ export class HostNet {
 
   start(): void {
     this.h.onStatus('starting');
-    const peer = new Peer(toPeerId(epochCode(this.code, this.epoch)), { debug: 0, config: ICE });
+    const peer = new Peer(toPeerId(epochCode(this.code, this.epoch)), { debug: 0, config: ICE, ...BROKER });
     this.peer = peer;
 
     peer.on('open', () => { this.takenRetries = 0; this.h.onStatus('online'); });
@@ -241,6 +280,7 @@ export class HostNet {
       // A connection is bound to the playerId in its first HELLO. Every
       // later message is forced to that id, so a peer cannot act as another.
       const bound = this.idOf(conn);
+      if (msg.t === 'PROOF') { if (!bound) void this.proof(conn, msg.sig); return; }
       if (msg.t === 'HELLO') {
         // Only this transport may say a pass checked out.
         delete (msg as { verified?: string }).verified;
@@ -267,7 +307,20 @@ export class HostNet {
           try { conn.close(); } catch { /* already gone */ }
           return;
         }
-        if (known === undefined) this.secrets.set(claimed, msg.secret ?? '');
+        // A seat this host only knows by its hash - one a previous host saw
+        // claimed - is checked against the hash before anything is bound.
+        if (known === undefined && this.seatKeys.has(claimed)) {
+          void this.helloAgainstHash(conn, msg, claimed);
+          return;
+        }
+        if (known === undefined) {
+          const secret = msg.secret ?? '';
+          this.secrets.set(claimed, secret);
+          void hashSecret(secret).then((hash) => {
+            this.seatKeys.set(claimed, hash);
+            this.h.onSeatKey?.(claimed, hash);
+          });
+        }
         // Bind this connection to the claimed id, dropping any stale mapping of
         // the same socket to a different id so one conn never holds two seats.
         if (bound && bound !== claimed) this.conns.delete(bound);
@@ -293,6 +346,28 @@ export class HostNet {
     conn.on('close', () => this.drop(conn));
   }
 
+  private async helloAgainstHash(
+    conn: DataConnection, msg: Extract<Up, { t: 'HELLO' }>, claimed: string,
+  ): Promise<void> {
+    const secret = msg.secret ?? '';
+    const ok = (await hashSecret(secret)) === this.seatKeys.get(claimed);
+    if (!conn.open) return;
+    // Wrong secret - or a different one proved the seat while this was hashing.
+    const settled = this.secrets.get(claimed);
+    if (!ok || (settled !== undefined && settled !== secret)) {
+      try { conn.send(wrap({ t: 'BYE', reason: 'seat_taken' })); } catch { /* gone */ }
+      try { conn.close(); } catch { /* already gone */ }
+      return;
+    }
+    this.secrets.set(claimed, secret);
+    const bound = this.idOf(conn);
+    if (bound && bound !== claimed) this.conns.delete(bound);
+    this.conns.set(claimed, conn);
+    this.lastSeen.set(claimed, Date.now());
+    this.h.onUp(claimed, msg);
+    if (this.conns.get(claimed) === conn) this.h.onPresence(claimed, true, 0);
+  }
+
   /**
    * A HELLO that carries a pass. The pass decides who this is, not the id in
    * the message: the connection is bound to whichever seat that account
@@ -310,6 +385,31 @@ export class HostNet {
       try { conn.close(); } catch { /* already gone */ }
       return;
     }
+    // A valid pass is not yet a player: anyone it was ever shown to has the
+    // same string. Ask for a signature only its own browser can make.
+    const nonce = makeNonce();
+    this.challenged.set(conn, { msg, claims, nonce, at: Date.now() });
+    try { conn.send(wrap({ t: 'CHALLENGE', nonce })); } catch { /* gone */ }
+  }
+
+  private async proof(conn: DataConnection, sig: unknown): Promise<void> {
+    const pending = this.challenged.get(conn);
+    if (!pending) return;
+    this.challenged.delete(conn);
+    const fresh = Date.now() - pending.at < CHALLENGE_MS;
+    const ok = fresh && await verifyProof(
+      pending.claims.cnf, proofMessage(this.code, this.epoch, pending.nonce), sig,
+    );
+    if (!conn.open) return;
+    if (!ok) {
+      try { conn.send(wrap({ t: 'BYE', reason: 'auth_invalid' })); } catch { /* gone */ }
+      try { conn.close(); } catch { /* already gone */ }
+      return;
+    }
+    this.bindAccount(conn, pending.msg, pending.claims);
+  }
+
+  private bindAccount(conn: DataConnection, msg: Extract<Up, { t: 'HELLO' }>, claims: PassClaims): void {
     const uid = claims.sub;
     const seat = this.h.seatFor?.(uid) ?? uid;
     // The host's own seat and every bot's stay out of reach - except a bot
@@ -339,6 +439,7 @@ export class HostNet {
   }
 
   private drop(conn: DataConnection): void {
+    this.challenged.delete(conn);
     const pid = this.idOf(conn);
     if (!pid) return;
     this.conns.delete(pid);
@@ -467,7 +568,7 @@ export class GuestNet {
 
   start(): void {
     this.h.onStatus('connecting');
-    const peer = new Peer({ debug: 0, config: ICE });
+    const peer = new Peer({ debug: 0, config: ICE, ...BROKER });
     this.peer = peer;
 
     peer.on('open', () => this.dial());
@@ -530,6 +631,15 @@ export class GuestNet {
       const msg = unwrap<Down>(raw);
       if (!msg) return;
       if (msg.t === 'PING') { this.send({ t: 'PONG', playerId: this.me.playerId, seq: msg.seq }); return; }
+      if (msg.t === 'CHALLENGE') {
+        // Signed for this room and the host generation actually dialled, so the
+        // answer is worthless if replayed at any other table.
+        const epoch = this.epoch;
+        void signProof(proofMessage(this.code, epoch, String(msg.nonce).slice(0, 64))).then((sig) => {
+          if (sig) this.send({ t: 'PROOF', playerId: this.me.playerId, sig });
+        });
+        return;
+      }
       this.h.onDown(msg);
     });
 

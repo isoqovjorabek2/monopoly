@@ -68,8 +68,11 @@ check("a different secret gives unrelated ids", a != accounts.player_id("1234567
 
 print("state")
 ret = "https://aytingchi.uz/"
-st = accounts.make_state(ret, secret=b"state", now=now)
-check("a state round-trips to its return address", accounts.read_state(st, secret=b"state", now=now + 5) == ret)
+pub = ec.generate_private_key(ec.SECP256R1()).public_key().public_numbers()
+point = f"{accounts.b64u(pub.x.to_bytes(32, 'big'))}.{accounts.b64u(pub.y.to_bytes(32, 'big'))}"
+st = accounts.make_state(ret, point, secret=b"state", now=now)
+check("a state round-trips to its return address and browser key",
+      accounts.read_state(st, secret=b"state", now=now + 5) == (ret, point))
 check("an expired state is refused", accounts.read_state(st, secret=b"state", now=now + 700) is None)
 check("a state signed with another secret is refused", accounts.read_state(st, secret=b"other", now=now) is None)
 body, mac = st.rsplit(".", 1)
@@ -78,6 +81,13 @@ evil["r"] = "https://evil.example/"
 tampered = f"{accounts.b64u(json.dumps(evil).encode())}.{mac}"
 check("pointing a state somewhere new breaks it", accounts.read_state(tampered, secret=b"state", now=now) is None)
 check("no secret configured fails closed", accounts.read_state(st, secret=b"", now=now) is None)
+
+print("browser keys")
+check("a real P-256 point is accepted", accounts.point_ok(point))
+check("a well-shaped point that is not on the curve is refused", not accounts.point_ok("A" * 43 + "." + "B" * 43))
+check("a malformed point is refused", not accounts.point_ok("nope"))
+bound = accounts.verify_pass(accounts.mint_pass("u_abc123", "A", key=key, now=now, cnf=point), key=key, now=now)
+check("a pass names the browser key it was issued to", bound and bound["cnf"] == dict(zip("xy", point.split("."))))
 
 print("return addresses")
 for good in [
@@ -112,10 +122,73 @@ check("the profile rides beside the pass",
 check("the pass rides in the fragment",
       accounts.with_fragment("https://aytingchi.uz/?x=1", "auth", "a.b.c") == "https://aytingchi.uz/?x=1#auth=a.b.c")
 
+print("saved tables")
+import tempfile  # noqa: E402
+from cryptography.hazmat.primitives import hashes  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature  # noqa: E402
+
+accounts.STATE_DIR = tempfile.mkdtemp()
+browser = ec.generate_private_key(ec.SECP256R1())
+bn = browser.public_key().public_numbers()
+bpoint = f"{accounts.b64u(bn.x.to_bytes(32, 'big'))}.{accounts.b64u(bn.y.to_bytes(32, 'big'))}"
+asil = accounts.mint_pass("u_asil000000000000000", "Asil", key=key, now=now, cnf=bpoint)
+
+
+def signed(method, path, body=b"", pass_=asil, signer=browser, ts=None):
+    ts = str(int(ts if ts is not None else now))
+    der = signer.sign(accounts.request_proof_message(method, path, ts, body).encode(), ec.ECDSA(hashes.SHA256()))
+    r, s_ = decode_dss_signature(der)
+    return {"X-Pass": pass_, "X-Proof": accounts.b64u(r.to_bytes(32, "big") + s_.to_bytes(32, "big")),
+            "X-Proof-Time": ts}
+
+
+body = json.dumps({"room": {"epoch": 0, "game": {"phase": "preroll"}}}).encode()
+check("a request signed by the pass's own browser is accepted",
+      accounts.check_request(signed("PUT", "/saves/GOLD-FALCON-42", body), "PUT", "/saves/GOLD-FALCON-42", body,
+                             key=key, now=now) is not None)
+thief = ec.generate_private_key(ec.SECP256R1())
+check("the same pass signed by any other browser is refused",
+      accounts.check_request(signed("PUT", "/saves/GOLD-FALCON-42", body, signer=thief),
+                             "PUT", "/saves/GOLD-FALCON-42", body, key=key, now=now) is None)
+check("a signature over a different body is refused",
+      accounts.check_request(signed("PUT", "/saves/GOLD-FALCON-42", b"{}"), "PUT", "/saves/GOLD-FALCON-42", body,
+                             key=key, now=now) is None)
+check("a signature for a different table is refused",
+      accounts.check_request(signed("PUT", "/saves/OTHER-TABLE-1", body), "PUT", "/saves/GOLD-FALCON-42", body,
+                             key=key, now=now) is None)
+check("a stale signature is refused",
+      accounts.check_request(signed("PUT", "/saves/GOLD-FALCON-42", body, ts=now - 900),
+                             "PUT", "/saves/GOLD-FALCON-42", body, key=key, now=now) is None)
+unbound = accounts.mint_pass("u_asil000000000000000", "Asil", key=key, now=now)
+check("a pass with no browser key cannot save",
+      accounts.check_request(signed("GET", "/saves", pass_=unbound), "GET", "/saves", b"", key=key, now=now) is None)
+
+room = {"epoch": 2, "game": {"phase": "preroll"}}
+st_, _ = accounts.put_save("u_asil000000000000000", "GOLD-FALCON-42",
+                           {"room": room, "members": ["u_asil000000000000000", "u_bruno00000000000000"],
+                            "summary": {"kind": "monopoly", "round": 7, "names": ["Asil", "Bruno"]}})
+check("a player at the table can save it", st_ == 200)
+check("both players at it see it in their list",
+      [s["code"] for s in accounts.list_saves("u_bruno00000000000000")] == ["GOLD-FALCON-42"])
+check("a stranger does not", accounts.list_saves("u_stranger0000000000") == [])
+st_, _ = accounts.put_save("u_stranger0000000000", "GOLD-FALCON-42",
+                           {"room": room, "members": ["u_stranger0000000000"]})
+check("a stranger cannot overwrite somebody else's table with the same code", st_ == 403)
+st_, _ = accounts.put_save("u_asil000000000000000", "GOLD-FALCON-42", {"room": room, "members": ["u_bruno00000000000000"]})
+check("nobody can save a table they are not listed at", st_ == 403)
+accounts.forget_save("u_bruno00000000000000", "GOLD-FALCON-42")
+check("forgetting a table takes it off only that player's list",
+      accounts.list_saves("u_bruno00000000000000") == [] and len(accounts.list_saves("u_asil000000000000000")) == 1)
+st_, out = accounts.put_save("u_asil000000000000000", "GOLD-FALCON-42",
+                             {"room": {"game": {"phase": "game_over"}}, "members": ["u_asil000000000000000"]})
+check("a finished game is deleted, not kept", out.get("deleted") and accounts.list_saves("u_asil000000000000000") == [])
+check("a malformed code is refused", accounts.put_save("u_asil000000000000000", "../../etc", {"room": {}, "members": ["u_asil000000000000000"]})[0] == 400)
+
 if "--fixture" in sys.argv:
     fixture = {
         "jwk": accounts.public_jwk(key),
-        "pass": accounts.mint_pass("u_fixture0000000000000", "Fixture", key=key, now=now),
+        "pass": accounts.mint_pass("u_fixture0000000000000", "Fixture", key=key, now=now, cnf=point),
+        "point": dict(zip("xy", point.split("."))),
         "otherJwk": accounts.public_jwk(other),
         "mintedAt": int(now),
     }

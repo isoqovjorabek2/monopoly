@@ -25,6 +25,11 @@ export const entryUz: EntryDict = {
     paste: 'Kod yoki havolani qo‘ying',
     invited: (code) => `Sizni ${code} stoliga taklif qilishdi. Tayyor bo‘lsangiz, «Qo‘shilish»ni bosing.`,
     publicTitle: 'Ochiq ommaviy stollar',
+    yourGames: 'O‘yinlaringiz',
+    yourGamesHint: 'O‘ynalayotganda aytingchi.uz da saqlanadi. «Davom etish» stolga qaytaradi yoki hech kim stolni ushlab turmasa, saqlanganidan qayta boshlaydi.',
+    resume: 'Davom etish',
+    forget: 'O‘chirish',
+    savedMeta: (game, round, names) => `${game} · ${round}-davra · ${names}`,
   },
 
   practice: {

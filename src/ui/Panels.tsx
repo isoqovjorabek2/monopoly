@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { BOARD, GROUPS, GROUP_COLOR, GROUP_ORDER } from '../game/board';
 import { canTrade, clockKey, netWorth, ownedBy } from '../game/rules';
 import { acceptMargin, completesFor, suggestTrade, tradeGain } from '../game/ai';
-import { loanDebt, sharedPct } from '../game/deals';
+import { flipOffer, loanDebt, sharedPct } from '../game/deals';
 import type { DealTerm, GameAction, GameState, Player, TradeBody, TradeOffer } from '../game/types';
 import { ContractGlyph, OfferTerms, TermsComposer, pruneTerms } from './Deals';
 import { describe, type LogLine } from '../game/describe';
@@ -593,14 +593,19 @@ const EMPTY_OFFER = {
   terms: [] as DealTerm[],
 };
 
+/** A trade panel opened on an offer somebody sent: their deal, flipped. */
+export interface CounterSeed { offer: TradeOffer }
+
 export function TradePanel({
-  state, myId, open, onClose, dispatch,
+  state, myId, open, onClose, dispatch, counter,
 }: {
   state: GameState;
   myId: string;
   open: boolean;
   onClose: () => void;
   dispatch: (a: GameAction) => void;
+  /** Open as a counter to this offer instead of a blank one. */
+  counter?: CounterSeed | null;
 }) {
   const t = useT();
   const others = state.seats.filter((id) => id !== myId && !state.players[id].bankrupt);
@@ -612,7 +617,23 @@ export function TradePanel({
     if (!others.includes(withId) && others.length > 0) setWithId(others[0]);
   }, [others, withId]);
 
-  useEffect(() => { setDraft(EMPTY_OFFER); setNoDeal(false); }, [withId, open]);
+  // Each opening starts from a clean sheet - or, for a counter, from the
+  // offer being answered, seen from this chair.
+  useEffect(() => {
+    if (!open) return;
+    setNoDeal(false);
+    if (!counter) { setDraft(EMPTY_OFFER); return; }
+    const f = flipOffer(counter.offer);
+    setWithId(counter.offer.from);
+    setDraft({
+      give: f.giveProperties, want: f.wantProperties,
+      giveCash: f.giveCash, wantCash: f.wantCash,
+      giveCards: f.giveJailCards, wantCards: f.wantJailCards,
+      terms: f.terms ?? [],
+    });
+  }, [open, counter]);
+
+  const pick = (id: string) => { setWithId(id); setDraft(EMPTY_OFFER); setNoDeal(false); };
 
   const me = state.players[myId];
   const them = state.players[withId];
@@ -677,13 +698,19 @@ export function TradePanel({
     });
   };
 
+  // A counter still answers only while it is to the player who made the offer.
+  const countering = counter && counter.offer.from === withId ? counter.offer : null;
+
   const send = () => {
-    dispatch({ type: 'PROPOSE_TRADE', playerId: myId, offer });
+    dispatch({
+      type: 'PROPOSE_TRADE', playerId: myId,
+      offer: countering ? { ...offer, counterTo: countering.id } : offer,
+    });
     onClose();
   };
 
   return (
-    <Modal open onClose={onClose} title={t.trade.propose} wide>
+    <Modal open onClose={onClose} title={countering ? t.table.counter.title(them.name) : t.trade.propose} wide>
       <div className="trade">
         <div className="trade__who">
           <span className="switch__label">{t.trade.with}</span>
@@ -696,7 +723,7 @@ export function TradePanel({
                   type="button"
                   className="trade__whoItem"
                   data-on={withId === id || undefined}
-                  onClick={() => setWithId(id)}
+                  onClick={() => pick(id)}
                 >
                   <Avatar color={p.color} token={p.token} size={22} />
                   <span className="truncate">{p.name}</span>
@@ -709,6 +736,8 @@ export function TradePanel({
             {t.trade.suggest}
           </button>
         </div>
+
+        {countering && <p className="trade__note">{t.table.counter.note(them.name)}</p>}
 
         {noDeal && (
           <p className="trade__note">
@@ -787,7 +816,7 @@ export function TradePanel({
             disabled={empty || !sound}
             onClick={send}
           >
-            {t.trade.send}
+            {countering ? t.table.counter.send : t.trade.send}
           </button>
         </footer>
       </div>
@@ -993,8 +1022,13 @@ function OfferSide({
  * full detail in place; nothing is ever hidden behind it.
  */
 export function IncomingTrades({
-  state, myId, dispatch,
-}: { state: GameState; myId: string; dispatch: (a: GameAction) => void }) {
+  state, myId, dispatch, onCounter,
+}: {
+  state: GameState;
+  myId: string;
+  dispatch: (a: GameAction) => void;
+  onCounter?: (offer: TradeOffer) => void;
+}) {
   const t = useT();
   const mine = state.trades.filter((o) => o.to === myId);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -1018,6 +1052,7 @@ export function IncomingTrades({
             open={openId === offer.id}
             onToggle={() => setOpenId((cur) => (cur === offer.id ? null : offer.id))}
             dispatch={dispatch}
+            onCounter={onCounter}
           />
         ))}
       </AnimatePresence>
@@ -1026,7 +1061,7 @@ export function IncomingTrades({
 }
 
 function OfferCard({
-  state, myId, offer, open, onToggle, dispatch,
+  state, myId, offer, open, onToggle, dispatch, onCounter,
 }: {
   state: GameState;
   myId: string;
@@ -1034,6 +1069,7 @@ function OfferCard({
   open: boolean;
   onToggle: () => void;
   dispatch: (a: GameAction) => void;
+  onCounter?: (offer: TradeOffer) => void;
 }) {
   const from = state.players[offer.from];
   const gain = Math.round(tradeGain(state, myId, offer));
@@ -1063,7 +1099,10 @@ function OfferCard({
         onClick={onToggle}
       >
         <Avatar color={from.color} token={from.token} size={26} />
-        <span className="offerCard__who truncate">{t.offers.offersTrade(from.name)}</span>
+        <span className="offerCard__who truncate">
+          {t.offers.offersTrade(from.name)}
+          {offer.counterTo && <span className="offerCard__counter">{t.table.counter.badge}</span>}
+        </span>
         {termCount > 0 && (
           <span className="offerCard__terms num" title={t.deals.section}>
             <ContractGlyph kind={offer.terms![0].kind} size={13} />
@@ -1129,6 +1168,11 @@ function OfferCard({
         >
           {t.offers.decline}
         </button>
+        {onCounter && (
+          <button type="button" className="btn btn--sm" onClick={() => onCounter(offer)}>
+            {t.table.counter.button}
+          </button>
+        )}
         <button
           type="button" className="btn btn--primary btn--sm"
           onClick={() => dispatch({ type: 'ACCEPT_TRADE', playerId: myId, tradeId: offer.id })}
@@ -1143,8 +1187,13 @@ function OfferCard({
 /* ============================ game over ============================= */
 
 export function GameOver({
-  state, onLeave,
-}: { state: GameState; onLeave: () => void }) {
+  state, onLeave, onRematch,
+}: {
+  state: GameState;
+  onLeave: () => void;
+  /** Present for whoever runs the table; everyone else waits on them. */
+  onRematch?: () => void;
+}) {
   const t = useT();
   const ranked = [...state.seats].sort((a, b) => netWorth(state, b) - netWorth(state, a));
   const winner = state.winnerId ? state.players[state.winnerId] : null;
@@ -1177,7 +1226,17 @@ export function GameOver({
             );
           })}
         </ol>
-        <button type="button" className="btn btn--primary btn--block" onClick={onLeave}>
+        {onRematch ? (
+          <>
+            <button type="button" className="btn btn--primary btn--block" onClick={onRematch}>
+              {t.table.rematch.again}
+            </button>
+            <p className="muted small gameOver__note">{t.table.rematch.note}</p>
+          </>
+        ) : (
+          <p className="muted small gameOver__note">{t.table.rematch.waiting}</p>
+        )}
+        <button type="button" className={`btn btn--block ${onRematch ? 'btn--ghost' : 'btn--primary'}`} onClick={onLeave}>
           {t.gameOver.home}
         </button>
       </div>
