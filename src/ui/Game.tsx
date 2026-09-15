@@ -18,9 +18,10 @@ import { FxLayer, useFx } from './Fx';
 import { cardArt, deckBack } from '../art/art';
 import { HelpModal, useGameKeys } from './Help';
 import { ContractGlyph, ContractsModal, myContractCount } from './Deals';
-import { SeatRequestsDock, TakeSeatPanel } from './Account';
+import { SeatRequestsDock, CoownerDock, TakeSeatPanel } from './Account';
 import { tableNeed, useAlertsSwitch, useTableAlert } from './alerts';
 import { LangSwitch } from './LangSwitch';
+import { canKick } from '../net/moderation';
 
 /* Shared props for the header buttons' icons, which stand in for the labels
    on narrow screens (`.btn__icon` is hidden until a breakpoint asks for it). */
@@ -49,6 +50,7 @@ export function Game() {
   const openSheet = useStore((s) => s.openSheet);
   const toggleSound = useStore((s) => s.toggleSound);
   const leave = useStore((s) => s.leave);
+  const removeSeat = useStore((s) => s.removeSeat);
 
   const [portfolioOf, setPortfolioOf] = useState<string | null>(null);
   /* Who the board is currently pointing at.
@@ -102,6 +104,8 @@ export function Game() {
   const state = room?.game ?? null;
   const myId = me.playerId;
   const role = useStore((s) => s.role);
+  // The seat I actually play: my own id, or a bot seat I took over.
+  const mySeatId = room?.seats.find((s) => s.playerId === myId || room.owners?.[s.playerId] === myId)?.playerId ?? myId;
 
   const alerts = useAlertsSwitch();
   const need = useMemo(() => tableNeed(t, room, myId, role === 'host'), [t, room, myId, role]);
@@ -239,6 +243,9 @@ export function Game() {
             floats={floats}
             onInspectPlayer={setPortfolioOf}
             onSpotlight={setSpotlight}
+            coowners={room.coowners ?? []}
+            canKickSeat={(id) => canKick(room, mySeatId, room.seats.find((s) => s.playerId === id))}
+            onKick={removeSeat}
           />
         </aside>
 
@@ -272,6 +279,7 @@ export function Game() {
 
         <aside className="game__side" data-open={sheet === 'log' || undefined}>
           <SeatRequestsDock />
+          <CoownerDock />
           <IncomingTrades
             state={state}
             myId={myId}

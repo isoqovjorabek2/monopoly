@@ -210,6 +210,11 @@ export class HostNet {
     this.owners.set(seat, uid);
   }
 
+  /** Forget which account played a seat - it is a bot again. */
+  clearOwner(seat: string): void {
+    this.owners.delete(seat);
+  }
+
   /** Move a live connection to another seat id - a watcher who has just
    *  taken over a bot. */
   rebind(from: string, to: string): void {

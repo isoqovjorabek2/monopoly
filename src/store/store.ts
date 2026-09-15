@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { play, type SfxName } from '../audio/sfx';
 import { botDecide, botDelay } from '../game/ai';
-import { createGame, handOverSeat, reduce, type SeatSpec } from '../game/engine';
+import { createGame, botifySeat, handOverSeat, reduce, type SeatSpec } from '../game/engine';
 import { logLine, type LogLine } from '../game/describe';
 import { tr } from '../i18n';
 import { clockKey, clockSeconds, legalActions, waitingOn } from '../game/rules';
@@ -11,7 +11,8 @@ import type { GameAction, GameEvent, GameSettings, GameState, TokenId } from '..
 import { botDecide as cfBotDecide, botDelay as cfBotDelay } from '../cashflow/ai';
 import { cfLogLine, type CFLogLine } from '../cashflow/describe';
 import {
-  CF_DEFAULTS, createCashflow, handOverSeat as cfHandOverSeat, reduce as cfReduce,
+  CF_DEFAULTS, botifySeat as cfBotifySeat, createCashflow, handOverSeat as cfHandOverSeat,
+  reduce as cfReduce,
 } from '../cashflow/engine';
 import {
   clockKey as cfClockKey, clockSeconds as cfClockSeconds, currentId as cfCurrentId,
@@ -22,6 +23,9 @@ import { GuestNet, HostNet, type NetStatus } from '../net/net';
 import { currentAccount, isAccountId, signOut, useAccount } from '../net/account';
 import { fetchTable, membersOf, uploadTable } from '../net/saves';
 import { announce as announceRoom, close as closeRoom, closeOnUnload } from '../net/directory';
+import {
+  canKick, elected, eligibleCandidates, eligibleVoters, ownerOf, voteOpen,
+} from '../net/moderation';
 import {
   type ChatMessage, type Down, type GameKind, type RoomSnapshot, type SeatInfo, type Up,
   cleanText, generateRoomCode, localPlayerId, rehydrateForHost,
@@ -99,6 +103,9 @@ interface Store {
   updateCfRules: (patch: Partial<CFRules>) => void;
   addBot: () => void;
   removeSeat: (playerId: string) => void;
+  /** Endorse a candidate for co-owner while the owner is away
+   *  (net/moderation.ts). */
+  endorse: (candidate: string) => void;
   startGame: () => void;
 
   dispatch: (action: AnyAction) => void;
@@ -232,6 +239,7 @@ const freshRoom = (
 ): RoomSnapshot => ({
   roomId: code,
   hostId: hostSeat.playerId,
+  ownerId: hostSeat.playerId,
   kind,
   seats: [hostSeat],
   settings,
@@ -475,10 +483,20 @@ export const useStore = create<Store>((set, get) => {
         const seatRequests = connected
           ? cur.seatRequests
           : cur.seatRequests?.filter((r) => r.uid !== playerId);
+        // The co-owner clock follows the owner's seat: it starts when they
+        // drop, and a vote in progress is moot the moment they are back.
+        let ownerAwayAt = cur.ownerAwayAt ?? null;
+        let coownerVotes = cur.coownerVotes;
+        if (playerId === ownerOf(cur)) {
+          if (!connected && ownerAwayAt == null) ownerAwayAt = Date.now();
+          if (connected) { ownerAwayAt = null; coownerVotes = {}; }
+        }
         publish({
           ...cur,
           watchers,
           seatRequests,
+          ownerAwayAt,
+          coownerVotes,
           seats: cur.seats.map((s) => (s.playerId === playerId ? { ...s, connected, ping } : s)),
         });
       },
@@ -599,6 +617,9 @@ export const useStore = create<Store>((set, get) => {
       { ...room, seats, hostId: me.playerId, epoch },
       randomSeed(),
     );
+    // If the table's owner is the host who just vanished, the co-owner clock
+    // starts here; this tab becoming host says nothing about where they went.
+    if (ownerOf(next) !== me.playerId && next.ownerAwayAt == null) next.ownerAwayAt = Date.now();
     set({ role: 'host', room: next, netStatus: 'starting', netError: tr().net.migrated });
     startHost(code, epoch);
     publish(next);
@@ -748,6 +769,12 @@ export const useStore = create<Store>((set, get) => {
         const name = cleanText(msg.name, 18) || tr().defaults.player;
         // Set only by the host's transport, after the pass checked out.
         const uid = msg.verified;
+        // A removed player stays removed, however they arrive - by their old
+        // seat id, or by the account that was sitting in it.
+        if ((room.kicked ?? []).includes(from) || (uid != null && (room.kicked ?? []).includes(uid))) {
+          host?.refuse(from, 'kicked');
+          return;
+        }
         const existing = room.seats.find((s) => s.playerId === from);
         if (existing) {
           // Reconnect: identity is the playerId, never the connection.
@@ -815,8 +842,11 @@ export const useStore = create<Store>((set, get) => {
         return;
 
       case 'REMOVE_SEAT':
-        if (from !== room.hostId) return;
-        removeSeatById(msg.target);
+        kickTarget(from, msg.target);
+        return;
+
+      case 'ELECT':
+        endorseVote(seatFor(from), msg.candidate);
         return;
 
       case 'INTENT':
@@ -862,6 +892,7 @@ export const useStore = create<Store>((set, get) => {
     if (!room || !host || typeof target !== 'string') return;
     const uid = host.accountOf(from);
     if (!uid || from !== uid) return;
+    if ((room.kicked ?? []).includes(uid)) return;
     if (!mayTakeOver(room, uid, target)) return;
     const policy: TakeoverPolicy = room.settings.takeovers ?? 'ask';
     if (policy === 'off') return;
@@ -1034,6 +1065,80 @@ export const useStore = create<Store>((set, get) => {
     const seat = room.seats.find((s) => s.playerId === playerId);
     if (seat && !seat.isBot) host?.kick(playerId);
     publish({ ...room, seats: room.seats.filter((s) => s.playerId !== playerId) });
+  };
+
+  /**
+   * Remove a player, from the lobby or mid-game. The owner's call, or a
+   * co-owner's - but never against the owner or another co-owner (see
+   * net/moderation.ts). In a started game the seat plays on as a bot, so
+   * the turn cycle and the estate stay intact; either way the removed
+   * player is on the kicked list and stays out for good.
+   */
+  const kickTarget = (from: string, target: string): void => {
+    const room = snapshot();
+    if (!room) return;
+    const seat = room.seats.find((s) => s.playerId === target);
+    const actor = seatFor(from);
+    // Bots have no connection to drop; the owner simply deletes the seat,
+    // in the lobby only - in a game the turn cycle needs it where it is.
+    if (seat?.isBot) {
+      if (actor === ownerOf(room)) removeSeatById(target);
+      return;
+    }
+    if (!host || !canKick(room, actor, seat)) return;
+
+    const connId = room.owners?.[target] ?? target;
+    host.kick(connId);
+    const kicked = [...new Set([...(room.kicked ?? []), target, connId])];
+    const coowners = (room.coowners ?? []).filter((c) => c !== target);
+    const coownerVotes = Object.fromEntries(
+      Object.entries(room.coownerVotes ?? {}).filter(([v, c]) => v !== target && c !== target),
+    );
+
+    if (!inGame(room)) {
+      publish({
+        ...room,
+        seats: room.seats.filter((s) => s.playerId !== target),
+        kicked, coowners, coownerVotes,
+      });
+      return;
+    }
+
+    const game = room.game ? botifySeat(room.game, target).state : room.game;
+    const cf = room.cf ? cfBotifySeat(room.cf, target).state : room.cf;
+    publish({
+      ...room,
+      game,
+      cf,
+      seats: room.seats.map((s) => (s.playerId === target
+        ? { ...s, isBot: true, connected: false, ping: 0 }
+        : s)),
+      owners: Object.fromEntries(Object.entries(room.owners ?? {}).filter(([seatId]) => seatId !== target)),
+      kicked, coowners, coownerVotes,
+    });
+    // The seat is a bot again: nobody may connect as it, and no account
+    // owns it any more.
+    host.reserve(target);
+    host.clearOwner(target);
+  };
+
+  /** One endorsement per voter, the latest replacing it; a strict majority
+   *  of the table seats a co-owner. See net/moderation.ts for the rules. */
+  const endorseVote = (voter: string, candidate: string): void => {
+    const room = snapshot();
+    if (!room || !host || typeof candidate !== 'string') return;
+    if (!voteOpen(room, Date.now())) return;
+    if (!eligibleVoters(room).includes(voter)) return;
+    if (!eligibleCandidates(room).includes(candidate)) return;
+    const coownerVotes = { ...(room.coownerVotes ?? {}), [voter]: candidate };
+    const chosen = elected({ ...room, coownerVotes });
+    publish(chosen
+      ? {
+        ...room,
+        coowners: [...new Set([...(room.coowners ?? []), chosen])],
+        coownerVotes: {},
+      }
+      : { ...room, coownerVotes });
   };
 
   const teardown = (): void => {
@@ -1313,7 +1418,13 @@ export const useStore = create<Store>((set, get) => {
     removeSeat: (playerId) => {
       const { role, me } = get();
       if (role === 'guest') guest?.send({ t: 'REMOVE_SEAT', playerId: me.playerId, target: playerId });
-      else removeSeatById(playerId);
+      else kickTarget(me.playerId, playerId);
+    },
+
+    endorse: (candidate) => {
+      const { role, me } = get();
+      if (role === 'guest') guest?.send({ t: 'ELECT', playerId: me.playerId, candidate });
+      else endorseVote(seatFor(me.playerId), candidate);
     },
 
     startGame: () => {
@@ -1428,7 +1539,9 @@ export const useStore = create<Store>((set, get) => {
         seats,
         watchers: [],
         seatRequests: [],
-        // A new game deals new dice and new decks.
+        // A new game deals new dice and new decks. The table's moderators
+        // carry over; a vote still in progress does not.
+        coownerVotes: {},
         settings: { ...room.settings, seed: randomSeed() },
       });
     },

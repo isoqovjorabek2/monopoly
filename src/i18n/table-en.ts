@@ -39,6 +39,19 @@ export const tableEn = {
   log: {
     countered: (by: string, from: string) => `${by} countered ${from}'s offer.`,
   },
+
+  mod: {
+    coowner: 'co-owner',
+    coownerTitle: 'Elected by the table while the owner is away; can remove players',
+    kickTitle: (name: string) => `Remove ${name} from the table - a bot takes their seat`,
+    kickSure: 'Sure?',
+    awayTitle: 'The table owner is away',
+    awayBody: (name: string, voters: number) =>
+      `${name} has been gone a while. Endorse a co-owner to keep order; a strict majority of ${voters} elects.`,
+    votes: (n: number) => `${n} endorsement${s(n)}`,
+    endorse: 'Endorse',
+    endorsed: 'Endorsed',
+  },
 };
 
 export type TableDict = typeof tableEn;

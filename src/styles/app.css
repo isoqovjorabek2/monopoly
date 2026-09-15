@@ -897,6 +897,34 @@
 /* ------------------------------ rail ------------------------------- */
 
 .rail { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-2); }
+.rail > li { position: relative; }
+
+/* The moderation kick: tucked into a corner until armed; a second tap lands
+   it, so it is red exactly while it is dangerous. */
+.playerKick {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  min-width: 26px;
+  min-height: 26px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.55;
+}
+.playerKick:hover { opacity: 1; color: var(--text); }
+.playerKick[data-armed] {
+  opacity: 1;
+  color: #fff;
+  background: var(--danger-600);
+  border-color: var(--danger-600);
+}
 
 .playerCard {
   position: relative;

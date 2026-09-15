@@ -1366,6 +1366,24 @@ export function handOverSeat(prev: GameState, playerId: string, name: string): R
   return { state: s, events: [{ type: 'SEAT_TAKEN', playerId, name, previous: p.name }] };
 }
 
+/**
+ * The reverse of a hand-over: a removed player's seat plays on as a bot,
+ * keeping everything it held. Host-side only, like the hand-over - nobody
+ * can talk the reducer into it. Nothing is announced: the room snapshot
+ * already shows the seat turn into a bot.
+ */
+export function botifySeat(prev: GameState, playerId: string): Reduction {
+  const p = prev.players[playerId];
+  if (!p || p.isBot || prev.phase === 'game_over' || prev.phase === 'lobby') {
+    return { state: prev, events: [] };
+  }
+  const s = clone(prev);
+  s.version = prev.version + 1;
+  s.players[playerId].isBot = true;
+  s.players[playerId].connected = false;
+  return { state: s, events: [] };
+}
+
 /* ------------------------- exported helpers ------------------------- */
 
 export { netWorth, maxRaisable, currentPlayerId };

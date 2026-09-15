@@ -43,4 +43,17 @@ export const tableUz: TableDict = {
   log: {
     countered: (by, from) => `${by} ${dat(from)} qarshi taklif qildi.`,
   },
+
+  mod: {
+    coowner: 'ham egasi',
+    coownerTitle: 'Egasiz qolganda stol saylagan; o‘yinchilarni chiqarish huquqi bor',
+    kickTitle: (name) => `${name} — stoldan chiqarish; o‘rnini bot oladi`,
+    kickSure: 'Ishonchingiz komilmi?',
+    awayTitle: 'Stol egasi yo‘q',
+    awayBody: (name, voters) =>
+      `${name} ancha vaqtdan beri yo‘q. Tartibni saqlash uchun ham egasini qo‘llang; ${voters} ovozdan ko‘pchilik saylaydi.`,
+    votes: (n) => `${n} ta ovoz`,
+    endorse: 'Qo‘llash',
+    endorsed: 'Qo‘llangan',
+  },
 };

@@ -1,5 +1,8 @@
+import { useEffect, useState } from 'react';
 import { useStore } from '../store/store';
 import { ownedBy } from '../game/rules';
+import { eligibleVoters, isCoowner, ownerOf, tally, voteOpen } from '../net/moderation';
+import type { RoomSnapshot } from '../net/protocol';
 import { useT } from '../i18n';
 import { Avatar, fmt } from './bits';
 
@@ -74,6 +77,76 @@ export function TakeSeatPanel() {
       )}
     </section>
   );
+}
+
+/**
+ * The owner is gone and not coming right back: the table endorses a
+ * co-owner, and a strict majority seats them (net/moderation.ts). Shown as
+ * a dock card in the side column, where questions that are not turns live.
+ * Appears only once the grace has passed, and only to players with a say.
+ */
+export function CoownerDock() {
+  const t = useT();
+  const room = useStore((s) => s.room);
+  const myId = useStore((s) => s.me.playerId);
+  const endorse = useStore((s) => s.endorse);
+  // The grace passing is a clock event, not a room event: tick so the dock
+  // appears on its own a minute after the owner drops.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 5000);
+    return () => window.clearInterval(timer);
+  }, []);
+  if (!room || !inGameRoom(room)) return null;
+
+  const ownerSeat = ownerOf(room);
+  const mySeat = room.seats.find((s) => s.playerId === myId || room.owners?.[s.playerId] === myId)?.playerId ?? myId;
+  if (!voteOpen(room, now)) return null;
+  if (!eligibleVoters(room).includes(mySeat)) return null;
+
+  const counts = tally(room);
+  const voters = eligibleVoters(room).length;
+  const myPick = room.coownerVotes?.[mySeat];
+  const ownerName = room.seats.find((s) => s.playerId === ownerSeat)?.name ?? '';
+  const candidates = room.seats.filter((s) => eligibleVoters(room).includes(s.playerId));
+
+  return (
+    <aside className="offerDock" aria-live="polite">
+      <article className="offerCard seatRequest">
+        <div className="offerCard__head seatRequest__head">
+          <span className="offerCard__who">{t.table.mod.awayTitle}</span>
+        </div>
+        <p className="muted small">{t.table.mod.awayBody(ownerName, voters)}</p>
+        <ul className="takeSeat__list">
+          {candidates.map((seat) => (
+            <li key={seat.playerId} className="takeSeat__row" style={{ ['--pc' as string]: seat.color } as React.CSSProperties}>
+              <Avatar color={seat.color} token={seat.token} size={26} />
+              <span className="takeSeat__info">
+                <span className="takeSeat__name truncate">
+                  {seat.name}
+                  {seat.playerId === mySeat && <> · {t.common.you}</>}
+                  {isCoowner(room, seat.playerId) && <> · {t.table.mod.coowner}</>}
+                </span>
+                <span className="takeSeat__meta num">{t.table.mod.votes(counts[seat.playerId] ?? 0)}</span>
+              </span>
+              <button
+                type="button"
+                className={`btn btn--sm ${myPick === seat.playerId ? 'btn--primary' : 'btn--ghost'}`}
+                onClick={() => endorse(seat.playerId)}
+              >
+                {myPick === seat.playerId ? t.table.mod.endorsed : t.table.mod.endorse}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </article>
+    </aside>
+  );
+}
+
+/* The docks key off whichever game the room plays; both set exactly one. */
+function inGameRoom(room: RoomSnapshot): boolean {
+  return Boolean(room.game || room.cf);
 }
 
 /**

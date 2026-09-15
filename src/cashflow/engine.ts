@@ -696,4 +696,18 @@ export function handOverSeat(prev: CFState, playerId: string, name: string): CFR
   return { state: s, events: [{ type: 'SEAT_TAKEN', playerId, name, previous: p.name }] };
 }
 
+/** The reverse of a hand-over: a removed player's seat plays on as a bot.
+ *  Host-side only, like the hand-over. */
+export function botifySeat(prev: CFState, playerId: string): CFReduction {
+  const p = prev.players[playerId];
+  if (!p || p.isBot || prev.phase === 'game_over' || prev.phase === 'lobby') {
+    return { state: prev, events: [] };
+  }
+  const s = clone(prev);
+  s.version = prev.version + 1;
+  s.players[playerId].isBot = true;
+  s.players[playerId].connected = false;
+  return { state: s, events: [] };
+}
+
 export { currentId };

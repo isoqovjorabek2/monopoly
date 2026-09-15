@@ -18,7 +18,7 @@ import {
 /* ============================ player rail ============================ */
 
 export function PlayerRail({
-  state, seats, myId, floats, onInspectPlayer, onSpotlight,
+  state, seats, myId, floats, onInspectPlayer, onSpotlight, coowners, canKickSeat, onKick,
 }: {
   state: GameState;
   seats: SeatInfo[];
@@ -27,9 +27,22 @@ export function PlayerRail({
   onInspectPlayer: (id: string) => void;
   /** Point the board at this player. Null puts the light out. */
   onSpotlight: (id: string | null) => void;
+  /** Seats the table elected as moderators; shown as a badge. */
+  coowners?: string[];
+  /** Moderation: may the viewer remove this seat? (net/moderation.ts) */
+  canKickSeat?: (id: string) => boolean;
+  onKick?: (id: string) => void;
 }) {
   const t = useT();
   const current = state.seats[state.seatIndex];
+  // A kick is two taps: the first arms, the second lands. The arm times out
+  // on its own so a stray first tap never becomes a removal.
+  const [kickArmed, setKickArmed] = useState<string | null>(null);
+  useEffect(() => {
+    if (!kickArmed) return undefined;
+    const timer = window.setTimeout(() => setKickArmed(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [kickArmed]);
   // Seat order, not a leaderboard: cards that reshuffle as fortunes change
   // make it impossible to see who plays next, and the movement is jarring
   // mid-turn. Standing is shown as a rank badge instead.
@@ -81,6 +94,9 @@ export function PlayerRail({
                   <span className="playerCard__name truncate" title={p.name}>{p.name}</span>
                   {mine && <span className="chip">{t.common.you}</span>}
                   {p.isBot && <span className="chip">{t.common.bot}</span>}
+                  {coowners?.includes(id) && (
+                    <span className="chip" data-tone="good" title={t.table.mod.coownerTitle}>{t.table.mod.coowner}</span>
+                  )}
                   {rank[id] === 1 && !p.bankrupt && state.turnNumber > 3 && (
                     <span className="chip" data-tone="good" title={t.rail.leadingTitle}>{t.rail.leading}</span>
                   )}
@@ -133,6 +149,20 @@ export function PlayerRail({
                 ))}
               </AnimatePresence>
             </button>
+            {seat && canKickSeat?.(id) && (
+              <button
+                type="button"
+                className="playerKick"
+                data-armed={kickArmed === id || undefined}
+                title={t.table.mod.kickTitle(p.name)}
+                onClick={() => {
+                  if (kickArmed === id) { setKickArmed(null); onKick?.(id); }
+                  else setKickArmed(id);
+                }}
+              >
+                {kickArmed === id ? t.table.mod.kickSure : '✕'}
+              </button>
+            )}
           </li>
         );
       })}

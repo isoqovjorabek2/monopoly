@@ -3,7 +3,8 @@ import '../../styles/cashflow.css';
 import { cfDescribe } from '../../cashflow/describe';
 import { useT } from '../../i18n';
 import { useStore } from '../../store/store';
-import { SeatRequestsDock } from '../Account';
+import { canKick } from '../../net/moderation';
+import { SeatRequestsDock, CoownerDock } from '../Account';
 import { tableNeed, useAlertsSwitch, useTableAlert } from '../alerts';
 import { FxLayer, useFx } from '../Fx';
 import { useGameKeys } from '../Help';
@@ -47,6 +48,9 @@ export default function CashflowGame() {
   const myId = me.playerId;
   const mine = s?.players[myId] ?? null;
   const role = useStore((st) => st.role);
+  const removeSeat = useStore((st) => st.removeSeat);
+  // The seat I actually play: my own id, or a bot seat I took over.
+  const mySeatId = room?.seats.find((x) => x.playerId === myId || room.owners?.[x.playerId] === myId)?.playerId ?? myId;
 
   const alerts = useAlertsSwitch();
   const need = useMemo(() => tableNeed(t, room, myId, role === 'host'), [t, room, myId, role]);
@@ -119,7 +123,16 @@ export default function CashflowGame() {
 
       <div className="cfGame__layout">
         <aside className="cfGame__rail" data-open={sheet === 'players' || undefined}>
-          <CFRail s={s} myId={myId} floats={floats} onOpen={setViewing} />
+          <CFRail
+            s={s}
+            myId={myId}
+            floats={floats}
+            onOpen={setViewing}
+            seats={room.seats}
+            coowners={room.coowners ?? []}
+            canKickSeat={(id) => canKick(room, mySeatId, room.seats.find((x) => x.playerId === id))}
+            onKick={removeSeat}
+          />
         </aside>
 
         <main className="cfGame__stage">
@@ -128,6 +141,7 @@ export default function CashflowGame() {
 
         <aside className="cfGame__side" data-open={sheet === 'log' || undefined}>
           <SeatRequestsDock />
+          <CoownerDock />
           <CFActions s={s} myId={myId} dispatch={dispatch} />
           {mine && <CFStatement s={s} p={mine} interactive dispatch={dispatch} />}
           <FeedView lines={lines} chat={chat} onSend={sendChat} />

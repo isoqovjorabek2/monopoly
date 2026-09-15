@@ -2,7 +2,9 @@ import { currentId, passiveIncome, progress, totalExpenses } from '../../cashflo
 import type { CFState } from '../../cashflow/types';
 import { useT } from '../../i18n';
 import type { CashFloat } from '../../store/store';
+import type { SeatInfo } from '../../net/protocol';
 import { Avatar, Money, fmt } from '../bits';
+import { useEffect, useState } from 'react';
 
 /**
  * Who is where. The one number that matters in Cashflow is how close each
@@ -11,11 +13,28 @@ import { Avatar, Money, fmt } from '../bits';
  * the Fast Track.
  */
 export function CFRail({
-  s, myId, floats, onOpen,
-}: { s: CFState; myId: string; floats: CashFloat[]; onOpen: (id: string) => void }) {
+  s, myId, floats, onOpen, seats, coowners, canKickSeat, onKick,
+}: {
+  s: CFState;
+  myId: string;
+  floats: CashFloat[];
+  onOpen: (id: string) => void;
+  /** Room seats, for moderation state the game state does not carry. */
+  seats?: SeatInfo[];
+  coowners?: string[];
+  canKickSeat?: (id: string) => boolean;
+  onKick?: (id: string) => void;
+}) {
   const t = useT();
   const R = t.cf.rail;
   const cur = currentId(s);
+  // Two taps, as on the Monopoly rail: the first arms, the second lands.
+  const [kickArmed, setKickArmed] = useState<string | null>(null);
+  useEffect(() => {
+    if (!kickArmed) return undefined;
+    const timer = window.setTimeout(() => setKickArmed(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [kickArmed]);
 
   return (
     <ol className="cfRail">
@@ -30,6 +49,7 @@ export function CFRail({
               <span className="cfSeat__who">
                 <span className="cfSeat__name truncate">
                   {p.name}{id === myId ? ` · ${t.common.you}` : ''}
+                  {coowners?.includes(id) ? ` · ${t.table.mod.coowner}` : ''}
                 </span>
                 <span className="cfSeat__job truncate">{t.cf.professions[p.profession]}</span>
               </span>
@@ -60,6 +80,20 @@ export function CFRail({
                 </span>
               ))}
             </button>
+            {seats && canKickSeat?.(id) && (
+              <button
+                type="button"
+                className="playerKick"
+                data-armed={kickArmed === id || undefined}
+                title={t.table.mod.kickTitle(p.name)}
+                onClick={() => {
+                  if (kickArmed === id) { setKickArmed(null); onKick?.(id); }
+                  else setKickArmed(id);
+                }}
+              >
+                {kickArmed === id ? t.table.mod.kickSure : '✕'}
+              </button>
+            )}
           </li>
         );
       })}

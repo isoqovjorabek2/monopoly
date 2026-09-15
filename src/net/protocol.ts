@@ -33,7 +33,11 @@ export interface SeatInfo {
 /** Everything a client needs to render the room, game or no game. */
 export interface RoomSnapshot {
   roomId: string;
+  /** The current host's seat: follows host hand-overs. */
   hostId: string;
+  /** The seat that opened the room: never changes. Absent in saves from
+   *  before co-owners existed; fall back to hostId. */
+  ownerId?: string;
   /** Chosen on the front door when the room is opened, and fixed after. */
   kind: GameKind;
   seats: SeatInfo[];
@@ -65,6 +69,16 @@ export interface RoomSnapshot {
   /** Watchers asking to take over a bot, waiting on the host. In the room
    *  rather than in the host's tab, so a host hand-over does not lose them. */
   seatRequests?: SeatRequest[];
+  /** Seats the table elected to moderate while the owner is away. See
+   *  net/moderation.ts. */
+  coowners?: string[];
+  /** Player ids the owner or a co-owner removed; they stay out for good. */
+  kicked?: string[];
+  /** Co-owner endorsements: voter seat id -> candidate seat id. */
+  coownerVotes?: Record<string, string>;
+  /** When the owner's seat last lost its connection; null while they are
+   *  here. In the room so a host hand-over does not restart the clock. */
+  ownerAwayAt?: number | null;
 }
 
 export interface SeatRequest { uid: string; name: string; target: string }
@@ -92,6 +106,8 @@ export type Up =
   | { t: 'SETTINGS'; playerId: string; settings: GameSettings; cfRules?: CFRules }
   | { t: 'ADD_BOT'; playerId: string }
   | { t: 'REMOVE_SEAT'; playerId: string; target: string }
+  /** An endorsement for co-owner while the owner is away (net/moderation.ts). */
+  | { t: 'ELECT'; playerId: string; candidate: string }
   | { t: 'INTENT'; playerId: string; action: GameAction | CFAction }
   | { t: 'CHAT'; playerId: string; text: string }
   | { t: 'PONG'; playerId: string; seq: number }
