@@ -9,7 +9,7 @@ import { hasDirectory, listRooms, type PublicRoom } from '../net/directory';
  *
  * Private rooms have always worked by passing a code to someone you know.
  * This is the other half: hosts who choose a public table appear here, and
- * stop appearing 45 seconds after they close the tab. A game that has
+ * stop appearing a minute and a half after they close the tab. A game that
  * started stays listed only while it has a bot a signed-in player could take
  * over; once there is no seat to take, it is no longer a door that opens.
  *
@@ -40,7 +40,7 @@ export function PublicRooms({ onJoin }: { onJoin: (code: string) => void }) {
   useEffect(() => {
     if (!hasDirectory) return undefined;
     void refresh();
-    // Rooms expire in 45s, so anything slower than this shows tables that
+    // Rooms expire in 90s, so anything slower than this shows tables that
     // are already gone; anything faster is polling a phone book.
     const timer = window.setInterval(() => { void refresh(); }, 15000);
     return () => window.clearInterval(timer);

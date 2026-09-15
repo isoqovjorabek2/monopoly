@@ -56,8 +56,8 @@ export function describeRules(s: GameSettings): { preset: string; deviations: nu
   };
 }
 
-async function post(path: string, body: unknown): Promise<boolean> {
-  if (!hasDirectory) return false;
+async function postJson(path: string, body: unknown): Promise<Record<string, unknown> | null> {
+  if (!hasDirectory) return null;
   try {
     const res = await fetch(`${BASE}/${path}`, {
       method: 'POST',
@@ -66,19 +66,26 @@ async function post(path: string, body: unknown): Promise<boolean> {
       // Never let a slow directory hold anything up.
       signal: AbortSignal.timeout(6000),
     });
-    return res.ok;
+    if (!res.ok) return null;
+    return (await res.json()) as Record<string, unknown>;
   } catch {
-    return false;
+    return null;
   }
 }
 
-/** Say this room exists, and keep saying it. Also the heartbeat. */
-export function announce(room: {
+async function post(path: string, body: unknown): Promise<boolean> {
+  return (await postJson(path, body)) !== null;
+}
+
+/** Say this room exists, and keep saying it. Also the heartbeat. The answer
+ *  can carry `expired`: the room has been open longer than the directory
+ *  keeps them, and beating further only re-asks a settled question. */
+export async function announce(room: {
   id: string; host: string; seats: number; maxSeats: number; settings: GameSettings;
   live?: { openSeats: number; round: number };
-}): Promise<boolean> {
+}): Promise<{ expired: boolean }> {
   const { preset, deviations } = describeRules(room.settings);
-  return post('announce', {
+  const res = await postJson('announce', {
     id: room.id,
     host: room.host,
     seats: room.seats,
@@ -87,11 +94,20 @@ export function announce(room: {
     deviations,
     ...(room.live ? { inProgress: true, openSeats: room.live.openSeats, round: room.live.round } : {}),
   });
+  return { expired: res?.expired === true };
 }
 
-/** Take it off the list. Best effort - the 45s expiry is the real cleanup. */
+/** Take it off the list. Best effort - the expiry is the real cleanup. */
 export function close(id: string): Promise<boolean> {
   return post('close', { id });
+}
+
+/** Close from a page that is itself going away: timers are already dead, so
+ *  this goes as a beacon. text/plain keeps it a simple request with no
+ *  preflight; the server reads the JSON body regardless of its label. */
+export function closeOnUnload(id: string): void {
+  if (!hasDirectory || typeof navigator === 'undefined' || !navigator.sendBeacon) return;
+  navigator.sendBeacon(`${BASE}/close`, new Blob([JSON.stringify({ id })], { type: 'text/plain' }));
 }
 
 /** One seat at a table, as the operator's panel sees it. */

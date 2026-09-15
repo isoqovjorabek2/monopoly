@@ -21,7 +21,7 @@ import type { CFAction, CFEvent, CFRules, CFSettings, CFState } from '../cashflo
 import { GuestNet, HostNet, type NetStatus } from '../net/net';
 import { currentAccount, isAccountId, signOut, useAccount } from '../net/account';
 import { fetchTable, membersOf, uploadTable } from '../net/saves';
-import { announce as announceRoom, close as closeRoom } from '../net/directory';
+import { announce as announceRoom, close as closeRoom, closeOnUnload } from '../net/directory';
 import {
   type ChatMessage, type Down, type GameKind, type RoomSnapshot, type SeatInfo, type Up,
   cleanText, generateRoomCode, localPlayerId, rehydrateForHost,
@@ -1054,19 +1054,30 @@ export const useStore = create<Store>((set, get) => {
     if (listTimer) window.clearInterval(listTimer);
     listTimer = null;
     listedSeats = -1;
+    window.removeEventListener('pagehide', onPageHide);
     const { code, listed } = get();
     if (listed && code) void closeRoom(code);
   };
 
-  /** Announce now, then keep announcing. The directory forgets a room 45
-   *  seconds after the last beat, so this is also what removes a room when
-   *  the tab is closed without warning. */
+  /** The tab is going away: timers are already dead, so close with a
+   *  beacon rather than leaving the room to expire on its own. */
+  const onPageHide = (): void => {
+    const { code, listed } = get();
+    if (listed && code) closeOnUnload(code);
+  };
+
+  /** Announce now, then keep announcing. The directory forgets a room a
+   *  minute and a half after the last beat - slow enough that a hidden
+   *  tab's throttled timers still count - so this is also what removes a
+   *  room when the tab is closed without warning. */
   const beat = (): void => {
     const { room, listed, role } = get();
     if (!room || !listed || role !== 'host') return;
     // A started game stays on the list only while a signed-in player could
     // still come in and take over a bot. Once there is no seat to take, it
-    // is no longer a table anyone can join.
+    // is no longer a table anyone can join. The unlist also settles the
+    // listing itself: a new game is announced again by choice, not by a
+    // flag left over from the last one.
     let live: { openSeats: number; round: number } | undefined;
     if (inGame(room)) {
       const g = room.game;
@@ -1075,6 +1086,7 @@ export const useStore = create<Store>((set, get) => {
         : 0;
       if (!g || g.phase === 'game_over' || bots === 0 || (room.settings.takeovers ?? 'ask') === 'off') {
         stopListing();
+        set({ listed: false });
         return;
       }
       live = { openSeats: bots, round: g.round };
@@ -1087,11 +1099,16 @@ export const useStore = create<Store>((set, get) => {
       maxSeats: room.settings.maxPlayers,
       settings: room.settings,
       live,
+    }).then(({ expired }) => {
+      // The directory declines to keep a room that has been open for hours:
+      // a table that old is done, whether or not anyone remembered to leave.
+      if (expired) { stopListing(); set({ listed: false }); }
     });
   };
 
   const startListing = (): void => {
     if (listTimer) window.clearInterval(listTimer);
+    window.addEventListener('pagehide', onPageHide);
     beat();
     listTimer = window.setInterval(beat, 20000);
   };
@@ -1397,6 +1414,13 @@ export const useStore = create<Store>((set, get) => {
         seats.push(emptySeat(w.uid, w.name, token, seats.length, false));
       }
       set({ screen: 'lobby', log: [], cfLog: [], animPos: {}, inspecting: null });
+      // The listing ended with the game - and has to end here, before the
+      // publish below announces a lobby: rematching inside one heartbeat
+      // skips the game-over unlist entirely, and the room would sit on the
+      // public list forever. The lobby's Public switch is there if this
+      // table wants to be found again.
+      stopListing();
+      set({ listed: false });
       publish({
         ...room,
         game: null,
@@ -1407,7 +1431,6 @@ export const useStore = create<Store>((set, get) => {
         // A new game deals new dice and new decks.
         settings: { ...room.settings, seed: randomSeed() },
       });
-      if (get().listed) startListing();
     },
 
     resumeTable: (code, epoch) => {

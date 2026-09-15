@@ -43,7 +43,10 @@ HOST, PORT = "127.0.0.1", int(os.environ.get("LOBBIES_PORT", "9100"))
 
 # ---------------------------------------------------------------- directory --
 
-TTL = 45.0                # a room is live this long after its last beat
+TTL = 90.0                # a room is live this long after its last beat; a
+                          # hidden tab's timers can slow to one a minute
+MAX_AGE = 3 * 3600.0      # however often it beats, a room this old is done:
+                          # an open tab nobody is at is not a table to join
 MAX_ROOMS = 300           # global ceiling; the list is not a database
 MAX_PER_IP = 4            # one person hosting a few tables, not a spammer
 ANNOUNCE_PER_MIN = 40     # per IP, across all rooms
@@ -123,7 +126,7 @@ def live_rooms() -> list[dict]:
     now = time.time()
     out = []
     for room in list(_rooms.values()):
-        if now - room["seen"] > TTL:
+        if now - room["seen"] > TTL or now - room["opened"] > MAX_AGE:
             _rooms.pop(room["id"], None)
             continue
         out.append({
@@ -472,6 +475,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(429, {"error": "slow down"})
 
             existing = _rooms.get(room_id)
+            if existing is not None and time.time() - existing["opened"] > MAX_AGE:
+                # A room past the age cap is not renewed: tell the host it
+                # expired so it stops beating instead of re-creating it.
+                _rooms.pop(room_id, None)
+                return self._send(200, {"ok": True, "expired": True})
             if existing is None:
                 if len(_rooms) >= MAX_ROOMS:
                     return self._send(503, {"error": "directory full"})
