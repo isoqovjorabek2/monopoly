@@ -39,6 +39,7 @@ export function describeRules(s: GameSettings): { preset: string; deviations: nu
     'startingCash', 'goSalary', 'doubleOnGo', 'freeParkingJackpot', 'snakeEyesBonus',
     'auctionsEnabled', 'doubleRentOnMonopoly', 'buildingShortage', 'requireFullSetToBuild',
     'mustLapBeforeBuying', 'noRentInJail', 'mortgageInterestPct', 'jailFine', 'canBuyInJail',
+    'dealsEnabled',
   ];
   for (const p of PRESETS) {
     const target = { ...CLASSIC, ...p.patch };

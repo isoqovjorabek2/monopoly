@@ -19,6 +19,14 @@ server.
   how far you have drifted from the printed rules.
 - **Peer-to-peer multiplayer.** The host's browser runs the game; everyone else
   connects straight to it over WebRTC. There is no backend to pay for or trust.
+- **Deal Maker mode**, for tables that would rather negotiate than roll. A trade
+  can carry contracts the table enforces by itself: *rent passes* (stay on a
+  deed for less, or free, a number of times), *revenue shares* (a cut of every
+  rent a deed collects, for a set time or the whole game) and *loans* (cash now,
+  collected with interest when the borrower's turn comes round). Passes and
+  shares stay with a deed when it is sold, so "I'll sell you Boardwalk and keep
+  a quarter of its rent" is a deal you can actually make. Bots price contracts,
+  accept the fair ones and ask for loans when they run dry.
 - **Bots** at three difficulties that play by exactly the same rules you do, and
   that open trade negotiations for the deed they need instead of waiting to be
   asked.
@@ -58,6 +66,10 @@ host-authoritative WebRTC star instead of a server:
   builds STUN-only and says so plainly instead of spinning forever.
 - Identity is a `playerId` in `sessionStorage`, not the connection, so a guest
   who drops reconnects into their own seat with their property intact.
+- **Signing in with Google** ties the seat to an account instead: it comes back
+  from any device, and a signed-in player can join a game already in progress
+  by taking over a bot. The account is a signed pass the host's browser checks
+  itself, so joining still involves no server. [`docs/accounts.md`](docs/accounts.md).
 
 **The host must stay on the page.** If they close the tab the room ends — there is
 nowhere else for the state to live. Everyone else can drop and rejoin freely.

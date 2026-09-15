@@ -45,6 +45,9 @@
 .picker__cover {
   display: block;
   width: 100%;
+  /* The width/height attributes are there to reserve space while it loads;
+     without this their 343px height wins over the aspect ratio below. */
+  height: auto;
   aspect-ratio: 16 / 9;
   object-fit: cover;
   transition: filter var(--dur-mid) var(--ease-out);
@@ -103,14 +106,22 @@
 }
 .jobPlate .deedPlate__foot { font-size: var(--t-2xs); line-height: 1.35; }
 
+/* On a phone the way in comes straight after the choice of game. Someone
+   who opened an invite link, or came back to play, should not have to
+   scroll past the pitch to find the button; the pitch follows for anyone
+   still deciding. */
 @media (max-width: 900px) {
   .home__spread.home__spread--pick {
-    grid-template-areas: 'picker' 'masthead' 'join' 'deed';
+    grid-template-areas: 'picker' 'join' 'masthead' 'deed';
   }
 }
+/* Two games side by side as compact tiles, not two full-width posters -
+   the photograph and the name are enough to choose by. */
 @media (max-width: 520px) {
-  .picker__row { grid-template-columns: minmax(0, 1fr); }
-  .picker__cover { aspect-ratio: 21 / 9; }
+  .picker__cover { aspect-ratio: 16 / 10; }
+  .picker__pitch { display: none; }
+  .picker__text { margin-top: -1.2rem; padding: var(--s-2); }
+  .picker__name { flex-direction: column; align-items: flex-start; gap: 0; font-size: 1.1rem; }
 }
 @media (prefers-reduced-motion: reduce) {
   .picker__card, .picker__cover { transition: none; }

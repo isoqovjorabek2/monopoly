@@ -317,6 +317,8 @@ export type CFEvent =
   | { type: 'LOSS'; playerId: string; kind: 'audit' | 'lawsuit' | 'divorce'; amount: number }
   | { type: 'DREAM_BOUGHT'; playerId: string; spaceId: number; cost: number }
   | { type: 'TIMED_OUT'; playerId: string }
+  /** A signed-in player took over a bot's seat mid-game. */
+  | { type: 'SEAT_TAKEN'; playerId: string; name: string; previous: string }
   | { type: 'GAME_OVER'; winnerId: string | null; reason: NonNullable<CFState['winReason']> };
 
 export interface CFReduction {

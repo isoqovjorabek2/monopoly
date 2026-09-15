@@ -1,5 +1,8 @@
 import type { Dict } from './en';
 import { cfRu } from './cf-ru';
+import { dealsRu } from './deals-ru';
+import { accountRu } from './account-ru';
+import { entryRu } from './entry-ru';
 
 /* Russian. Log lines are in the present tense on purpose: the past tense
  * agrees with the speaker's gender ("заплатил" / "заплатила"), and a player
@@ -99,8 +102,8 @@ export const ru: Dict = {
     looking: 'Ищем…',
     refresh: 'Обновить',
     empty: [
-      'Сейчас никто не открыл публичный стол. Откройте стол выше и отметьте',
-      ' «Показывать всем»',
+      'Сейчас никто не открыл публичный стол. Откройте стол и выберите',
+      ' «Публичный»',
       ', чтобы он появился здесь.',
     ],
     custom: 'Свои правила',
@@ -537,6 +540,9 @@ export const ru: Dict = {
       room_full: 'В этой комнате нет мест.',
       in_progress: 'Эта игра уже началась.',
       seat_taken: 'Это место в комнате уже занято другим игроком.',
+      elsewhere: 'Вы открыли этот стол на другом устройстве, и ваше место перешло туда.',
+      sign_in_to_join: 'Эта игра уже началась. Войдите, чтобы наблюдать и занять место бота.',
+      auth_invalid: 'Вход истёк или не прошёл проверку. Войдите снова, чтобы вернуться.',
     },
   },
 
@@ -574,6 +580,9 @@ export const ru: Dict = {
     'passing GO': 'проход через «Старт»',
     'the Free Parking pot': 'джекпот бесплатной парковки',
     'liquidated buildings': 'распроданные постройки',
+    'loan repayment': 'возврат займа',
+    'revenue share': 'доля дохода',
+    'loan': 'заём',
   },
   reasonFns: {
     rentOn: (space) => `аренда за «${space}»`,
@@ -682,6 +691,11 @@ export const ru: Dict = {
       blurb: 'Так, как играет большинство: джекпот на бесплатной парковке, без аукционов, без дефицита домов.',
       minutes: '60–120 мин',
     },
+    dealmaker: {
+      name: 'Делец',
+      blurb: 'Печатные правила плюс контракты. Продавайте бесплатные визиты, покупайте долю чужой аренды, давайте в долг под процент. За столом торгуются не меньше, чем бросают кубики.',
+      minutes: '90–150 мин',
+    },
     tycoon: {
       name: 'Магнат',
       blurb: 'Много денег и никакой пощады. Побеждает первый, чей капитал достигнет $10,000; таймеры не дают затянуть.',
@@ -713,4 +727,7 @@ export const ru: Dict = {
     luck: 'Везёт',
   },
   cf: cfRu,
+  deals: dealsRu,
+  account: accountRu,
+  entry: entryRu,
 };

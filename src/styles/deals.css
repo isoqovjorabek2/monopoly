@@ -1,0 +1,349 @@
+/* ==================================================================
+   Deal Maker.
+
+   A contract is a slip of engraved card stock laid on the felt: a brass
+   medallion for its kind, a hairline rule down the edge that turns green
+   when the slip pays the reader and red when it costs them, and the two
+   parties' pieces with the money flowing left to right. The same slip is
+   used in the composer, in a received offer, in the ledger and on the
+   deed, so it only has to be learned once.
+   ================================================================== */
+
+.slipStack {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.slip {
+  --slip-edge: var(--border-brass);
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-3) var(--s-3) calc(var(--s-3) + 3px);
+  border-radius: var(--r-md);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.045), rgb(255 255 255 / 0.015)),
+    var(--bg-raised);
+  border: 1px solid var(--border);
+  box-shadow: var(--e-1);
+  overflow: hidden;
+}
+/* The edge rule carries the reading: whose favour this slip is in. */
+.slip::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--slip-edge);
+}
+.slip[data-tone='up'] { --slip-edge: var(--success-400); }
+.slip[data-tone='down'] { --slip-edge: var(--danger-400); }
+.slip[data-compact] { padding-block: var(--s-2); gap: var(--s-2); }
+
+.slip__glyph {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-pill);
+  color: var(--brass-200);
+  background:
+    radial-gradient(circle at 35% 30%, color-mix(in oklab, var(--brass-400) 38%, transparent), transparent 70%),
+    color-mix(in oklab, var(--brass-700) 45%, var(--bg-raised));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--brass-400) 55%, transparent),
+    inset 0 1px 0 rgb(255 255 255 / 0.12),
+    0 1px 2px rgb(0 0 0 / 0.5);
+  flex: 0 0 auto;
+}
+.slip[data-compact] .slip__glyph { width: 26px; height: 26px; }
+.slip[data-compact] .slip__glyph svg { width: 15px; height: 15px; }
+
+.slip__main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.slip__head { display: flex; align-items: baseline; gap: var(--s-2); }
+.slip__kind {
+  font-family: var(--font-display);
+  font-size: var(--t-xs);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--brass-300);
+}
+.slip__meta {
+  margin-left: auto;
+  font-size: var(--t-2xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.slip__text { margin: 0; font-size: var(--t-sm); color: var(--text); line-height: 1.4; }
+.slip__parties {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+}
+.slip__parties .truncate { max-width: 11ch; }
+.slip__arrow { flex: 0 0 auto; color: var(--brass-400); margin-inline: 2px; }
+.slip__actions { display: flex; gap: var(--s-2); flex-wrap: wrap; margin-top: var(--s-1); }
+
+/* On the ivory deed card the slip is printed rather than laid on felt. */
+.deed__contracts { display: flex; flex-direction: column; gap: var(--s-2); }
+.deed__contracts .overline { color: #6b5a3a; }
+.deed__contracts .slip {
+  background: rgb(255 255 255 / 0.55);
+  border-color: rgb(0 0 0 / 0.12);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.7);
+}
+.deed__contracts .slip__text { color: var(--paper-ink); }
+.deed__contracts .slip__kind { color: var(--brass-700); }
+.deed__contracts .slip__meta,
+.deed__contracts .slip__parties { color: #5a5347; }
+
+/* ------------------------------ composer ------------------------------ */
+
+.terms {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4);
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border-brass);
+  background:
+    radial-gradient(120% 90% at 0% 0%, color-mix(in oklab, var(--brass-600) 14%, transparent), transparent 60%),
+    rgb(0 0 0 / 0.18);
+}
+.terms__head { display: flex; flex-direction: column; gap: 2px; }
+.terms__head .section__title { margin: 0; }
+.terms__head p { margin: 0; }
+
+.terms__adders {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--s-2);
+}
+.termAdder {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-md);
+  border: 1px dashed color-mix(in oklab, var(--brass-500) 45%, transparent);
+  background: rgb(255 255 255 / 0.02);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+.termAdder:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-style: solid;
+  border-color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 9%, transparent);
+}
+.termAdder:active:not(:disabled) { transform: translateY(0); }
+.termAdder:disabled { opacity: 0.4; cursor: not-allowed; }
+.termAdder:focus-visible { outline: none; box-shadow: var(--ring-focus); }
+.termAdder__glyph { color: var(--brass-300); display: grid; place-items: center; flex: 0 0 auto; }
+.termAdder__text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.termAdder__kind { font-size: var(--t-sm); font-weight: 600; }
+.termAdder__hint { font-size: var(--t-2xs); color: var(--text-muted); line-height: 1.3; }
+
+.termEditor {
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface);
+  box-shadow: var(--e-2);
+  overflow: hidden;
+}
+.termEditor__head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-3);
+  border-bottom: 1px solid var(--border);
+  background: rgb(255 255 255 / 0.025);
+}
+.termEditor__head .slip__glyph { width: 26px; height: 26px; }
+.termEditor__head .slip__glyph svg { width: 15px; height: 15px; }
+.termEditor__title {
+  font-family: var(--font-display);
+  font-size: var(--t-sm);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brass-200);
+  flex: 0 0 auto;
+}
+.termEditor__summary { flex: 1 1 auto; min-width: 0; font-size: var(--t-xs); color: var(--text-muted); }
+.termEditor__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-3);
+}
+.termEditor__pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--s-3);
+}
+.termEditor .segmented__item { padding-inline: 6px; white-space: nowrap; }
+
+.deedPicks { display: flex; flex-wrap: wrap; gap: 5px; }
+.deedPick {
+  position: relative;
+  padding: 5px 10px 5px 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: rgb(255 255 255 / 0.03);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--t-xs);
+  cursor: pointer;
+  overflow: hidden;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.deedPick::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 5px;
+  background: var(--dc);
+}
+.deedPick:hover { color: var(--text); border-color: var(--border-strong); }
+.deedPick[data-on] {
+  color: var(--text);
+  border-color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 16%, transparent);
+}
+.deedPick:focus-visible { outline: none; box-shadow: var(--ring-focus); }
+
+.terms__warn { margin: 0; color: var(--brass-300); }
+
+/* --------------------------- offers and ledger --------------------------- */
+
+.offer__side--terms .slipStack { margin-top: var(--s-2); }
+.offerCard__terms {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  font-size: var(--t-2xs);
+  color: var(--brass-200);
+  background: color-mix(in oklab, var(--brass-500) 22%, transparent);
+  flex: 0 0 auto;
+}
+
+.ledger { display: flex; flex-direction: column; gap: var(--s-4); }
+.ledger__heading { margin: 0 0 var(--s-2); }
+
+.btn--contracts { display: inline-flex; align-items: center; gap: 6px; }
+.btn--contracts svg { color: var(--brass-300); }
+.btn--contracts[data-live] { color: var(--brass-200); }
+
+/* ------------------------------- lobby -------------------------------- */
+
+.preset__name { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+.preset__badge {
+  font-family: var(--font-ui);
+  font-size: var(--t-2xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  color: var(--text-on-brass);
+  background: linear-gradient(180deg, var(--brass-300), var(--brass-500));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.35);
+}
+
+@media (max-width: 560px) {
+  .terms { padding: var(--s-3); }
+  .termEditor__summary { display: none; }
+  .slip { grid-template-columns: minmax(0, 1fr); }
+  .slip__glyph { display: none; }
+  .slip__head { flex-wrap: wrap; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .termAdder, .deedPick { transition: none; }
+  .termAdder:hover:not(:disabled) { transform: none; }
+}
+
+/* ==================================================================
+   Accounts: the sign-in strip on the join card, and the seat a watcher
+   can take in a game already in progress.
+   ================================================================== */
+
+.accountBar { display: flex; flex-direction: column; gap: var(--s-2); }
+.accountBar[data-signed-in] {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 6px 6px 6px 8px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border-brass);
+  background: color-mix(in oklab, var(--brass-600) 12%, transparent);
+}
+.accountBar__badge {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-pill);
+  font-weight: 700;
+  font-size: var(--t-sm);
+  color: var(--text-on-brass);
+  background: linear-gradient(180deg, var(--brass-300), var(--brass-500));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.35);
+  flex: 0 0 auto;
+}
+.accountBar__who { flex: 1 1 auto; min-width: 0; font-size: var(--t-sm); color: var(--brass-100); }
+.accountBar__why { margin: 0; line-height: 1.45; }
+
+/* A light surface with Google's mark, as its sign-in guidelines describe -
+   and the one light button on a dark card, so it is found without looking. */
+.googleBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--ivory-50);
+  color: #1f1f1f;
+  border-color: rgb(0 0 0 / 0.12);
+  font-weight: 600;
+}
+.googleBtn:hover:not(:disabled) { background: var(--ivory-100); }
+.googleBtn:disabled { opacity: 0.75; cursor: progress; }
+.googleBtn--urgent { box-shadow: var(--ring-accent); }
+
+.takeSeat__list {
+  list-style: none;
+  margin: var(--s-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.takeSeat__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2);
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--pc);
+  background: rgb(255 255 255 / 0.03);
+}
+.takeSeat__info { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+.takeSeat__name { font-size: var(--t-sm); font-weight: 600; }
+.takeSeat__meta { font-size: var(--t-2xs); color: var(--text-muted); }

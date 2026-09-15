@@ -546,7 +546,10 @@
      three overlapping cards in a 360px column is a pile, not a fan. */
   .deedWrap { padding-top: 0; min-height: 0; display: flex; justify-content: center; }
   .deedFan__back, .deedFan__mid { display: none; }
-  .deedFan__front { position: static; width: min(17rem, 82%); transform: rotate(-2deg); }
+  /* !important because the fan's entrance animation writes its desktop
+     angle inline, and an 18-degree lean pushes the card past a phone's edge
+     - which was what gave the whole front door a sideways scroll. */
+  .deedFan__front { position: static; width: min(17rem, 82%); transform: rotate(-2deg) !important; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2117,6 +2120,9 @@
   gap: 0;
   background: var(--bg-deep);
 }
+/* The docked rails and action bar sit at 62-67 inside this same stacking
+   context, so a dialog at the scrim's usual 60 opened underneath them. */
+.game[data-focus] .scrim { z-index: 80; }
 /* The header carries nothing you need mid-turn: leaving, the renderer
    toggle, sound, the rules. Dimming it was half a measure - it still took a
    row of height off the board and still drew the eye. It now leaves the

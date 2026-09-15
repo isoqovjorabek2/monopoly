@@ -53,6 +53,7 @@ export function cfLogLine(e: CFEvent, seq: number): CFLogLine | null {
     case 'LOSS': return line(e.playerId, 'bad');
     case 'DREAM_BOUGHT': return line(e.playerId, 'big');
     case 'TIMED_OUT': return line(e.playerId, 'bad');
+    case 'SEAT_TAKEN': return line(e.playerId, 'big');
     case 'GAME_OVER': return line(e.winnerId, 'big');
   }
 }
@@ -146,6 +147,7 @@ export function cfDescribe(s: CFState, e: CFEvent, t: Dict): string {
     case 'LOSS': return L[e.kind](name(e.playerId), money(e.amount));
     case 'DREAM_BOUGHT': return L.dreamBought(name(e.playerId), fastName(t, e.spaceId), money(e.cost));
     case 'TIMED_OUT': return t.log.timedOut(name(e.playerId));
+    case 'SEAT_TAKEN': return t.account.log.seatTaken(e.name, e.previous);
     case 'GAME_OVER':
       return e.reason === 'none' || !e.winnerId ? L.over.none : L.over[e.reason](name(e.winnerId));
   }

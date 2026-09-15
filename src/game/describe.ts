@@ -53,6 +53,12 @@ export function logLine(e: GameEvent, seq: number): LogLine | null {
     case 'FREE_PARKING': return line(e.playerId, 'good');
     case 'TIMED_OUT': return line(e.playerId, 'bad');
     case 'GAME_OVER': return line(e.winnerId, 'big');
+    case 'SEAT_TAKEN': return line(e.playerId, 'big');
+    case 'CONTRACT_SIGNED': return line(e.contract.kind === 'loan' ? e.contract.lender : e.contract.grantor, 'big');
+    case 'PASS_USED': return line(e.playerId, 'good');
+    case 'SHARE_PAID': return line(e.to, 'good');
+    case 'LOAN_REPAID': return line(e.borrower, 'good');
+    case 'CONTRACT_ENDED': return line(e.contract.kind === 'loan' ? e.contract.lender : e.contract.holder);
     // Movement and raw money moves are shown on the board itself; putting
     // them in the log as well just buries the interesting lines.
     case 'MOVED':
@@ -104,6 +110,25 @@ export function describe(s: GameState, e: GameEvent, t: Dict): string {
     case 'FREE_PARKING': return L.freeParking(name(e.playerId), money(e.amount));
     case 'TIMED_OUT': return L.timedOut(name(e.playerId));
     case 'GAME_OVER': return e.winnerId ? L.wins(name(e.winnerId)) : L.draw;
+    case 'SEAT_TAKEN': return t.account.log.seatTaken(e.name, e.previous);
+    case 'CONTRACT_SIGNED': {
+      const c = e.contract;
+      const D = t.deals.log;
+      if (c.kind === 'loan') {
+        return D.loan(name(c.lender), name(c.borrower), money(c.principal), money(c.repay), c.dueRound);
+      }
+      const deeds = c.spaces.map((id) => spaceShort(t, id)).join(', ');
+      return c.kind === 'pass'
+        ? D.pass(name(c.grantor), name(c.holder), deeds)
+        : D.share(name(c.grantor), name(c.holder), c.pct, deeds);
+    }
+    case 'PASS_USED': return t.deals.log.passUsed(name(e.playerId), spaceShort(t, e.spaceId), money(e.saved));
+    case 'SHARE_PAID': return t.deals.log.sharePaid(name(e.to), money(e.amount), spaceShort(t, e.spaceId));
+    case 'LOAN_REPAID': return t.deals.log.repaid(name(e.borrower), name(e.lender), money(e.amount), e.early);
+    case 'CONTRACT_ENDED': {
+      const c = e.contract;
+      return t.deals.log.ended(c.kind, name(c.kind === 'loan' ? c.lender : c.holder), e.reason);
+    }
     case 'MOVED':
     case 'MONEY':
       return '';

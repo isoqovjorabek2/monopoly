@@ -6,6 +6,7 @@ import {
   epochCode, localSecret, redactForGuests, toPeerId, unwrap, wrap,
 } from './protocol';
 import { tr } from '../i18n';
+import { isAccountId, verifyPass, type PassClaims } from './account';
 
 /* ------------------------------------------------------------------ *
  * Star topology, host-authoritative. Guests send intents and never
@@ -76,6 +77,9 @@ export type NetStatus =
 
 export interface HostHandlers {
   onUp: (fromPlayerId: string, msg: Up) => void;
+  /** The seat a signed-in account plays: the one it already holds, or its
+   *  own id when it holds none yet. Without this, an account plays as itself. */
+  seatFor?: (uid: string) => string;
   onPresence: (playerId: string, connected: boolean, ping: number) => void;
   onStatus: (status: NetStatus, detail?: string) => void;
 }
@@ -134,14 +138,50 @@ export class HostNet {
   /** A host that has just refreshed finds its own id still registered for a
    *  few seconds. That is worth waiting out rather than failing the room. */
   private takenRetries = 0;
+  /* Bound id -> the account whose pass that connection presented. Only ids
+   * in here may act as a signed-in player: watch a game in progress, or take
+   * over a bot. */
+  private accounts = new Map<string, string>();
+  /* Reserved seats an account plays - bots a signed-in player took over.
+   * They stay reserved against guest claims; only that account gets in. */
+  private owners = new Map<string, string>();
+  private verify: (pass: unknown) => Promise<PassClaims | null>;
 
   constructor(
     private code: string,
     private h: HostHandlers,
-    opts: { epoch?: number; secrets?: Record<string, string> } = {},
+    opts: {
+      epoch?: number;
+      secrets?: Record<string, string>;
+      verify?: (pass: unknown) => Promise<PassClaims | null>;
+    } = {},
   ) {
     this.epoch = opts.epoch ?? 0;
+    this.verify = opts.verify ?? ((pass) => verifyPass(pass));
     for (const [pid, secret] of Object.entries(opts.secrets ?? {})) this.secrets.set(pid, secret);
+  }
+
+  /** The account a bound connection proved it is, if it proved one. */
+  accountOf(playerId: string): string | undefined {
+    return this.accounts.get(playerId);
+  }
+
+  /** Record which account plays a reserved seat (a taken-over bot). */
+  setOwner(seat: string, uid: string): void {
+    this.owners.set(seat, uid);
+  }
+
+  /** Move a live connection to another seat id - a watcher who has just
+   *  taken over a bot. */
+  rebind(from: string, to: string): void {
+    const conn = this.conns.get(from);
+    const uid = this.accounts.get(from);
+    if (!conn || !uid) return;
+    this.conns.delete(from);
+    this.accounts.delete(from);
+    this.conns.set(to, conn);
+    this.accounts.set(to, uid);
+    this.lastSeen.set(to, Date.now());
   }
 
   /** The seat secrets, to be handed back after a refresh so returning
@@ -202,7 +242,16 @@ export class HostNet {
       // later message is forced to that id, so a peer cannot act as another.
       const bound = this.idOf(conn);
       if (msg.t === 'HELLO') {
+        // Only this transport may say a pass checked out.
+        delete (msg as { verified?: string }).verified;
+        if (msg.auth !== undefined) { void this.helloWithPass(conn, msg); return; }
         const claimed = msg.playerId;
+        // An account id is only ever claimed with its pass.
+        if (isAccountId(claimed)) {
+          try { conn.send(wrap({ t: 'BYE', reason: 'auth_invalid' })); } catch { /* gone */ }
+          try { conn.close(); } catch { /* already gone */ }
+          return;
+        }
         // The host's own seat and every bot's are never claimable.
         if (typeof claimed !== 'string' || this.reserved.has(claimed)) {
           try { conn.send(wrap({ t: 'BYE', reason: 'seat_taken' })); } catch { /* gone */ }
@@ -225,7 +274,8 @@ export class HostNet {
         this.conns.set(claimed, conn);
         this.lastSeen.set(claimed, Date.now());
         this.h.onUp(claimed, msg);
-        this.h.onPresence(claimed, true, 0);
+        // Still bound unless the HELLO was just refused.
+        if (this.conns.get(claimed) === conn) this.h.onPresence(claimed, true, 0);
         return;
       }
       if (!bound) return;
@@ -243,6 +293,46 @@ export class HostNet {
     conn.on('close', () => this.drop(conn));
   }
 
+  /**
+   * A HELLO that carries a pass. The pass decides who this is, not the id in
+   * the message: the connection is bound to whichever seat that account
+   * plays - its own, or a bot it took over - and to nothing else.
+   *
+   * The same account arriving from a second device takes the seat with it.
+   * The first connection is told why and closed; a player whose phone died
+   * mid-game should not have to wait for it to time out.
+   */
+  private async helloWithPass(conn: DataConnection, msg: Extract<Up, { t: 'HELLO' }>): Promise<void> {
+    const claims = await this.verify(msg.auth);
+    if (!conn.open) return;
+    if (!claims) {
+      try { conn.send(wrap({ t: 'BYE', reason: 'auth_invalid' })); } catch { /* gone */ }
+      try { conn.close(); } catch { /* already gone */ }
+      return;
+    }
+    const uid = claims.sub;
+    const seat = this.h.seatFor?.(uid) ?? uid;
+    // The host's own seat and every bot's stay out of reach - except a bot
+    // this very account has taken over.
+    if (this.reserved.has(seat) && this.owners.get(seat) !== uid) {
+      try { conn.send(wrap({ t: 'BYE', reason: 'seat_taken' })); } catch { /* gone */ }
+      try { conn.close(); } catch { /* already gone */ }
+      return;
+    }
+    const previous = this.conns.get(seat);
+    if (previous && previous !== conn) {
+      try { previous.send(wrap({ t: 'BYE', reason: 'elsewhere' })); } catch { /* gone */ }
+      try { previous.close(); } catch { /* already gone */ }
+    }
+    const bound = this.idOf(conn);
+    if (bound && bound !== seat) { this.conns.delete(bound); this.accounts.delete(bound); }
+    this.conns.set(seat, conn);
+    this.accounts.set(seat, uid);
+    this.lastSeen.set(seat, Date.now());
+    this.h.onUp(seat, { ...msg, playerId: seat, verified: uid });
+    if (this.conns.get(seat) === conn) this.h.onPresence(seat, true, 0);
+  }
+
   private idOf(conn: DataConnection): string | null {
     for (const [pid, c] of this.conns) if (c === conn) return pid;
     return null;
@@ -252,6 +342,7 @@ export class HostNet {
     const pid = this.idOf(conn);
     if (!pid) return;
     this.conns.delete(pid);
+    this.accounts.delete(pid);
     this.h.onPresence(pid, false, 0);
   }
 
@@ -264,6 +355,7 @@ export class HostNet {
       if (now - (this.lastSeen.get(pid) ?? now) > DEAD_AFTER_MS) {
         try { conn.close(); } catch { /* already gone */ }
         this.conns.delete(pid);
+        this.accounts.delete(pid);
         this.h.onPresence(pid, false, 0);
         continue;
       }
@@ -300,6 +392,17 @@ export class HostNet {
 
   broadcastChat(message: ChatMessage): void {
     this.broadcast({ t: 'CHAT', message });
+  }
+
+  /** Turn a connection away: say why, then close it and forget it, so the
+   *  room update that follows a HELLO is never broadcast to a tab that has
+   *  just been told to leave. */
+  refuse(playerId: string, reason: Extract<Down, { t: 'BYE' }>['reason']): void {
+    this.send(playerId, { t: 'BYE', reason });
+    const conn = this.conns.get(playerId);
+    this.conns.delete(playerId);
+    this.accounts.delete(playerId);
+    if (conn) { try { conn.close(); } catch { /* already gone */ } }
   }
 
   kick(playerId: string): void {
@@ -341,6 +444,8 @@ export class GuestNet {
     private me: { playerId: string; name: string; token: import('../game/types').TokenId },
     private h: GuestHandlers,
     epoch = 0,
+    /** Read on every connect, so a pass signed in mid-session is used. */
+    private account: () => { uid: string; pass: string } | null = () => null,
   ) {
     this.epoch = epoch;
     this.searchTo = epoch + EPOCH_SEARCH;
@@ -405,16 +510,23 @@ export class GuestNet {
       this.attempt = 0;
       this.h.onStatus('online');
       // Sending before 'open' silently drops the message, so HELLO goes here.
+      // Signed in, the pass is the identity: the host binds this connection
+      // to whatever seat the account plays, wherever it last sat down.
+      const account = this.account();
       this.send({
         t: 'HELLO',
-        playerId: this.me.playerId,
+        playerId: account ? account.uid : this.me.playerId,
         name: this.me.name,
         token: this.me.token,
         secret: localSecret(),
+        ...(account ? { auth: account.pass } : {}),
       });
     });
 
     conn.on('data', (raw) => {
+      // A channel can still deliver what was already in flight after this tab
+      // has left - a room update right behind the BYE that sent it home.
+      if (this.closedByUs) return;
       const msg = unwrap<Down>(raw);
       if (!msg) return;
       if (msg.t === 'PING') { this.send({ t: 'PONG', playerId: this.me.playerId, seq: msg.seq }); return; }

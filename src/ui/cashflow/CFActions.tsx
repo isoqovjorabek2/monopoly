@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { TakeSeatPanel } from '../Account';
 import { FAST_BOARD, LOAN_UNIT, RAT_BOARD } from '../../cashflow/data';
 import {
   charityCost, clockKey, clockSeconds, currentId, dreamPrice, legalActions, maxLoan,
@@ -31,7 +32,9 @@ export function CFActions({ s, myId, dispatch }: { s: CFState; myId: string; dis
   // On a phone the board is too small to carry the card, so it sits here.
   const cardBlock = s.card ? <div className="cfActions__card"><CFTableCardView s={s} /></div> : null;
 
-  if (!me || me.out) {
+  if (!me) return <TakeSeatPanel />;
+
+  if (me.out) {
     return (
       <section className="actions">
         <p className="actions__title">{A.spectating}</p>

@@ -4,14 +4,12 @@ import '../styles/picker.css';
 import { ART, GAME_COVER, cfJobArt } from '../art/art';
 import { professionById } from '../cashflow/data';
 import { BOARD, GROUP_COLOR } from '../game/board';
-import { TOKENS } from '../game/settings';
-import type { TokenId } from '../game/types';
 import { spaceName, useT } from '../i18n';
 import { forgetSave, readSave, useStore } from '../store/store';
 import { normaliseCode, type GameKind } from '../net/protocol';
-import { Avatar, fmt } from './bits';
+import { fmt } from './bits';
 import { LangSwitch } from './LangSwitch';
-import { PublicRooms } from './PublicRooms';
+import { EntryCard } from './Entry';
 
 /** Reads a #/join/CODE deep link once on mount. */
 function useJoinCodeFromUrl(): string {
@@ -30,31 +28,15 @@ function useJoinCodeFromUrl(): string {
 
 export function Home() {
   const t = useT();
-  const me = useStore((s) => s.me);
   const netError = useStore((s) => s.netError);
   const pick = useStore((s) => s.pick);
   const setPick = useStore((s) => s.setPick);
-  const setProfile = useStore((s) => s.setProfile);
-  const hostRoom = useStore((s) => s.hostRoom);
-  const joinRoom = useStore((s) => s.joinRoom);
-  const playSolo = useStore((s) => s.playSolo);
 
   const resumeSaved = useStore((s) => s.resumeSaved);
   const [saved, setSaved] = useState(readSave);
 
   const urlCode = useJoinCodeFromUrl();
-  const [name, setName] = useState(me.name);
-  const [token, setToken] = useState<TokenId>(me.token);
-  const [code, setCode] = useState('');
 
-  useEffect(() => { if (urlCode) setCode(urlCode); }, [urlCode]);
-
-  const commit = () => setProfile(name, token);
-  const nameOk = name.trim().length > 0;
-
-  const go = (fn: () => void) => { commit(); fn(); };
-
-  const [inviteBefore, inviteAfter] = t.home.followedInvite;
   const cashflow = pick === 'cashflow';
   const P = t.cf.picker;
 
@@ -123,11 +105,7 @@ export function Home() {
             {netError && <div className="banner banner--bad" role="alert">{netError}</div>}
 
             {saved && (
-              <div
-                className="banner"
-                role="status"
-                style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}
-              >
+              <div className="banner resumeBanner" role="status">
                 <span>{t.home.resumeNote(saved.code)}</span>
                 <span className="spacer" />
                 <button
@@ -143,102 +121,7 @@ export function Home() {
               </div>
             )}
 
-            <label className="labelled">
-              <span className="switch__label">{t.home.nameLabel}</span>
-              <input
-                className="field"
-                value={name}
-                maxLength={18}
-                placeholder={t.home.namePlaceholder}
-                onChange={(e) => setName(e.target.value)}
-                onBlur={commit}
-                autoComplete="nickname"
-                aria-describedby={nameOk ? undefined : 'name-hint'}
-              />
-              {!nameOk && (
-                <span id="name-hint" className="hint">
-                  {t.home.nameHint}
-                </span>
-              )}
-            </label>
-
-            <div className="labelled">
-              <span className="switch__label">{t.home.piece}</span>
-              <div className="tokenPicker" role="radiogroup" aria-label={t.home.pieceAria}>
-                {TOKENS.map((tk) => (
-                  <button
-                    key={tk.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={token === tk.id}
-                    className="tokenPicker__item"
-                    data-on={token === tk.id || undefined}
-                    onClick={() => { setToken(tk.id); setProfile(name, tk.id); }}
-                    title={t.tokens[tk.id]}
-                  >
-                    <Avatar color="#e8b448" token={tk.id} size={26} />
-                    <span className="tokenPicker__label">{t.tokens[tk.id]}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <hr className="joinCard__rule" />
-
-            {/* One primary way in. It opens a table for whichever game is
-                picked above; a code joins whatever game its host is playing. */}
-            <button
-              type="button"
-              className="btn btn--primary btn--block btn--lg"
-              disabled={!nameOk}
-              title={nameOk ? undefined : t.home.pickName}
-              onClick={() => go(() => hostRoom(undefined, pick))}
-            >
-              {t.home.open} · {cashflow ? P.cashflow.name : P.monopoly.name}
-            </button>
-            <p className="joinCard__under">{cashflow ? P.cashflow.meta : t.home.openUnder}</p>
-
-            <form
-              className="joinCard__form"
-              onSubmit={(e) => { e.preventDefault(); if (code.trim()) go(() => joinRoom(code)); }}
-            >
-              <span className="switch__label">{t.home.invited}</span>
-              <div className="joinRow">
-                <input
-                  className="field num joinRow__code"
-                  value={code}
-                  placeholder="GOLD-FALCON-42"
-                  onChange={(e) => setCode(normaliseCode(e.target.value))}
-                  aria-label={t.home.codeAria}
-                  spellCheck={false}
-                  autoCapitalize="characters"
-                />
-                <button
-                  type="submit"
-                  className="btn"
-                  disabled={!nameOk || code.trim().length < 3}
-                  title={nameOk ? undefined : t.home.pickName}
-                >
-                  {t.common.join}
-                </button>
-              </div>
-              {urlCode && (
-                <p className="muted small">
-                  {inviteBefore}<strong className="num">{urlCode}</strong>{inviteAfter}
-                </p>
-              )}
-            </form>
-
-            {!cashflow && <PublicRooms onJoin={(id) => go(() => joinRoom(id))} />}
-
-            <button
-              type="button"
-              className="joinCard__solo"
-              disabled={!nameOk}
-              onClick={() => go(() => playSolo(pick))}
-            >
-              {t.home.solo}
-            </button>
+            <EntryCard pick={pick} urlCode={urlCode} />
           </motion.section>
         </div>
       </motion.div>

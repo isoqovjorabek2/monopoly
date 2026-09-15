@@ -1,10 +1,13 @@
 import { BOARD, GROUPS } from './board';
+import { contractsOf, loanDebt, principalOut, repayAt, sharedPct, sideId } from './deals';
 import { rand } from './rng';
 import {
-  canTrade, countRailroads, hasUnmortgagedMonopoly, legalActions, netWorth,
-  ownedBy, ownsFullGroup, tradeKey, transferFee, unmortgageCost,
+  calculateRent, canTrade, countRailroads, hasUnmortgagedMonopoly, legalActions, maxRaisable,
+  netWorth, ownedBy, ownsFullGroup, tradeKey, transferFee, unmortgageCost,
 } from './rules';
-import type { BotLevel, ColorGroup, GameAction, GameState, TradeBody } from './types';
+import type {
+  BotLevel, ColorGroup, DealTerm, GameAction, GameState, TradeBody,
+} from './types';
 
 /* ------------------------------------------------------------------ *
  * Bots choose from legalActions() and nothing else. They read only
@@ -89,11 +92,114 @@ function strategicValue(s: GameState, pid: string, spaceId: number): number {
  * ------------------------------------------------------------------- */
 
 /** What a deed is worth to `pid` across a table rather than at auction: a
- *  mortgaged deed arrives dead, and costs interest to wake up. */
+ *  mortgaged deed arrives dead, and costs interest to wake up, and one with
+ *  its rent already promised away is worth that much less. */
 function tradeValue(s: GameState, pid: string, spaceId: number): number {
-  const v = strategicValue(s, pid, spaceId);
+  const shared = Math.min(sharedPct(s, spaceId), 100) / 100;
+  const v = strategicValue(s, pid, spaceId) * (1 - shared * 0.6);
   if (!s.properties[spaceId].mortgaged) return v;
   return v * 0.55 - unmortgageCost(s, spaceId);
+}
+
+/* ------------------------- Deal Maker valuation ----------------------- *
+ * Rough but honest: expected rent over a horizon, from landing odds any
+ * player could work out from the board. The trade panel shows the same
+ * figures, so a human sees exactly what a bot is weighing.
+ * -------------------------------------------------------------------- */
+
+/** Chance a given player lands on a given square in one round. Forty
+ *  squares, a little over one move a turn once doubles are counted. */
+const LAND_PER_ROUND = 0.029;
+/** Rounds a contract with no end is assumed to matter for. */
+const HORIZON = 18;
+
+const landWeight = (spaceId: number): number => {
+  const g = BOARD[spaceId].group;
+  return g ? LANDING_WEIGHT[g] : 1;
+};
+
+/** Rent a square charges one visitor, as things stand. An unimproved full
+ *  set is priced a little up: its owner is about to build. */
+function rentNow(s: GameState, spaceId: number, owner: string | null): number {
+  const st = s.properties[spaceId];
+  if (!owner || !st || st.mortgaged) return 0;
+  const shadow: GameState = { ...s, properties: { ...s.properties, [spaceId]: { ...st, owner } } };
+  const r = calculateRent(shadow, spaceId, 7);
+  const g = BOARD[spaceId].group;
+  return g && st.houses === 0 && ownsFullGroup(shadow, owner, g) ? r * 1.4 : r;
+}
+
+/** Who owns a square once an offer goes through. */
+function ownerAfter(s: GameState, o: TradeBody, id: number): string | null {
+  if (o.giveProperties.includes(id)) return o.to;
+  if (o.wantProperties.includes(id)) return o.from;
+  return s.properties[id]?.owner ?? null;
+}
+
+/** Players still in who would pay rent to `owner`. */
+const payers = (s: GameState, owner: string): number =>
+  s.seats.filter((id) => id !== owner && !s.players[id].bankrupt).length;
+
+/** What one term moves from the side that gives it to the side that gains
+ *  it, in dollars. Positive; the sign is applied by `termGain`. */
+function termValue(s: GameState, o: TradeBody, t: DealTerm): number {
+  switch (t.kind) {
+    case 'pass': {
+      // Only the holder's own landings are discounted - but a pass never
+      // lapses, so it is counted over a longer game than a share is.
+      let v = 0;
+      for (const id of t.spaces) {
+        const landings = Math.min(t.uses, LAND_PER_ROUND * landWeight(id) * HORIZON * 1.6);
+        v += rentNow(s, id, ownerAfter(s, o, id)) * landings * (t.discountPct / 100);
+      }
+      return v;
+    }
+    case 'share': {
+      const rounds = t.rounds === 0 ? HORIZON : Math.min(t.rounds, HORIZON);
+      let v = 0;
+      for (const id of t.spaces) {
+        const owner = ownerAfter(s, o, id);
+        if (!owner) continue;
+        v += rentNow(s, id, owner) * LAND_PER_ROUND * landWeight(id) * payers(s, owner) * rounds;
+      }
+      return v * (t.pct / 100);
+    }
+    case 'loan':
+      return 0; // two-sided; see termGain
+  }
+}
+
+/** One side's gain from the contracts an offer carries. */
+function termGain(s: GameState, pid: string, o: TradeBody): number {
+  const terms = o.terms ?? [];
+  if (terms.length === 0) return 0;
+  const mySide = pid === o.from ? 'from' : 'to';
+  let n = 0;
+  for (const t of terms) {
+    if (t.kind === 'loan') {
+      const lending = t.lender === mySide;
+      const borrower = sideId(o, lending ? (mySide === 'from' ? 'to' : 'from') : mySide);
+      const interest = t.repay - t.principal;
+      // A lender prices in the chance of never being paid: the borrower's
+      // whole estate against everything they will owe.
+      const cover = maxRaisable(s, borrower) + t.principal;
+      const owed = loanDebt(s, borrower) + t.repay;
+      const risk = t.repay * (cover >= owed * 2 ? 0.06 : cover >= owed ? 0.22 : 0.55);
+      if (lending) {
+        n += interest - risk;
+      } else {
+        // Cash in hand is worth more to a player who is short of it.
+        const me = s.players[pid];
+        const floor = cashFloor(s, pid, me.botLevel);
+        const relief = Math.max(0, Math.min(t.principal, floor - me.cash)) * 0.45;
+        n += relief - interest;
+      }
+      continue;
+    }
+    const gives = t.grantor === mySide;
+    n += gives ? -termValue(s, o, t) : termValue(s, o, t);
+  }
+  return n;
 }
 
 /** A Get Out of Jail Free card is worth roughly what it saves. Valuing it
@@ -119,7 +225,8 @@ export function tradeGain(s: GameState, pid: string, o: TradeBody): number {
   // Taking over a mortgaged deed costs its interest on the spot.
   const fees = inProps.reduce((n, id) => n + (s.properties[id]?.mortgaged ? transferFee(s, id) : 0), 0);
   return (sum(inProps) + inCash + inCards * card)
-    - (sum(outProps) + outCash + outCards * card + fees);
+    - (sum(outProps) + outCash + outCards * card + fees)
+    + termGain(s, pid, o);
 }
 
 /** Turns a refusal keeps a pair from talking again. Without it a bot
@@ -148,8 +255,10 @@ export function acceptMargin(s: GameState, pid: string, o: TradeBody): number {
   if (!p) return -Infinity;
   const level = p.botLevel;
   let demand = ACCEPT_DEMAND[level];
-  // No deal is worth being unable to pay the rent it walks into.
-  const cashOut = o.to === pid ? o.wantCash : o.giveCash;
+  // No deal is worth being unable to pay the rent it walks into - and lent
+  // money is money out of hand just the same.
+  const side = o.to === pid ? 'to' : 'from';
+  const cashOut = (side === 'to' ? o.wantCash : o.giveCash) + principalOut(o.terms, side);
   if (p.cash - cashOut < cashFloor(s, pid, level)) demand += 250;
   return tradeGain(s, pid, o) - demand;
 }
@@ -279,6 +388,45 @@ export function suggestTrade(
   return best;
 }
 
+/**
+ * Deal Maker: a bot running short asks the table for a loan.
+ *
+ * Priced so the lender comes out ahead by more than a normal bot demands,
+ * and only asked of someone who could lend without being left short
+ * themselves. A bot that already owes more than its estate would cover does
+ * not dig deeper.
+ */
+export function loanRequest(s: GameState, pid: string, level: BotLevel): TradeBody | null {
+  if (!s.settings.dealsEnabled) return null;
+  const me = s.players[pid];
+  const floor = cashFloor(s, pid, level);
+  if (me.cash >= floor * 0.6) return null;
+  if (contractsOf(s).some((c) => c.kind === 'loan' && c.borrower === pid)) return null;
+
+  const principal = Math.min(600, roundUp10(Math.max(150, floor - me.cash)));
+  const repay = repayAt(principal, 25);
+  if (maxRaisable(s, pid) < repay * 1.5) return null;
+
+  let best: TradeBody | null = null;
+  let bestCash = 0;
+  for (const them of s.seats) {
+    const other = s.players[them];
+    if (them === pid || !other || other.bankrupt) continue;
+    const cooled = s.tradeCooldowns[tradeKey(pid, them)];
+    if (cooled !== undefined && s.turnNumber - cooled < TRADE_COOLDOWN) continue;
+    if (other.cash - principal < cashFloor(s, them, other.botLevel)) continue;
+    const offer: TradeBody = {
+      from: pid, to: them,
+      giveCash: 0, giveProperties: [], giveJailCards: 0,
+      wantCash: 0, wantProperties: [], wantJailCards: 0,
+      terms: [{ kind: 'loan', lender: 'to', principal, repay, rounds: 6 }],
+    };
+    if (!canTrade(s, offer)) continue;
+    if (other.cash > bestCash) { bestCash = other.cash; best = offer; }
+  }
+  return best;
+}
+
 /** The best offer this bot will open with, across the whole table. */
 export function botTradeOffer(s: GameState, pid: string, level: BotLevel): TradeBody | null {
   const style = TRADE_STYLE[level];
@@ -308,7 +456,7 @@ export function botTradeOffer(s: GameState, pid: string, level: BotLevel): Trade
     const gain = tradeGain(s, pid, offer);
     if (gain > bestGain) { bestGain = gain; best = offer; }
   }
-  return best;
+  return best ?? loanRequest(s, pid, level);
 }
 
 function scoreAction(s: GameState, pid: string, a: GameAction, level: BotLevel): number {
@@ -390,9 +538,23 @@ function scoreAction(s: GameState, pid: string, a: GameAction, level: BotLevel):
     case 'DECLARE_BANKRUPTCY':
       return -500;
 
+    case 'REPAY_LOAN': {
+      // Paying early buys nothing but peace of mind, so a bot only does it
+      // flush with cash, to clear the books before it forgets.
+      const loan = contractsOf(s).find((c) => c.id === a.contractId);
+      if (!loan || loan.kind !== 'loan') return -200;
+      return me.cash - loan.repay > floor * 3 ? 30 : -200;
+    }
+
+    case 'RELEASE_CONTRACT':
+      // Giving value away is never a bot's move.
+      return -300;
+
     case 'PROPOSE_TRADE':
       // Only ever composed when it already clears this bot's own bar, so
-      // it outranks rolling: the offer resolves while the turn goes on.
+      // it outranks rolling: the offer resolves while the turn goes on. A
+      // loan request is composed out of need, not gain.
+      if (a.offer.terms?.some((t) => t.kind === 'loan')) return 120;
       return 118 + Math.min(tradeGain(s, pid, a.offer), 400) / 10;
 
     case 'ACCEPT_TRADE': {

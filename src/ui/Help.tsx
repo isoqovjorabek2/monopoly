@@ -110,6 +110,11 @@ export function HelpModal({ open, onClose }: { open: boolean; onClose: () => voi
           <Rules rows={h.jail} />
         </section>
 
+        <section className="help__block">
+          <h3 className="help__heading">{t.deals.help.heading}</h3>
+          <Rules rows={t.deals.help.rows} />
+        </section>
+
         <p className="muted small">{h.footnote}</p>
       </div>
     </Modal>

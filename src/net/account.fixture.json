@@ -1,0 +1,20 @@
+{
+  "jwk": {
+    "kty": "EC",
+    "crv": "P-256",
+    "x": "6d9QtkfFzUo3fJzBibR-NGVN2i9TN2z92SdAao8XJLw",
+    "y": "fyW0wBywL5KVAeeXAYxR27ipqCNRtN-5RXl8OBcYyDE",
+    "alg": "ES256",
+    "use": "sig"
+  },
+  "pass": "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2F5dGluZ2NoaS51ei9hdXRoIiwiYXVkIjoibW9ub3BvbHkiLCJzdWIiOiJ1X2ZpeHR1cmUwMDAwMDAwMDAwMDAwIiwibmFtZSI6IkZpeHR1cmUiLCJpYXQiOjE3ODk0NTcwMzgsImV4cCI6MTc5MjA0OTAzOH0.K3Mpr8IjyYOpIwDT1cDGMjF8ZW6NiDvV8L_krHDY1yAwNfycQRo-V8a0nWmkPVM3AcYNFTIdx9M3OCiEYB2G9g",
+  "otherJwk": {
+    "kty": "EC",
+    "crv": "P-256",
+    "x": "sMokzGg6FvQSdBgXCRxvXrwcFGmiJA48hFKWpS34veQ",
+    "y": "U8IjWne8tDVrlZaR0XMntFhNKlbYrTKz-Eyp6huKBTk",
+    "alg": "ES256",
+    "use": "sig"
+  },
+  "mintedAt": 1789457038
+}

@@ -677,4 +677,23 @@ function checkWin(s: CFState, events: CFEvent[]): void {
   }
 }
 
+/**
+ * A signed-in player takes over a bot's seat in a game in progress. Not a
+ * CFAction, for the same reason as Monopoly's: the host applies it after the
+ * player's pass has checked out, and the reducer never can.
+ */
+export function handOverSeat(prev: CFState, playerId: string, name: string): CFReduction {
+  const p = prev.players[playerId];
+  if (!p || !p.isBot || prev.phase === 'game_over' || prev.phase === 'lobby') {
+    return { state: prev, events: [] };
+  }
+  const s = clone(prev);
+  s.version = prev.version + 1;
+  const seat = s.players[playerId];
+  seat.isBot = false;
+  seat.connected = true;
+  seat.name = name;
+  return { state: s, events: [{ type: 'SEAT_TAKEN', playerId, name, previous: p.name }] };
+}
+
 export { currentId };

@@ -109,9 +109,53 @@ export interface Debt {
    *  `to` is null when this is set. */
   split?: string[];
   /** What the turn still owes once this is paid: the third-turn jail fine
-   *  comes before the move of the roll that brought it. */
-  resume?: 'move';
+   *  comes before the move of the roll that brought it, and a loan that fell
+   *  due as a turn began comes before that turn's roll. */
+  resume?: 'move' | 'turn';
+  /** Deal Maker: slices of a rent debt that go to shareholders instead of
+   *  the owner. They come out of `amount`, never on top of it. */
+  cuts?: RentCut[];
 }
+
+/** Part of a rent payment diverted to whoever holds a revenue share. */
+export interface RentCut {
+  to: string;
+  amount: number;
+  spaceId: number;
+}
+
+/* ------------------------------------------------------------------ *
+ * Deal Maker contracts.
+ *
+ * A term is what a trade promises; a contract is what the table holds
+ * once the trade is accepted. Terms name their parties by side of the
+ * offer ('from' / 'to') so a proposer can compose one before anyone has
+ * agreed to anything; contracts name real player ids.
+ *
+ * Passes and shares run with the deed, like a lease: whoever owns the
+ * square when the rent is due honours them. That is what stops a player
+ * selling a share and then trading the deed to a friend to void it.
+ * ------------------------------------------------------------------ */
+
+export type TradeSide = 'from' | 'to';
+
+export type DealTerm =
+  /** The other side pays `discountPct`% less rent (100 = free) on these
+   *  squares, for the next `uses` times they owe it. */
+  | { kind: 'pass'; grantor: TradeSide; spaces: number[]; discountPct: number; uses: number }
+  /** The other side takes `pct`% of every rent paid on these squares, for
+   *  `rounds` rounds - 0 for the rest of the game. */
+  | { kind: 'share'; grantor: TradeSide; spaces: number[]; pct: number; rounds: number }
+  /** `lender` hands over `principal` now and is repaid `repay` when the
+   *  borrower's turn comes round `rounds` rounds from now. */
+  | { kind: 'loan'; lender: TradeSide; principal: number; repay: number; rounds: number };
+
+export type Contract =
+  | { id: string; kind: 'pass'; grantor: string; holder: string; spaces: number[]; discountPct: number; usesLeft: number }
+  | { id: string; kind: 'share'; grantor: string; holder: string; spaces: number[]; pct: number; endsRound: number | null }
+  | { id: string; kind: 'loan'; lender: string; borrower: string; principal: number; repay: number; dueRound: number };
+
+export type ContractEnd = 'used' | 'expired' | 'released' | 'void';
 
 export interface TradeOffer {
   id: string;
@@ -123,6 +167,8 @@ export interface TradeOffer {
   wantCash: number;
   wantProperties: number[];
   wantJailCards: number;
+  /** Deal Maker contracts that come with the swap. Absent in classic play. */
+  terms?: DealTerm[];
   createdAt: number;
 }
 
@@ -175,6 +221,8 @@ export interface GameSettings {
   /** Board animation speed multiplier. */
   animationSpeed: number;
   allowTrades: boolean;
+  /** Deal Maker: trades may carry rent passes, revenue shares and loans. */
+  dealsEnabled: boolean;
   fillWithBots: boolean;
   botLevel: BotLevel;
   /** Deterministic seed. Same seed + same actions = same game. */
@@ -228,6 +276,8 @@ export interface GameState {
    *  timed out. Bots read it, so a deal you turned down is not put back in
    *  front of you on the next tick. */
   tradeCooldowns: Record<string, number>;
+  /** Deal Maker contracts in force. Always empty in classic play. */
+  contracts: Contract[];
 
   /** Card currently on screen, for the presentation layer. */
   activeCard: Card | null;
@@ -264,6 +314,10 @@ export type GameAction =
   | { type: 'DECLINE_TRADE'; playerId: string; tradeId: string }
   | { type: 'END_TURN'; playerId: string }
   | { type: 'DISMISS_CARD'; playerId: string }
+  /** Deal Maker: pay a loan off before it falls due. */
+  | { type: 'REPAY_LOAN'; playerId: string; contractId: string }
+  /** Deal Maker: the side a contract favours tears it up. */
+  | { type: 'RELEASE_CONTRACT'; playerId: string; contractId: string }
   /** Sent by the host when a player's clock runs out or they have left the
    *  table: the engine makes their pending decisions for them. */
   | { type: 'TIME_OUT'; playerId: string };
@@ -302,6 +356,13 @@ export type GameEvent =
   | { type: 'TURN_STARTED'; playerId: string; turnNumber: number }
   | { type: 'FREE_PARKING'; playerId: string; amount: number }
   | { type: 'TIMED_OUT'; playerId: string }
+  /** A signed-in player took over a bot's seat mid-game. */
+  | { type: 'SEAT_TAKEN'; playerId: string; name: string; previous: string }
+  | { type: 'CONTRACT_SIGNED'; contract: Contract }
+  | { type: 'PASS_USED'; playerId: string; ownerId: string; spaceId: number; saved: number; usesLeft: number }
+  | { type: 'SHARE_PAID'; from: string; to: string; amount: number; spaceId: number }
+  | { type: 'LOAN_REPAID'; borrower: string; lender: string; amount: number; early: boolean }
+  | { type: 'CONTRACT_ENDED'; contract: Contract; reason: ContractEnd }
   | { type: 'GAME_OVER'; winnerId: string | null };
 
 export interface Reduction {

@@ -57,7 +57,7 @@ GLOBAL_ANNOUNCE_PER_MIN = 900
 # a fixed word list: WORD-WORD-NN. Anything else is not a room code.
 ROOM_RE = re.compile(r"^[A-Z]{3,10}-[A-Z]{3,10}-\d{1,3}$")
 # Must match the ids in src/game/settings.ts; anything else is "custom".
-PRESETS = {"classic", "speed", "friendly", "tycoon", "custom"}
+PRESETS = {"classic", "speed", "friendly", "dealmaker", "tycoon", "custom"}
 
 # -------------------------------------------------------------- table log --
 

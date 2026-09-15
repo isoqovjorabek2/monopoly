@@ -4,6 +4,9 @@ import { CHANCE, CHEST } from '../game/cards';
 import { PRESETS, TOKENS } from '../game/settings';
 import type { BotLevel, ColorGroup, TokenId } from '../game/types';
 import { cfEn } from './cf-en';
+import { dealsEn } from './deals-en';
+import { accountEn } from './account-en';
+import { entryEn } from './entry-en';
 
 /* ------------------------------------------------------------------ *
  * English, and the shape every other language has to fill in.
@@ -99,8 +102,8 @@ export const en = {
     refresh: 'Refresh',
     /** Before the bold part, the bold part, after it. */
     empty: [
-      'Nobody is hosting publicly right now. Open a table above and tick',
-      ' list publicly',
+      'Nobody is hosting publicly right now. Host a table and choose',
+      ' Public',
       ' to put one here.',
     ] as [string, string, string],
     custom: 'Custom',
@@ -543,6 +546,9 @@ export const en = {
       room_full: 'That room is full.',
       in_progress: 'That game has already started.',
       seat_taken: 'That seat is already held by someone else in this room.',
+      elsewhere: 'You opened this table on another device, so your seat moved there.',
+      sign_in_to_join: 'That game has already started. Sign in to watch it and take over a bot.',
+      auth_invalid: 'Your sign-in has expired or could not be checked. Sign in again to rejoin.',
     },
   },
 
@@ -570,6 +576,15 @@ export const en = {
 
   /** Everything the second game says. Its own file, because it is its own game. */
   cf: cfEn,
+
+  /** Deal Maker: contracts that ride along with trades. */
+  deals: dealsEn,
+
+  /** Signing in, and joining a game already in progress. */
+  account: accountEn,
+
+  /** The front door's three ways in. */
+  entry: entryEn,
 };
 
 export type Dict = typeof en;

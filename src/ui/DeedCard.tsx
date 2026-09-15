@@ -6,6 +6,7 @@ import {
 import type { GameAction, GameState } from '../game/types';
 import { type Dict, spaceName, trReason, useT } from '../i18n';
 import { Modal, fmt } from './bits';
+import { DeedContracts } from './Deals';
 
 /** A move can be sound and still not be yours to make just now - somebody
  *  else's turn, an auction, a debt. A button needs both, or the reducer
@@ -147,6 +148,7 @@ export function DeedCard({
               {d.mortgagedNote(fmt(unmortgageCost(state, spaceId)))}
             </p>
           )}
+          <DeedContracts state={state} spaceId={spaceId} viewerId={myId} />
         </div>
 
         {mine && group && (

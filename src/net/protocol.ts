@@ -49,6 +49,13 @@ export interface RoomSnapshot {
   epoch: number;
   /** Bumped on every host-side change; clients drop stale snapshots. */
   rev: number;
+  /** Seat id -> the account that plays it, where that is not the seat's own
+   *  id: a bot seat a signed-in player took over mid-game. Travels with the
+   *  table, so a host hand-over still knows whose seat is whose. */
+  owners?: Record<string, string>;
+  /** Signed-in players watching a game in progress, who may take over a
+   *  bot's seat. */
+  watchers?: { uid: string; name: string }[];
 }
 
 export interface ChatMessage {
@@ -62,14 +69,23 @@ export interface ChatMessage {
 
 /* ----------------------------- guest -> host ----------------------------- */
 export type Up =
-  | { t: 'HELLO'; playerId: string; name: string; token: TokenId; secret: string }
+  | {
+    t: 'HELLO'; playerId: string; name: string; token: TokenId; secret: string;
+    /** A signed-in player's pass (see net/account.ts). */
+    auth?: string;
+    /** Set by the host's own transport once the pass has checked out, and
+     *  stripped from anything a peer sends. Never trusted off the wire. */
+    verified?: string;
+  }
   | { t: 'PROFILE'; playerId: string; name: string; token: TokenId }
   | { t: 'SETTINGS'; playerId: string; settings: GameSettings; cfRules?: CFRules }
   | { t: 'ADD_BOT'; playerId: string }
   | { t: 'REMOVE_SEAT'; playerId: string; target: string }
   | { t: 'INTENT'; playerId: string; action: GameAction | CFAction }
   | { t: 'CHAT'; playerId: string; text: string }
-  | { t: 'PONG'; playerId: string; seq: number };
+  | { t: 'PONG'; playerId: string; seq: number }
+  /** A signed-in watcher takes over a bot's seat in a game in progress. */
+  | { t: 'TAKE_SEAT'; playerId: string; target: string };
 
 /* ----------------------------- host -> guest ----------------------------- */
 export type Down =
@@ -80,7 +96,16 @@ export type Down =
   | { t: 'CHAT'; message: ChatMessage }
   | { t: 'REJECT'; reason: string }
   | { t: 'PING'; seq: number }
-  | { t: 'BYE'; reason: 'host_left' | 'kicked' | 'room_full' | 'in_progress' | 'seat_taken' };
+  | { t: 'BYE'; reason: ByeReason };
+
+export type ByeReason =
+  | 'host_left' | 'kicked' | 'room_full' | 'in_progress' | 'seat_taken'
+  /** The same account connected from somewhere else and took the seat with it. */
+  | 'elsewhere'
+  /** A game in progress takes only signed-in players. */
+  | 'sign_in_to_join'
+  /** A pass that did not check out: expired, or not ours. */
+  | 'auth_invalid';
 
 export interface Envelope<T> {
   v: number;

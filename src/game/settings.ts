@@ -31,6 +31,7 @@ export const CLASSIC: GameSettings = {
   auctionBidSeconds: 20,
   animationSpeed: 1,
   allowTrades: true,
+  dealsEnabled: false,
   fillWithBots: false,
   botLevel: 'normal',
   seed: 0,
@@ -79,6 +80,15 @@ export const PRESETS: Preset[] = [
       buildingShortage: false,
       snakeEyesBonus: 100,
       doubleOnGo: true,
+    },
+  },
+  {
+    id: 'dealmaker',
+    name: 'Deal Maker',
+    blurb: 'The printed rules, plus contracts. Sell rent-free stays, buy a cut of somebody else’s rent, lend at interest. The table negotiates as much as it rolls.',
+    minutes: '90-150 min',
+    patch: {
+      dealsEnabled: true,
     },
   },
   {

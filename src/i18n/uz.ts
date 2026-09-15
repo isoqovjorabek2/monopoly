@@ -1,5 +1,8 @@
 import type { Dict } from './en';
 import { cfUz } from './cf-uz';
+import { dealsUz } from './deals-uz';
+import { accountUz } from './account-uz';
+import { entryUz } from './entry-uz';
 
 /* Uzbek, in the Latin alphabet. Oʻ and gʻ are written with ‘ (U+2018) and
  * the tutuq belgisi with ’ (U+2019) rather than the modifier letters: every
@@ -98,9 +101,9 @@ export const uz: Dict = {
     looking: 'Qidirilmoqda…',
     refresh: 'Yangilash',
     empty: [
-      'Hozir hech kim ommaviy stol ochmagan. Yuqorida stol oching va',
-      ' «Hammaga ko‘rsatish»',
-      ' belgisini qo‘ying — u shu yerda paydo bo‘ladi.',
+      'Hozir hech kim ommaviy stol ochmagan. Stol ochib,',
+      ' «Ommaviy»',
+      'ni tanlang — u shu yerda paydo bo‘ladi.',
     ],
     custom: 'Maxsus',
     changedRules: 'Qoidalar bosma nusxadan farq qiladi',
@@ -536,6 +539,9 @@ export const uz: Dict = {
       room_full: 'Bu xonada joy yo‘q.',
       in_progress: 'Bu o‘yin allaqachon boshlangan.',
       seat_taken: 'Bu joyni xonadagi boshqa o‘yinchi allaqachon egallagan.',
+      elsewhere: 'Bu stolni boshqa qurilmada ochdingiz, joyingiz o‘sha yerga o‘tdi.',
+      sign_in_to_join: 'Bu o‘yin allaqachon boshlangan. Kuzatish va bot o‘rnini egallash uchun kiring.',
+      auth_invalid: 'Kirish muddati tugagan yoki tekshirilmadi. Qaytish uchun qayta kiring.',
     },
   },
 
@@ -573,6 +579,9 @@ export const uz: Dict = {
     'passing GO': '«Start»dan o‘tish',
     'the Free Parking pot': 'avtoturargoh jekpoti',
     'liquidated buildings': 'sotilgan binolar',
+    'loan repayment': 'qarzni qaytarish',
+    'revenue share': 'daromad ulushi',
+    'loan': 'qarz',
   },
   reasonFns: {
     rentOn: (space) => `«${space}» uchun ijara`,
@@ -681,6 +690,11 @@ export const uz: Dict = {
       blurb: 'Ko‘pchilik aslida shunday o‘ynaydi: avtoturargoh jekpoti, auksionsiz, uy taqchilligisiz.',
       minutes: '60–120 daq',
     },
+    dealmaker: {
+      name: 'Ishbilarmon',
+      blurb: 'Bosma qoidalar va shartnomalar. Bepul turishni soting, birovning ijarasidan ulush sotib oling, foizga qarz bering. Stolda zar tashlashdan kam savdolashilmaydi.',
+      minutes: '90–150 daq',
+    },
     tycoon: {
       name: 'Magnat',
       blurb: 'Pul ko‘p, shafqat yo‘q. Boyligi birinchi bo‘lib $10,000 ga yetgan yutadi; taymerlar o‘yinni cho‘zdirmaydi.',
@@ -712,4 +726,7 @@ export const uz: Dict = {
     luck: 'Omad',
   },
   cf: cfUz,
+  deals: dealsUz,
+  account: accountUz,
+  entry: entryUz,
 };

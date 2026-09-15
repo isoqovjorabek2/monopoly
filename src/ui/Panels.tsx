@@ -3,7 +3,9 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { BOARD, GROUPS, GROUP_COLOR, GROUP_ORDER } from '../game/board';
 import { canTrade, clockKey, netWorth, ownedBy } from '../game/rules';
 import { acceptMargin, completesFor, suggestTrade, tradeGain } from '../game/ai';
-import type { GameAction, GameState, Player, TradeBody, TradeOffer } from '../game/types';
+import { loanDebt, sharedPct } from '../game/deals';
+import type { DealTerm, GameAction, GameState, Player, TradeBody, TradeOffer } from '../game/types';
+import { ContractGlyph, OfferTerms, TermsComposer, pruneTerms } from './Deals';
 import { describe, type LogLine } from '../game/describe';
 import { spaceName, spaceShort, useT } from '../i18n';
 import type { ChatMessage, SeatInfo } from '../net/protocol';
@@ -99,6 +101,11 @@ export function PlayerRail({
 
               <span className="playerCard__flags">
                 {p.inJail && <span className="chip" data-tone="bad">{t.rail.jail}</span>}
+                {!p.bankrupt && loanDebt(state, id) > 0 && (
+                  <span className="chip num" data-tone="bad" title={t.deals.ledger.owesTitle}>
+                    {t.deals.ledger.owes(fmt(loanDebt(state, id)))}
+                  </span>
+                )}
                 {p.getOutOfJailCards > 0 && (
                   <span className="chip" title={t.rail.jailCardTitle}>{t.rail.keys(p.getOutOfJailCards)}</span>
                 )}
@@ -567,6 +574,9 @@ function DeedChip({
       <span className="deedChip__name truncate">{spaceShort(t, id)}</span>
       {badge && <span className="deedChip__badge">{badge}</span>}
       {st?.mortgaged && <span className="deedChip__badge deedChip__badge--warn">{t.trade.mortgagedBadge}</span>}
+      {sharedPct(state, id) > 0 && (
+        <span className="deedChip__badge deedChip__badge--warn">{t.deals.sharedBadge(sharedPct(state, id))}</span>
+      )}
       <span className="spacer" />
       <span className="deedChip__price num">{fmt(space.price ?? 0)}</span>
     </span>
@@ -580,6 +590,7 @@ const EMPTY_OFFER = {
   wantCash: 0,
   giveCards: 0,
   wantCards: 0,
+  terms: [] as DealTerm[],
 };
 
 export function TradePanel({
@@ -606,7 +617,10 @@ export function TradePanel({
   const me = state.players[myId];
   const them = state.players[withId];
 
-  const offer: TradeBody | null = useMemo(() => (them ? {
+  const deals = state.settings.dealsEnabled;
+  // The swap without its contracts: what the contract composer reads to
+  // know which deeds each side will hold.
+  const swap: TradeBody | null = useMemo(() => (them ? {
     from: myId,
     to: withId,
     giveCash: draft.giveCash,
@@ -616,15 +630,25 @@ export function TradePanel({
     wantProperties: draft.want,
     wantJailCards: draft.wantCards,
   } : null), [myId, withId, draft, them]);
+  const offer: TradeBody | null = useMemo(() => {
+    if (!swap) return null;
+    if (!deals || draft.terms.length === 0) return swap;
+    return { ...swap, terms: pruneTerms(state, swap, draft.terms) };
+  }, [swap, deals, draft.terms, state]);
 
   if (!open) return null;
-  if (others.length === 0 || !them || !offer) {
+  if (others.length === 0 || !them || !offer || !swap) {
     return <Modal open onClose={onClose} title={t.trade.title}><Empty>{t.trade.nobody}</Empty></Modal>;
   }
 
   const empty = draft.give.length + draft.want.length
-    + draft.giveCash + draft.wantCash + draft.giveCards + draft.wantCards === 0;
+    + draft.giveCash + draft.wantCash + draft.giveCards + draft.wantCards
+    + (offer.terms?.length ?? 0) === 0;
   const sound = canTrade(state, offer);
+  // Say which part is at fault: a contract waiting on its deeds is not the
+  // same problem as a swap that cannot be made.
+  const termsBlank = (offer.terms ?? []).some((x) => x.kind !== 'loan' && x.spaces.length === 0);
+  const termsFault = !sound && (offer.terms?.length ?? 0) > 0 && canTrade(state, swap);
 
   const myGain = tradeGain(state, myId, offer);
   const theirGain = tradeGain(state, withId, offer);
@@ -649,6 +673,7 @@ export function TradePanel({
       give: s.giveProperties, want: s.wantProperties,
       giveCash: s.giveCash, wantCash: s.wantCash,
       giveCards: s.giveJailCards, wantCards: s.wantJailCards,
+      terms: draft.terms,
     });
   };
 
@@ -722,6 +747,15 @@ export function TradePanel({
           />
         </div>
 
+        {deals && (
+          <TermsComposer
+            state={state}
+            offer={swap}
+            terms={draft.terms}
+            onChange={(terms) => set({ terms })}
+          />
+        )}
+
         {!empty && (
           <div className="trade__verdict" aria-live="polite">
             <div className="trade__balance">
@@ -729,7 +763,11 @@ export function TradePanel({
               <Gain label={them.name} value={theirGain} />
             </div>
             <p className="trade__reading">
-              {!sound
+              {termsBlank
+                ? t.deals.pickDeeds
+                : termsFault
+                  ? t.deals.unsound
+                  : !sound
                 ? t.trade.unsound
                 : margin === null
                   ? t.trade.human(them.name)
@@ -1002,6 +1040,7 @@ function OfferCard({
   const sign = gain > 0 ? 'up' : gain < 0 ? 'down' : undefined;
 
   const t = useT();
+  const termCount = offer.terms?.length ?? 0;
   const reading = gain > 150 ? t.offers.good
     : gain > 0 ? t.offers.slightlyUp
       : gain > -150 ? t.offers.slightlyDown
@@ -1025,6 +1064,12 @@ function OfferCard({
       >
         <Avatar color={from.color} token={from.token} size={26} />
         <span className="offerCard__who truncate">{t.offers.offersTrade(from.name)}</span>
+        {termCount > 0 && (
+          <span className="offerCard__terms num" title={t.deals.section}>
+            <ContractGlyph kind={offer.terms![0].kind} size={13} />
+            {termCount}
+          </span>
+        )}
         <span className="offerCard__gain num" data-sign={sign}>
           {gain > 0 ? '+' : gain < 0 ? '−' : ''}{fmt(Math.abs(gain))}
         </span>
@@ -1067,6 +1112,7 @@ function OfferCard({
                 cards={offer.wantJailCards}
                 tone="give"
               />
+              <OfferTerms state={state} offer={offer} viewerId={myId} />
               <p className="offer__reading" data-sign={sign}>
                 <span className="num">{gain > 0 ? '+' : gain < 0 ? '−' : ''}{fmt(Math.abs(gain))}</span>
                 {t.offers.valueToYou} {reading}

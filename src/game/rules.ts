@@ -2,6 +2,7 @@ import {
   BOARD, GROUPS, RAILROAD_IDS, RAILROAD_RENT, UTILITY_IDS,
   OWNABLE_IDS,
 } from './board';
+import { beneficiary, contractsOf, loanBalance, principalOut, termsValid } from './deals';
 import type { GameAction, GameState, Player, Space, TradeBody } from './types';
 
 /* ------------------------------------------------------------------ *
@@ -177,9 +178,10 @@ export function maxRaisable(s: GameState, playerId: string): number {
   return total;
 }
 
-/** Cash + resale value of everything held. Used for standings and endgame. */
+/** Cash + resale value of everything held, plus what loans are owed to them
+ *  and minus what they owe. Used for standings and endgame. */
 export function netWorth(s: GameState, playerId: string): number {
-  let total = s.players[playerId].cash;
+  let total = s.players[playerId].cash + loanBalance(s, playerId);
   for (const id of ownedBy(s, playerId)) {
     const st = s.properties[id];
     total += st.mortgaged ? (BOARD[id].mortgage ?? 0) : (BOARD[id].price ?? 0);
@@ -233,6 +235,11 @@ export function legalActions(s: GameState, playerId: string): GameAction[] {
 
   /* --- trades can be answered at any time by the recipient --- */
   pushTradeAnswers(s, playerId, out);
+
+  /* --- a contract can be torn up by the side it favours, whenever --- */
+  for (const c of contractsOf(s)) {
+    if (beneficiary(c) === playerId) out.push({ type: 'RELEASE_CONTRACT', playerId, contractId: c.id });
+  }
 
   /* --- off-turn: manage your portfolio, that's all --- */
   if (!isCurrent) {
@@ -299,6 +306,15 @@ function pushAssetActions(
     if (o.allowUnmortgage && canUnmortgage(s, playerId, id).ok)
       out.push({ type: 'UNMORTGAGE', playerId, spaceId: id });
   }
+  // Paying a loan off early is spending, so it goes wherever lifting a
+  // mortgage does - never while a debt is being raised.
+  if (!o.allowUnmortgage) return;
+  const cash = s.players[playerId].cash;
+  for (const c of contractsOf(s)) {
+    if (c.kind === 'loan' && c.borrower === playerId && cash >= c.repay) {
+      out.push({ type: 'REPAY_LOAN', playerId, contractId: c.id });
+    }
+  }
 }
 
 function pushTradeAnswers(s: GameState, playerId: string, out: GameAction[]): void {
@@ -338,6 +354,11 @@ export function canTrade(s: GameState, o: TradeBody): boolean {
   if (o.giveJailCards < 0 || o.wantJailCards < 0) return false;
   if (from.getOutOfJailCards < o.giveJailCards || to.getOutOfJailCards < o.wantJailCards) return false;
   if (!Array.isArray(o.giveProperties) || !Array.isArray(o.wantProperties)) return false;
+  if (!termsValid(s, o)) return false;
+  // A loan's principal leaves the lender's hand along with its cash leg.
+  const lentFrom = principalOut(o.terms, 'from');
+  const lentTo = principalOut(o.terms, 'to');
+  if (from.cash < o.giveCash + lentFrom || to.cash < o.wantCash + lentTo) return false;
 
   const check = (ids: number[], ownerId: string) => ids.every((id) => {
     const st = s.properties[id];
@@ -353,8 +374,8 @@ export function canTrade(s: GameState, o: TradeBody): boolean {
   // so each side has to be able to pay that from what it holds afterwards.
   const fees = (ids: number[]) =>
     ids.reduce((n, id) => n + (s.properties[id].mortgaged ? transferFee(s, id) : 0), 0);
-  if (from.cash - o.giveCash + o.wantCash < fees(o.wantProperties)) return false;
-  if (to.cash - o.wantCash + o.giveCash < fees(o.giveProperties)) return false;
+  if (from.cash - o.giveCash + o.wantCash - lentFrom + lentTo < fees(o.wantProperties)) return false;
+  if (to.cash - o.wantCash + o.giveCash - lentTo + lentFrom < fees(o.giveProperties)) return false;
   return true;
 }
 
@@ -377,6 +398,7 @@ export function isLegal(s: GameState, action: GameAction): boolean {
     if (a.type !== action.type) return false;
     if ('spaceId' in a && 'spaceId' in action) return a.spaceId === action.spaceId;
     if ('tradeId' in a && 'tradeId' in action) return a.tradeId === action.tradeId;
+    if ('contractId' in a && 'contractId' in action) return a.contractId === action.contractId;
     // Bids: legalActions only offers the minimum, but any affordable higher
     // bid is legal too.
     if (a.type === 'BID' && action.type === 'BID') {

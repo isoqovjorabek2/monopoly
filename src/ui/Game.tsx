@@ -16,6 +16,8 @@ import { BoardIcon } from './Pieces';
 import { FxLayer, useFx } from './Fx';
 import { cardArt, deckBack } from '../art/art';
 import { HelpModal, useGameKeys } from './Help';
+import { ContractGlyph, ContractsModal, myContractCount } from './Deals';
+import { TakeSeatPanel } from './Account';
 import { LangSwitch } from './LangSwitch';
 
 export function Game() {
@@ -61,6 +63,7 @@ export function Game() {
     pinTimer.current = window.setTimeout(() => setPinned(null), 7000);
   }, [openSheet]);
   const [tradeOpen, setTradeOpen] = useState(false);
+  const [contractsOpen, setContractsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [renderMode, setRenderMode] = useState<RenderMode>(readRenderMode);
   // Stable by construction: BoardStage keys an effect on this, and an inline
@@ -227,7 +230,13 @@ export function Game() {
 
         <aside className="game__side" data-open={sheet === 'log' || undefined}>
           <IncomingTrades state={state} myId={myId} dispatch={dispatch} />
-          <ActionBar state={state} myId={myId} dispatch={dispatch} onTrade={() => setTradeOpen(true)} />
+          <ActionBar
+            state={state}
+            myId={myId}
+            dispatch={dispatch}
+            onTrade={() => setTradeOpen(true)}
+            onContracts={() => setContractsOpen(true)}
+          />
           <LogFeed log={log} chat={chat} state={state} onSend={useStore.getState().sendChat} />
         </aside>
       </div>
@@ -268,6 +277,13 @@ export function Game() {
         onClose={() => setTradeOpen(false)}
         dispatch={dispatch}
       />
+      <ContractsModal
+        state={state}
+        myId={myId}
+        open={contractsOpen && state.settings.dealsEnabled}
+        onClose={() => setContractsOpen(false)}
+        dispatch={dispatch}
+      />
       {state.phase === 'auction' && <AuctionPanel state={state} myId={myId} dispatch={dispatch} />}
       <CardModal state={state} myId={myId} isMyTurn={isMyTurn} dispatch={dispatch} />
       {state.phase === 'game_over' && <GameOver state={state} onLeave={leave} />}
@@ -280,21 +296,39 @@ export function Game() {
 /* ============================ action bar ============================ */
 
 function ActionBar({
-  state, myId, dispatch, onTrade,
+  state, myId, dispatch, onTrade, onContracts,
 }: {
   state: GameState;
   myId: string;
   dispatch: (a: GameAction) => void;
   onTrade: () => void;
+  onContracts: () => void;
 }) {
   const t = useT();
   const A = t.actions;
+  /* Deal Maker's ledger sits beside Trade wherever Trade does: the two are
+     one negotiation, and a contract you signed is something you check on. */
+  const contracts = state.settings.dealsEnabled && state.players[myId] ? (
+    <button
+      type="button"
+      className="btn btn--ghost btn--sm btn--contracts"
+      onClick={onContracts}
+      data-live={myContractCount(state, myId) > 0 || undefined}
+    >
+      <ContractGlyph kind="share" size={14} />
+      {t.deals.ledger.button(myContractCount(state, myId))}
+    </button>
+  ) : null;
   const me = state.players[myId];
   const isMyTurn = state.seats[state.seatIndex] === myId;
   const current = state.players[state.seats[state.seatIndex]];
   const spectator = !me || me.bankrupt;
 
   const timeLeft = useCountdown(clockSeconds(state), clockKey(state));
+
+  // Not at the table at all: a signed-in player watching a game in progress,
+  // who can take over a bot.
+  if (!me) return <TakeSeatPanel />;
 
   if (spectator) {
     return (
@@ -334,6 +368,7 @@ function ActionBar({
           {state.settings.allowTrades && (
             <button type="button" className="btn" onClick={onTrade}>{t.common.offerTrade}</button>
           )}
+          {contracts}
         </div>
         <p className="muted small">{A.tapHint}</p>
       </section>
@@ -351,6 +386,7 @@ function ActionBar({
           {state.settings.allowTrades && (
             <button type="button" className="btn btn--sm" onClick={onTrade}>{t.common.offerTrade}</button>
           )}
+          {contracts}
         </div>
       </section>
     );
@@ -461,6 +497,7 @@ function ActionBar({
         {state.settings.allowTrades && (
           <button type="button" className="btn btn--ghost btn--sm" onClick={onTrade}>{t.common.trade}</button>
         )}
+        {contracts}
         <button
           type="button" className="btn btn--ghost btn--sm"
           onClick={() => useStore.getState().inspect(me.position)}

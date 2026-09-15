@@ -1,0 +1,30 @@
+# Player sign-in. Binds 127.0.0.1:9200; nginx publishes it at /auth/.
+# Holds no player data at all: it signs a pass and forgets the request.
+[Unit]
+Description=Monopoly player accounts (Google sign-in, localhost only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=playerauth
+Group=playerauth
+ExecStart=/usr/bin/python3 /opt/opspanel/accounts.py
+Restart=always
+RestartSec=3
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+# It calls out to Google's token endpoint, so outbound IP stays open.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=96M
+
+[Install]
+WantedBy=multi-user.target

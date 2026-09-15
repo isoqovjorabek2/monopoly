@@ -209,6 +209,7 @@ export function Lobby() {
               <span className="chip num">{L.chipStart(fmt(s.startingCash))}</span>
               <span className="chip num">{L.chipGo(fmt(s.goSalary))}</span>
               <span className="chip">{s.auctionsEnabled ? L.auctionsOn : L.noAuctions}</span>
+              {s.dealsEnabled && <span className="chip" data-tone="good">{t.deals.chip}</span>}
               <span className="chip">
                 {s.winCondition === 'turn-limit' ? L.chipTurns(s.turnLimit)
                   : s.winCondition === 'networth' ? L.chipTarget(fmt(s.netWorthTarget))
@@ -284,7 +285,10 @@ function MonopolySettings({
                   data-on={on || undefined}
                   onClick={() => set({ ...CLASSIC, ...p.patch, seed: s.seed, maxPlayers: s.maxPlayers })}
                 >
-                  <span className="preset__name">{copyOf.name}</span>
+                  <span className="preset__name">
+                    {copyOf.name}
+                    {p.patch.dealsEnabled && <span className="preset__badge">{t.deals.presetBadge}</span>}
+                  </span>
                   <span className="preset__time num">{copyOf.minutes}</span>
                   <span className="preset__blurb">{copyOf.blurb}</span>
                 </button>
@@ -306,6 +310,12 @@ function MonopolySettings({
             <Toggle label={rule('lap')[0]} hint={rule('lap')[1]} checked={s.mustLapBeforeBuying} onChange={(v) => set({ mustLapBeforeBuying: v })} />
             <Toggle label={rule('noRentInJail')[0]} hint={rule('noRentInJail')[1]} checked={s.noRentInJail} onChange={(v) => set({ noRentInJail: v })} />
             <Toggle label={rule('trades')[0]} checked={s.allowTrades} onChange={(v) => set({ allowTrades: v })} />
+            <Toggle
+              label={t.deals.rule[0]}
+              hint={t.deals.rule[1]}
+              checked={s.dealsEnabled && s.allowTrades}
+              onChange={(v) => set(v ? { dealsEnabled: true, allowTrades: true } : { dealsEnabled: false })}
+            />
           </div>
         )}
 
@@ -451,6 +461,7 @@ const RULE_KEYS: (keyof GameSettings)[] = [
   'startingCash', 'goSalary', 'doubleOnGo', 'freeParkingJackpot', 'snakeEyesBonus',
   'auctionsEnabled', 'doubleRentOnMonopoly', 'buildingShortage', 'requireFullSetToBuild',
   'mustLapBeforeBuying', 'noRentInJail', 'mortgageInterestPct', 'jailFine', 'canBuyInJail',
+  'dealsEnabled',
 ];
 
 function countDeviations(s: GameSettings): number {

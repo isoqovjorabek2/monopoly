@@ -9,6 +9,10 @@ interface ImportMetaEnv {
   readonly VITE_TURN_URLS?: string;
   readonly VITE_TURN_USERNAME?: string;
   readonly VITE_TURN_CREDENTIAL?: string;
+  /** Where player sign-in lives. Defaults to https://aytingchi.uz/auth. */
+  readonly VITE_AUTH_URL?: string;
+  /** The public lobby directory. Defaults to https://aytingchi.uz/lobbies. */
+  readonly VITE_LOBBY_URL?: string;
 }
 
 interface ImportMeta {

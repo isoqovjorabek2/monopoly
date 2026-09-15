@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { play, type SfxName } from '../audio/sfx';
 import { botDecide, botDelay } from '../game/ai';
-import { createGame, reduce, type SeatSpec } from '../game/engine';
+import { createGame, handOverSeat, reduce, type SeatSpec } from '../game/engine';
 import { logLine, type LogLine } from '../game/describe';
 import { tr } from '../i18n';
 import { clockKey, clockSeconds, legalActions, waitingOn } from '../game/rules';
@@ -10,13 +10,16 @@ import { BOT_NAMES, PLAYER_COLORS, TOKENS, defaultSettings } from '../game/setti
 import type { GameAction, GameEvent, GameSettings, GameState, TokenId } from '../game/types';
 import { botDecide as cfBotDecide, botDelay as cfBotDelay } from '../cashflow/ai';
 import { cfLogLine, type CFLogLine } from '../cashflow/describe';
-import { CF_DEFAULTS, createCashflow, reduce as cfReduce } from '../cashflow/engine';
+import {
+  CF_DEFAULTS, createCashflow, handOverSeat as cfHandOverSeat, reduce as cfReduce,
+} from '../cashflow/engine';
 import {
   clockKey as cfClockKey, clockSeconds as cfClockSeconds, currentId as cfCurrentId,
   waitingOn as cfWaitingOn,
 } from '../cashflow/rules';
 import type { CFAction, CFEvent, CFRules, CFSettings, CFState } from '../cashflow/types';
 import { GuestNet, HostNet, type NetStatus } from '../net/net';
+import { currentAccount, signOut, useAccount } from '../net/account';
 import { announce as announceRoom, close as closeRoom } from '../net/directory';
 import {
   type ChatMessage, type Down, type GameKind, type RoomSnapshot, type SeatInfo, type Up,
@@ -62,6 +65,9 @@ interface Store {
 
   netStatus: NetStatus;
   netError: string | null;
+  /** A room that turned this tab away because its game had started and the
+   *  player was not signed in. Signing in picks the join straight back up. */
+  retryCode: string | null;
 
   /** Board positions the renderer draws, which lag state while a token walks. */
   animPos: Record<string, number>;
@@ -75,7 +81,9 @@ interface Store {
 
   setPick: (kind: GameKind) => void;
   setProfile: (name: string, token: TokenId) => void;
-  hostRoom: (settings?: GameSettings, kind?: GameKind) => void;
+  /** Open a table. `listed` puts it on the public list from the start; a
+   *  host can still change that from the lobby. */
+  hostRoom: (settings?: GameSettings, kind?: GameKind, opts?: { listed?: boolean }) => void;
   /** List this room publicly, or take it off the list. Host only. */
   setListed: (on: boolean) => void;
   joinRoom: (code: string, epoch?: number) => void;
@@ -93,6 +101,8 @@ interface Store {
 
   dispatch: (action: AnyAction) => void;
   sendChat: (text: string) => void;
+  /** A signed-in watcher takes over a bot's seat. */
+  takeSeat: (target: string) => void;
 
   inspect: (spaceId: number | null) => void;
   openSheet: (sheet: Store['sheet']) => void;
@@ -398,11 +408,17 @@ export const useStore = create<Store>((set, get) => {
   const startHost = (code: string, epoch: number, secrets?: Record<string, string>): void => {
     host = new HostNet(code, {
       onUp: handleUp,
+      seatFor,
       onPresence: (playerId, connected, ping) => {
         const cur = snapshot();
         if (!cur) return;
+        // A watcher who leaves is simply gone; there is no seat to grey out.
+        const watchers = connected
+          ? cur.watchers
+          : cur.watchers?.filter((w) => w.uid !== playerId);
         publish({
           ...cur,
+          watchers,
           seats: cur.seats.map((s) => (s.playerId === playerId ? { ...s, connected, ping } : s)),
         });
       },
@@ -412,8 +428,22 @@ export const useStore = create<Store>((set, get) => {
     // bot never connects at all, so those seats can only ever be claimed by
     // somebody pretending to be them.
     host.reserve(get().me.playerId);
-    for (const seat of get().room?.seats ?? []) if (seat.isBot) host.reserve(seat.playerId);
+    const room = get().room;
+    for (const seat of room?.seats ?? []) {
+      // A bot a signed-in player has taken over is still never claimable by
+      // id - only by that player's pass.
+      const owner = room?.owners?.[seat.playerId];
+      if (seat.isBot || owner) host.reserve(seat.playerId);
+      if (owner) host.setOwner(seat.playerId, owner);
+    }
     host.start();
+  };
+
+  /** The seat an account plays here: its own, or a bot it took over. */
+  const seatFor = (uid: string): string => {
+    const room = snapshot();
+    const seat = room?.seats.find((s) => s.playerId === uid || room.owners?.[s.playerId] === uid);
+    return seat?.playerId ?? uid;
   };
 
   /** Restore a table this tab was running, from its own save. */
@@ -612,6 +642,8 @@ export const useStore = create<Store>((set, get) => {
     switch (msg.t) {
       case 'HELLO': {
         const name = cleanText(msg.name, 18) || tr().defaults.player;
+        // Set only by the host's transport, after the pass checked out.
+        const uid = msg.verified;
         const existing = room.seats.find((s) => s.playerId === from);
         if (existing) {
           // Reconnect: identity is the playerId, never the connection.
@@ -623,9 +655,21 @@ export const useStore = create<Store>((set, get) => {
           host?.broadcastRoom(next);
           return;
         }
-        if (room.game || room.cf) { host?.send(from, { t: 'BYE', reason: 'in_progress' }); return; }
+        if (room.game || room.cf) {
+          // A game in progress takes signed-in players only: they come in
+          // watching, and may take over a bot. A guest is told how to get in.
+          if (!uid || from !== uid) {
+            host?.refuse(from, 'sign_in_to_join');
+            return;
+          }
+          const watchers = [...(room.watchers ?? []).filter((w) => w.uid !== uid), { uid, name }];
+          const next = { ...room, watchers };
+          host?.welcome(from, next);
+          publish(next);
+          return;
+        }
         if (room.seats.length >= seatLimit(room)) {
-          host?.send(from, { t: 'BYE', reason: 'room_full' });
+          host?.refuse(from, 'room_full');
           return;
         }
         // Two players can easily arrive wanting the same piece (it is the
@@ -675,14 +719,19 @@ export const useStore = create<Store>((set, get) => {
         applyIntent(from, msg.action);
         return;
 
+      case 'TAKE_SEAT':
+        takeOverSeat(from, msg.target);
+        return;
+
       case 'CHAT': {
         const text = cleanText(msg.text, 220);
         if (!text) return;
         const seat = room.seats.find((s) => s.playerId === from);
+        const watcher = room.watchers?.find((w) => w.uid === from);
         const message: ChatMessage = {
           id: `c${logSeq++}`,
           from,
-          name: seat?.name ?? tr().defaults.player,
+          name: seat?.name ?? watcher?.name ?? tr().defaults.player,
           color: seat?.color ?? '#fff',
           text,
           at: Date.now(),
@@ -697,6 +746,56 @@ export const useStore = create<Store>((set, get) => {
     }
   };
 
+  /**
+   * A watcher takes over a bot. Everything is checked here, on the host: the
+   * connection must be bound to its own account (so it is a watcher who
+   * proved who they are, not a seated player hopping chairs), the target must
+   * be a bot still in the game, and the account must not already play a seat.
+   */
+  const takeOverSeat = (from: string, target: string): void => {
+    const room = snapshot();
+    if (!room || !host || typeof target !== 'string') return;
+    const uid = host.accountOf(from);
+    if (!uid || from !== uid) return;
+    if (seatFor(uid) !== uid || room.seats.some((s) => s.playerId === uid)) return;
+    const seat = room.seats.find((s) => s.playerId === target);
+    if (!seat || !seat.isBot) return;
+    const watcher = room.watchers?.find((w) => w.uid === uid);
+    const name = watcher?.name ?? tr().defaults.player;
+
+    let next: RoomSnapshot;
+    let events: GameEvent[] = [];
+    let cfEvents: CFEvent[] = [];
+    if (room.game) {
+      const r = handOverSeat(room.game, target, name);
+      if (r.state === room.game) return;
+      next = { ...room, game: r.state };
+      events = r.events;
+    } else if (room.cf) {
+      const r = cfHandOverSeat(room.cf, target, name);
+      if (r.state === room.cf) return;
+      next = { ...room, cf: r.state };
+      cfEvents = r.events;
+    } else {
+      return;
+    }
+
+    next = {
+      ...next,
+      seats: next.seats.map((s) => (s.playerId === target
+        ? { ...s, isBot: false, name, connected: true, ping: 0 }
+        : s)),
+      owners: { ...(room.owners ?? {}), [target]: uid },
+      watchers: (room.watchers ?? []).filter((w) => w.uid !== uid),
+    };
+    // The seat stays reserved against guest claims; the pass is the way in.
+    host.setOwner(target, uid);
+    host.rebind(uid, target);
+    publish(next, events, cfEvents);
+    const published = snapshot();
+    if (published) host.welcome(target, published);
+  };
+
   /* ------------------------ guest: host output --------------------- */
 
   const inGame = (snap: RoomSnapshot): boolean => Boolean(snap.game || snap.cf);
@@ -704,7 +803,15 @@ export const useStore = create<Store>((set, get) => {
   const handleDown = (msg: Down): void => {
     switch (msg.t) {
       case 'WELCOME':
-        set({ room: msg.snapshot, screen: inGame(msg.snapshot) ? 'game' : 'lobby' });
+        // The host says which seat this connection plays. Signed in, that is
+        // wherever the account sits - its own id, a bot it took over, or its
+        // own id again while it only watches.
+        set((s) => ({
+          room: msg.snapshot,
+          screen: inGame(msg.snapshot) ? 'game' : 'lobby',
+          me: typeof msg.you === 'string' ? { ...s.me, playerId: msg.you } : s.me,
+          retryCode: null,
+        }));
         writeSave();
         return;
 
@@ -745,12 +852,16 @@ export const useStore = create<Store>((set, get) => {
         return;
 
       case 'BYE': {
-        const reason = tr().net.bye[msg.reason];
+        const reason = tr().net.bye[msg.reason] ?? tr().net.failed;
+        // Remember where this tab was trying to go, so signing in can go
+        // straight back there.
+        const retryCode = msg.reason === 'sign_in_to_join' ? get().code : null;
+        if (msg.reason === 'auth_invalid') signOut();
         forgetSave();
         // A guest whose seat was refused as already-taken should not keep
         // trying to reconnect into the same rejection.
         teardown();
-        set({ screen: 'home', netStatus: 'closed', netError: reason, room: null });
+        set({ screen: 'home', netStatus: 'closed', netError: reason, room: null, retryCode });
         return;
       }
 
@@ -842,7 +953,7 @@ export const useStore = create<Store>((set, get) => {
     role: 'local',
     code: '',
     listed: false,
-    me: { playerId: localPlayerId(), name: savedName(), token: savedToken() },
+    me: { playerId: currentAccount()?.uid ?? localPlayerId(), name: savedName(), token: savedToken() },
     pick: savedPick(),
 
     room: null,
@@ -853,6 +964,7 @@ export const useStore = create<Store>((set, get) => {
 
     netStatus: 'idle',
     netError: null,
+    retryCode: null,
 
     animPos: {},
     rolling: false,
@@ -883,7 +995,7 @@ export const useStore = create<Store>((set, get) => {
       }
     },
 
-    hostRoom: (settings, kind = get().pick) => {
+    hostRoom: (settings, kind = get().pick, opts = {}) => {
       teardown();
       const me = get().me;
       const code = generateRoomCode();
@@ -896,11 +1008,14 @@ export const useStore = create<Store>((set, get) => {
       set({
         role: 'host', code, room, screen: 'lobby',
         log: [], cfLog: [], chat: [], netError: null,
-        // A new room is private until its host says otherwise.
+        // Private unless the host chose a public table on the way in.
         listed: false,
       });
 
       startHost(code, 0);
+      // The directory only knows Monopoly's presets, so a Cashflow table
+      // stays invite-only whatever was asked for.
+      if (opts.listed && kind === 'monopoly') get().setListed(true);
     },
 
     joinRoom: (rawCode, epoch = 0) => {
@@ -926,7 +1041,10 @@ export const useStore = create<Store>((set, get) => {
           set({ netStatus: status, netError: detail ?? null });
         },
         onHostGone,
-      }, epoch);
+      }, epoch, () => {
+        const account = currentAccount();
+        return account ? { uid: account.uid, pass: account.pass } : null;
+      });
       guest.start();
     },
 
@@ -936,7 +1054,12 @@ export const useStore = create<Store>((set, get) => {
       if (!saved) return;
       if (auto && Date.now() - saved.at > AUTO_RESUME_MS) return;
       // The seat is held against the saved identity, so take that back first.
-      try { sessionStorage.setItem('mply.pid', saved.me.playerId); } catch { /* private mode */ }
+      // A signed-in player's seat comes back through their pass instead, and
+      // a bot seat they took over is not an id this tab should ever wear as
+      // a guest.
+      if (saved.me.playerId.startsWith('p_')) {
+        try { sessionStorage.setItem('mply.pid', saved.me.playerId); } catch { /* private mode */ }
+      }
       set({ me: saved.me, pick: saved.kind });
 
       if (saved.role === 'guest') { get().joinRoom(saved.code, saved.epoch); return; }
@@ -972,11 +1095,14 @@ export const useStore = create<Store>((set, get) => {
       teardown();
       forgetSave();
       pendingHostResume = null;
-      set({
+      set((s) => ({
         screen: 'home', role: 'local', room: null, code: '', listed: false,
         log: [], cfLog: [], chat: [], floats: [], animPos: {},
-        netStatus: 'idle', netError: null, sheet: 'none', inspecting: null,
-      });
+        netStatus: 'idle', netError: null, sheet: 'none', inspecting: null, retryCode: null,
+        // A bot seat taken over belongs to that table; out here this tab is
+        // its account again, or its guest self.
+        me: { ...s.me, playerId: currentAccount()?.uid ?? localPlayerId() },
+      }));
     },
 
     setListed: (on) => {
@@ -1097,6 +1223,11 @@ export const useStore = create<Store>((set, get) => {
       host?.broadcastChat(message);
     },
 
+    takeSeat: (target) => {
+      const { role, me } = get();
+      if (role === 'guest') guest?.send({ t: 'TAKE_SEAT', playerId: me.playerId, target });
+    },
+
     inspect: (spaceId) => set({ inspecting: spaceId }),
     openSheet: (sheet) => set({ sheet }),
     toggleSound: () => set((s) => {
@@ -1105,6 +1236,22 @@ export const useStore = create<Store>((set, get) => {
       return { soundOn };
     }),
   };
+});
+
+/* Signing in or out changes who this tab is. At the front door that is just
+ * the id it will join with next; at a table the seat is already bound, and
+ * the next connect presents the pass. A sign-in that was prompted by being
+ * turned away from a game in progress goes straight back to that game. */
+useAccount.subscribe((next, prev) => {
+  if (next.account?.uid === prev.account?.uid) return;
+  const st = useStore.getState();
+  if (st.screen === 'home') {
+    useStore.setState({ me: { ...st.me, playerId: next.account?.uid ?? localPlayerId() } });
+    // Signing in is saying who you are: the table calls you by the name on
+    // the Google account. It stays editable, and a later edit sticks.
+    if (next.account) st.setProfile(next.account.profile?.name || next.account.name, st.me.token);
+    if (next.account && st.retryCode) st.joinRoom(st.retryCode);
+  }
 });
 
 // Dev-only handle so the store can be poked from the console while

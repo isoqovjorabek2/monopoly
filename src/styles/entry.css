@@ -1,0 +1,191 @@
+/* ==================================================================
+   The front door's card: who you are, then one of three ways in.
+
+   The hierarchy is the fix. Identity is quiet and compact - it is set once
+   and forgotten. The three modes are a single strong control, so choosing
+   between them reads as the decision it is. Each panel has exactly one
+   brass button, and that button says in words what it will create.
+   ================================================================== */
+
+.entry { display: flex; flex-direction: column; gap: var(--s-4); }
+.resumeBanner { display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap; }
+
+/* ------------------------------ you -------------------------------- */
+
+.entry__you { display: flex; flex-direction: column; gap: var(--s-3); }
+.entry__signin { display: flex; flex-direction: column; gap: 6px; }
+.entry__note { margin: 0; font-size: var(--t-xs); color: var(--text-muted); line-height: 1.45; }
+
+.entry__or {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--t-2xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.entry__or::before,
+.entry__or::after {
+  content: '';
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--border-strong);
+}
+
+.whoami {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-2);
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-brass);
+  background: color-mix(in oklab, var(--brass-600) 11%, transparent);
+}
+.whoami__pic {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-pill);
+  object-fit: cover;
+  flex: 0 0 auto;
+  box-shadow: 0 0 0 2px var(--brass-500), 0 2px 6px rgb(0 0 0 / 0.5);
+}
+.whoami__pic--initial {
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: var(--t-md);
+  color: var(--text-on-brass);
+  background: linear-gradient(180deg, var(--brass-300), var(--brass-500));
+}
+.whoami__text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1 1 auto; }
+.whoami__name { font-size: var(--t-md); font-weight: 600; color: var(--brass-100); }
+.whoami__email { font-size: var(--t-xs); color: var(--text-muted); }
+
+.entry__identity { display: flex; flex-direction: column; gap: var(--s-3); }
+.entry__pieceName { color: var(--brass-300); font-weight: 400; }
+
+/* Eight pieces in one row: a set to pick from, not a form to fill in. */
+.pieceRow { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+.pieceRow__item {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  max-width: 100%;
+  padding: 0;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: rgb(255 255 255 / 0.03);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.pieceRow__item:hover { transform: translateY(-1px); background: rgb(255 255 255 / 0.07); }
+.pieceRow__item[data-on] {
+  border-color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 16%, transparent);
+  box-shadow: var(--ring-accent);
+}
+.pieceRow__item:focus-visible { outline: none; box-shadow: var(--ring-focus); }
+
+/* ----------------------------- modes ------------------------------- */
+
+.modeTabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  padding: 4px;
+  border-radius: var(--r-lg);
+  background: rgb(0 0 0 / 0.35);
+  border: 1px solid var(--border);
+}
+.modeTabs__tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 4px 9px;
+  border: 0;
+  border-radius: calc(var(--r-lg) - 4px);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--t-xs);
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.modeTabs__tab:hover { color: var(--text); background: rgb(255 255 255 / 0.04); }
+.modeTabs__tab[data-on] {
+  color: var(--text-on-brass);
+  background: linear-gradient(180deg, var(--brass-300), var(--brass-500));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.35), 0 2px 6px rgb(0 0 0 / 0.4);
+}
+.modeTabs__tab:focus-visible { outline: none; box-shadow: var(--ring-focus); }
+
+.modePanel { display: flex; flex-direction: column; gap: var(--s-3); }
+.modePanel__body { margin: 0; font-size: var(--t-sm); color: var(--text); line-height: 1.5; }
+.modePanel__under {
+  margin: -4px 0 0;
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.4;
+}
+.modePanel__under--left { text-align: left; margin: 0; }
+.modePanel .rooms { padding-top: var(--s-3); }
+
+/* Private or public, as two cards with a radio dot - so the choice is
+   visible before it is made, and stays visible after. */
+.visibility { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-2); }
+.visibility__option {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  padding: var(--s-3);
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: rgb(255 255 255 / 0.03);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+}
+.visibility__option:hover:not(:disabled) { border-color: var(--border-strong); background: rgb(255 255 255 / 0.05); }
+.visibility__option[data-on] {
+  border-color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+}
+.visibility__option:disabled { cursor: not-allowed; opacity: 0.55; }
+.visibility__option:focus-visible { outline: none; box-shadow: var(--ring-focus); }
+.visibility__head { display: flex; align-items: center; gap: 6px; color: var(--brass-200); }
+.visibility__label { font-size: var(--t-sm); font-weight: 700; color: var(--text); }
+.visibility__dot {
+  margin-left: auto;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--r-pill);
+  border: 1.5px solid var(--border-strong);
+  flex: 0 0 auto;
+}
+.visibility__option[data-on] .visibility__dot {
+  border-color: var(--accent);
+  background: radial-gradient(circle, var(--accent) 0 38%, transparent 42%);
+}
+.visibility__hint { font-size: var(--t-xs); color: var(--text-muted); line-height: 1.4; }
+
+@media (max-width: 380px) {
+  .visibility { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pieceRow__item, .modeTabs__tab, .visibility__option { transition: none; }
+  .pieceRow__item:hover { transform: none; }
+}
+
+/* A long button label (Russian runs to two lines) stays centred. */
+.modePanel .btn--lg { text-align: center; text-wrap: balance; }

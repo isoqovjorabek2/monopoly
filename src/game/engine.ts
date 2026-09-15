@@ -3,6 +3,9 @@ import {
   OWNABLE_IDS, RAILROAD_IDS, UTILITY_IDS,
 } from './board';
 import { CHANCE, CHEST, cardById } from './cards';
+import {
+  activePass, beneficiary, cleanTerms, contractsOf, sharesOn, sideId,
+} from './deals';
 import { rollDice, shuffle } from './rng';
 import {
   autopilotAction, buildingSellValue, calculateRent, canBuildHouse, canMortgage,
@@ -10,8 +13,8 @@ import {
   netWorth, ownedBy, tradeKey, transferFee, unmortgageCost, waitingOn,
 } from './rules';
 import type {
-  Card, GameAction, GameEvent, GameSettings, GameState, Player,
-  PropertyState, Reduction, TradeBody, TradeOffer,
+  Card, Contract, ContractEnd, GameAction, GameEvent, GameSettings, GameState, Player,
+  PropertyState, Reduction, RentCut, TradeBody, TradeOffer,
 } from './types';
 
 /** Turns an unanswered offer stays on the table before it lapses. */
@@ -81,6 +84,7 @@ export function createGame(settings: GameSettings, seats: SeatSpec[]): GameState
     debt: null,
     trades: [],
     tradeCooldowns: {},
+    contracts: [],
     activeCard: null,
     turnNumber: 0,
     round: 0,
@@ -103,6 +107,8 @@ export function reduce(prev: GameState, action: GameAction): Reduction {
 
   const s = clone(prev);
   s.version = prev.version + 1;
+  // A save from before Deal Maker existed has no ledger at all.
+  if (!s.contracts) s.contracts = [];
 
   switch (action.type) {
     case 'START_GAME':      startGame(s, events); break;
@@ -123,6 +129,8 @@ export function reduce(prev: GameState, action: GameAction): Reduction {
     case 'DECLINE_TRADE':   doDeclineTrade(s, events, action.playerId, action.tradeId); break;
     case 'END_TURN':        doEndTurn(s, events); break;
     case 'DISMISS_CARD':    s.activeCard = null; break;
+    case 'REPAY_LOAN':      doRepayLoan(s, events, action.playerId, action.contractId); break;
+    case 'RELEASE_CONTRACT':doReleaseContract(s, events, action.playerId, action.contractId); break;
   }
 
   // Any action that raised enough cash settles an outstanding debt.
@@ -251,14 +259,29 @@ function doEndTurn(s: GameState, events: GameEvent[]): void {
   if (s.seatIndex <= from) {
     s.round += 1;
     recordHistory(s);
+    expireShares(s, events);
   }
   expireTrades(s, events);
   // A turn limit ends the game here, before anyone starts a turn past it.
   checkWinCondition(s, events);
   if (s.phase === 'game_over') return;
   const pid = currentPlayerId(s);
-  s.phase = s.players[pid].inJail ? 'jailed_choice' : 'preroll';
   events.push({ type: 'TURN_STARTED', playerId: pid, turnNumber: s.turnNumber });
+  // A bankrupt estate's deeds are about to be auctioned. Loans wait for the
+  // auctions to finish, which begin this turn over again.
+  if (s.auctionQueue.length > 0) {
+    s.phase = s.players[pid].inJail ? 'jailed_choice' : 'preroll';
+    return;
+  }
+  beginTurn(s, events);
+}
+
+/** Put the current player at the start of their turn - and, in Deal Maker,
+ *  collect any loan of theirs that has fallen due before they roll. */
+function beginTurn(s: GameState, events: GameEvent[]): void {
+  const pid = currentPlayerId(s);
+  s.phase = s.players[pid].inJail ? 'jailed_choice' : 'preroll';
+  collectDueLoans(s, events, pid);
 }
 
 /* ----------------------------- movement ---------------------------- */
@@ -331,10 +354,7 @@ function resolveLanding(
         forceUtilityMultiplier: s.pendingUtilityMultiplier,
       });
       s.pendingUtilityMultiplier = null;
-      if (rent > 0) {
-        chargePlayer(s, events, pid, rent, `rent on ${space.name}`, st.owner);
-        events.push({ type: 'RENT_PAID', from: pid, to: st.owner, amount: rent, spaceId: me.position });
-      }
+      payRent(s, events, pid, me.position, rent, st.owner);
       return;
     }
 
@@ -492,10 +512,7 @@ function applyCard(
       } else {
         rent = calculateRent(s, best, diceTotal, { railroadMultiplier: 2 });
       }
-      if (rent > 0) {
-        chargePlayer(s, events, pid, rent, `rent on ${BOARD[best].name}`, st.owner);
-        events.push({ type: 'RENT_PAID', from: pid, to: st.owner, amount: rent, spaceId: best });
-      }
+      payRent(s, events, pid, best, rent, st.owner);
       return;
     }
   }
@@ -513,10 +530,14 @@ function credit(s: GameState, events: GameEvent[], pid: string, amount: number, 
  * Take money from a player. The current player gets agency (must_raise);
  * anyone else is auto-liquidated so the turn never blocks on someone
  * whose turn it is not.
+ *
+ * `cuts` are Deal Maker revenue shares: parts of the amount that reach a
+ * shareholder instead of the creditor. They travel with a debt, so rent
+ * raised by mortgaging is split exactly as rent paid on the spot would be.
  */
 function chargePlayer(
   s: GameState, events: GameEvent[], pid: string,
-  amount: number, reason: string, creditorId: string | null,
+  amount: number, reason: string, creditorId: string | null, cuts?: RentCut[],
 ): void {
   if (amount <= 0) return;
   const me = s.players[pid];
@@ -524,13 +545,13 @@ function chargePlayer(
   if (me.cash >= amount) {
     me.cash -= amount;
     events.push({ type: 'MONEY', playerId: pid, delta: -amount, reason });
-    if (creditorId) credit(s, events, creditorId, amount, `from ${me.name}`);
-    else paidToBank(s, amount);
+    payOut(s, events, me.name, creditorId, amount, cuts);
     return;
   }
 
   if (pid === currentPlayerId(s)) {
     s.debt = { from: pid, to: creditorId, amount, reason };
+    if (cuts && cuts.length > 0 && creditorId) s.debt.cuts = cuts;
     s.phase = 'must_raise';
     events.push({ type: 'DEBT_INCURRED', playerId: pid, amount, reason });
     return;
@@ -540,8 +561,7 @@ function chargePlayer(
   if (s.players[pid].cash >= amount) {
     me.cash -= amount;
     events.push({ type: 'MONEY', playerId: pid, delta: -amount, reason });
-    if (creditorId) credit(s, events, creditorId, amount, `from ${me.name}`);
-    else paidToBank(s, amount);
+    payOut(s, events, me.name, creditorId, amount, cuts);
   } else {
     if (creditorId) credit(s, events, creditorId, me.cash, `from ${me.name}`);
     me.cash = 0;
@@ -569,6 +589,60 @@ function autoLiquidate(s: GameState, events: GameEvent[], pid: string, target: n
   }
 }
 
+/** Hand a paid amount to its creditor, less any shareholder cuts, or to the
+ *  bank when there is no creditor. */
+function payOut(
+  s: GameState, events: GameEvent[], payerName: string,
+  creditorId: string | null, amount: number, cuts?: RentCut[],
+): void {
+  if (!creditorId) { paidToBank(s, amount); return; }
+  let rest = amount;
+  for (const cut of cuts ?? []) {
+    const holder = s.players[cut.to];
+    const take = Math.min(cut.amount, rest);
+    // A shareholder who has since gone bust leaves their slice with the owner.
+    if (!holder || holder.bankrupt || take <= 0) continue;
+    rest -= take;
+    credit(s, events, cut.to, take, 'revenue share');
+    events.push({ type: 'SHARE_PAID', from: creditorId, to: cut.to, amount: take, spaceId: cut.spaceId });
+  }
+  credit(s, events, creditorId, rest, `from ${payerName}`);
+}
+
+/**
+ * Rent, as Deal Maker contracts reshape it. A pass the payer holds shaves
+ * the bill first and uses itself up; revenue shares then take their slices
+ * of whatever is actually paid. With no contracts on the table this is
+ * exactly the classic charge.
+ */
+function payRent(
+  s: GameState, events: GameEvent[], pid: string,
+  spaceId: number, rent: number, ownerId: string,
+): void {
+  if (rent <= 0) return;
+  let due = rent;
+
+  const pass = activePass(s, pid, spaceId);
+  if (pass) {
+    const saved = Math.floor((due * pass.discountPct) / 100);
+    due -= saved;
+    pass.usesLeft -= 1;
+    events.push({
+      type: 'PASS_USED', playerId: pid, ownerId, spaceId, saved, usesLeft: pass.usesLeft,
+    });
+    if (pass.usesLeft <= 0) endContract(s, events, pass.id, 'used');
+  }
+  if (due <= 0) return;
+
+  const cuts: RentCut[] = sharesOn(s, spaceId)
+    .filter((c) => c.holder !== ownerId)
+    .map((c) => ({ to: c.holder, amount: Math.floor((due * c.pct) / 100), spaceId }))
+    .filter((c) => c.amount > 0);
+
+  chargePlayer(s, events, pid, due, `rent on ${BOARD[spaceId].name}`, ownerId, cuts);
+  events.push({ type: 'RENT_PAID', from: pid, to: ownerId, amount: due, spaceId });
+}
+
 /** Money paid to the bank. Under the Free Parking house rule it piles up on
  *  the square instead - counted here, once, when it is actually paid. */
 function paidToBank(s: GameState, amount: number): void {
@@ -585,13 +659,21 @@ function settleDebt(s: GameState, events: GameEvent[]): void {
     // Whole by construction: the debt is the per-player sum times the count.
     const share = d.amount / d.split.length;
     for (const id of d.split) credit(s, events, id, share, `from ${me.name}`);
-  } else if (d.to) {
-    credit(s, events, d.to, d.amount, `from ${me.name}`);
   } else {
-    paidToBank(s, d.amount);
+    payOut(s, events, me.name, d.to, d.amount, d.cuts);
   }
   s.debt = null;
   s.phase = 'resolving';
+
+  if (d.resume === 'turn') {
+    // A loan that fell due as the turn began: the turn itself is still to
+    // come - and so, perhaps, is another loan.
+    if (d.to) {
+      events.push({ type: 'LOAN_REPAID', borrower: d.from, lender: d.to, amount: d.amount, early: false });
+    }
+    beginTurn(s, events);
+    return;
+  }
 
   if (d.resume === 'move' && s.dice) {
     const total = s.dice[0] + s.dice[1];
@@ -727,7 +809,7 @@ function closeAuctionIfDone(s: GameState, events: GameEvent[]): void {
     // A bankrupt estate's deeds go one after another; then the turn that was
     // just starting when the bank took them picks up where it was.
     if (startQueuedAuction(s, events)) return;
-    s.phase = s.players[currentPlayerId(s)].inJail ? 'jailed_choice' : 'preroll';
+    beginTurn(s, events);
     return;
   }
   s.phase = 'resolving';
@@ -895,11 +977,22 @@ function doProposeTrade(
   s: GameState, events: GameEvent[], o: TradeBody,
 ): void {
   if (!canTrade(s, o)) return;
+  // Copied field by field: whatever else a client sent along stays out of
+  // the state every other client is sent.
   const offer: TradeOffer = {
-    ...o,
+    from: o.from,
+    to: o.to,
+    giveCash: o.giveCash,
+    giveProperties: [...o.giveProperties],
+    giveJailCards: o.giveJailCards,
+    wantCash: o.wantCash,
+    wantProperties: [...o.wantProperties],
+    wantJailCards: o.wantJailCards,
     id: `t${s.version}-${o.from}-${o.to}`,
     createdAt: s.turnNumber,
   };
+  const terms = cleanTerms(o.terms);
+  if (terms) offer.terms = terms;
   s.trades = s.trades.filter((t) => !(t.from === o.from && t.to === o.to));
   s.trades.push(offer);
   events.push({ type: 'TRADE_PROPOSED', offer });
@@ -922,6 +1015,7 @@ function doAcceptTrade(s: GameState, events: GameEvent[], pid: string, tradeId: 
   to.getOutOfJailCards += offer.giveJailCards - offer.wantJailCards;
   for (const id of offer.giveProperties) s.properties[id].owner = offer.to;
   for (const id of offer.wantProperties) s.properties[id].owner = offer.from;
+  signTerms(s, events, offer);
   chargeTransferFees(s, events, offer.to, offer.giveProperties);
   chargeTransferFees(s, events, offer.from, offer.wantProperties);
 
@@ -930,6 +1024,141 @@ function doAcceptTrade(s: GameState, events: GameEvent[], pid: string, tradeId: 
       && ![t.from, t.to].some((p) => p === offer.from || p === offer.to),
   );
   events.push({ type: 'TRADE_ACCEPTED', offer });
+}
+
+/** Turn an accepted offer's terms into contracts, and move loan principal.
+ *  canTrade has already checked the lender holds it. */
+function signTerms(s: GameState, events: GameEvent[], offer: TradeOffer): void {
+  (offer.terms ?? []).forEach((t, i) => {
+    const id = `c${s.version}-${i}`;
+    let c: Contract;
+    switch (t.kind) {
+      case 'pass': {
+        const grantor = sideId(offer, t.grantor);
+        c = {
+          id, kind: 'pass', grantor, holder: grantor === offer.from ? offer.to : offer.from,
+          spaces: [...t.spaces], discountPct: t.discountPct, usesLeft: t.uses,
+        };
+        break;
+      }
+      case 'share': {
+        const grantor = sideId(offer, t.grantor);
+        c = {
+          id, kind: 'share', grantor, holder: grantor === offer.from ? offer.to : offer.from,
+          spaces: [...t.spaces], pct: t.pct, endsRound: t.rounds === 0 ? null : s.round + t.rounds,
+        };
+        break;
+      }
+      case 'loan': {
+        const lender = sideId(offer, t.lender);
+        const borrower = lender === offer.from ? offer.to : offer.from;
+        s.players[lender].cash -= t.principal;
+        s.players[borrower].cash += t.principal;
+        events.push({ type: 'MONEY', playerId: lender, delta: -t.principal, reason: 'loan' });
+        events.push({ type: 'MONEY', playerId: borrower, delta: t.principal, reason: 'loan' });
+        c = {
+          id, kind: 'loan', lender, borrower,
+          principal: t.principal, repay: t.repay, dueRound: s.round + t.rounds,
+        };
+        break;
+      }
+    }
+    s.contracts.push(c);
+    events.push({ type: 'CONTRACT_SIGNED', contract: c });
+  });
+}
+
+/* ------------------------------ contracts ---------------------------- */
+
+function endContract(s: GameState, events: GameEvent[], id: string, reason: ContractEnd): void {
+  const c = s.contracts.find((x) => x.id === id);
+  if (!c) return;
+  s.contracts = s.contracts.filter((x) => x.id !== id);
+  events.push({ type: 'CONTRACT_ENDED', contract: c, reason });
+}
+
+/** A share signed for a number of rounds lapses as its last round ends. */
+function expireShares(s: GameState, events: GameEvent[]): void {
+  for (const c of [...contractsOf(s)]) {
+    if (c.kind === 'share' && c.endsRound !== null && s.round >= c.endsRound) {
+      endContract(s, events, c.id, 'expired');
+    }
+  }
+}
+
+/**
+ * Loans are collected at the start of the borrower's turn once their round
+ * has come. Short of the money, the borrower raises it like any other debt
+ * - and folding hands the estate to the lender, who is the creditor.
+ */
+function collectDueLoans(s: GameState, events: GameEvent[], pid: string): void {
+  for (let guard = 0; guard < 50; guard++) {
+    const loan = contractsOf(s).find(
+      (c): c is Extract<Contract, { kind: 'loan' }> =>
+        c.kind === 'loan' && c.borrower === pid && s.round >= c.dueRound,
+    );
+    if (!loan) return;
+    s.contracts = s.contracts.filter((c) => c.id !== loan.id);
+    const lender = s.players[loan.lender];
+    if (!lender || lender.bankrupt) continue;
+    chargePlayer(s, events, pid, loan.repay, 'loan repayment', loan.lender);
+    if (s.phase === 'must_raise') {
+      if (s.debt) s.debt.resume = 'turn';
+      return;
+    }
+    events.push({ type: 'LOAN_REPAID', borrower: pid, lender: loan.lender, amount: loan.repay, early: false });
+  }
+}
+
+function doRepayLoan(s: GameState, events: GameEvent[], pid: string, contractId: string): void {
+  const loan = s.contracts.find((c) => c.id === contractId);
+  if (!loan || loan.kind !== 'loan' || loan.borrower !== pid) return;
+  const me = s.players[pid];
+  if (me.cash < loan.repay) return;
+  s.contracts = s.contracts.filter((c) => c.id !== contractId);
+  me.cash -= loan.repay;
+  events.push({ type: 'MONEY', playerId: pid, delta: -loan.repay, reason: 'loan repayment' });
+  credit(s, events, loan.lender, loan.repay, `from ${me.name}`);
+  events.push({ type: 'LOAN_REPAID', borrower: pid, lender: loan.lender, amount: loan.repay, early: true });
+}
+
+function doReleaseContract(s: GameState, events: GameEvent[], pid: string, contractId: string): void {
+  const c = s.contracts.find((x) => x.id === contractId);
+  if (!c || beneficiary(c) !== pid) return;
+  endContract(s, events, contractId, 'released');
+}
+
+/**
+ * What a bankruptcy does to the ledger. Rights pass to a player creditor
+ * along with everything else; obligations die with the estate. Passes and
+ * shares ride on deeds, so they survive while a deed goes to a creditor and
+ * end when it goes back to the bank. Called before any deed changes hands.
+ */
+function settleContractsOnBankruptcy(
+  s: GameState, events: GameEvent[], pid: string, heir: string | null, deeds: number[],
+): void {
+  const ownerAfter = (id: number): string | null =>
+    (deeds.includes(id) ? heir : s.properties[id].owner);
+  for (const c of [...contractsOf(s)]) {
+    if (c.kind === 'loan') {
+      if (c.borrower === pid) endContract(s, events, c.id, 'void');
+      else if (c.lender === pid) {
+        if (heir && heir !== c.borrower) c.lender = heir;
+        else endContract(s, events, c.id, 'void');
+      }
+      continue;
+    }
+    if (c.holder === pid) {
+      if (!heir) { endContract(s, events, c.id, 'void'); continue; }
+      c.holder = heir;
+    }
+    if (!heir && c.spaces.some((id) => deeds.includes(id))) {
+      c.spaces = c.spaces.filter((id) => !deeds.includes(id));
+      if (c.spaces.length === 0) { endContract(s, events, c.id, 'void'); continue; }
+    }
+    // Inherited by the very player it is levied for, it binds nobody.
+    if (c.spaces.every((id) => ownerAfter(id) === c.holder)) endContract(s, events, c.id, 'void');
+  }
 }
 
 /** Deeds that arrive mortgaged cost their new owner the interest up front
@@ -956,6 +1185,11 @@ function doBankrupt(
 ): void {
   const me = s.players[pid];
   const owned = ownedBy(s, pid);
+
+  if (contractsOf(s).length > 0) {
+    const heir = creditorId && s.players[creditorId] && !s.players[creditorId].bankrupt ? creditorId : null;
+    settleContractsOnBankruptcy(s, events, pid, heir, owned);
+  }
 
   if (creditorId && s.players[creditorId] && !s.players[creditorId].bankrupt) {
     // Everything transfers, mortgages and all.
@@ -1089,6 +1323,31 @@ function leaderByNetWorth(s: GameState, ids: string[]): string | null {
     if (v > bestVal) { bestVal = v; best = id; }
   }
   return best;
+}
+
+/* --------------------------- seat hand-over -------------------------- */
+
+/**
+ * A signed-in player takes over a bot's seat in a game in progress, and
+ * everything the bot held with it: cash, deeds, position, contracts.
+ *
+ * Deliberately not a GameAction. Nobody can ask for this through the
+ * reducer, so nobody can talk the reducer into it: the host applies it
+ * directly, and only after the player's pass has checked out. Pure all the
+ * same - it returns a new state and says what happened.
+ */
+export function handOverSeat(prev: GameState, playerId: string, name: string): Reduction {
+  const p = prev.players[playerId];
+  if (!p || !p.isBot || p.bankrupt || prev.phase === 'game_over' || prev.phase === 'lobby') {
+    return { state: prev, events: [] };
+  }
+  const s = clone(prev);
+  s.version = prev.version + 1;
+  const seat = s.players[playerId];
+  seat.isBot = false;
+  seat.connected = true;
+  seat.name = name;
+  return { state: s, events: [{ type: 'SEAT_TAKEN', playerId, name, previous: p.name }] };
 }
 
 /* ------------------------- exported helpers ------------------------- */
