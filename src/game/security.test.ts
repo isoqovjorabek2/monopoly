@@ -7,10 +7,10 @@ import type { GameState, TradeBody } from './types';
 
 const start = (): GameState => {
   const seats = ['p0', 'p1'].map((id) => ({
-    id, name: id, token: 'topper' as const, color: '#fff', isBot: false,
+    id, name: id, token: 'camel' as const, color: '#fff', isBot: false,
   }));
   const s = reduce(createGame({ ...CLASSIC, seed: 5 }, seats), { type: 'START_GAME', playerId: 'p0' }).state;
-  s.properties[39].owner = 'p1'; // the victim holds Boardwalk
+  s.properties[39].owner = 'p1'; // the victim holds Tashkent
   return s;
 };
 

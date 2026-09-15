@@ -14,7 +14,7 @@ import type { DealTerm, GameAction, GameSettings, GameState, TradeBody } from '.
 
 const seats = (n: number, bots = false): SeatSpec[] =>
   Array.from({ length: n }, (_, i) => ({
-    id: `p${i}`, name: `P${i}`, token: 'topper' as const, color: '#fff', isBot: bots,
+    id: `p${i}`, name: `P${i}`, token: 'camel' as const, color: '#fff', isBot: bots,
   }));
 
 const DEALS: Partial<GameSettings> = { dealsEnabled: true };
@@ -64,7 +64,7 @@ function landOn(s: GameState, target: number): GameState {
   throw new Error('no throw found');
 }
 
-/** A hotel on Boardwalk and Park Place, owned by p1. Boardwalk rent: $2000. */
+/** A hotel on Tashkent and Samarkand, owned by p1. Tashkent rent: $2000. */
 function hotelRow(s: GameState): GameState {
   const n = structuredClone(s);
   for (const id of [37, 39]) {
@@ -178,7 +178,7 @@ describe('revenue shares', () => {
     s = sign(s, offer('p1', 'p3', { giveProperties: [39], wantCash: 200 }));
     expect(s.properties[39].owner).toBe('p3');
     const [c2, c3] = [s.players.p2.cash, s.players.p3.cash];
-    s = landOn(s, 39); // Boardwalk alone rents for $50
+    s = landOn(s, 39); // Tashkent alone rents for $50
     expect(s.players.p3.cash).toBe(c3 + 30);
     expect(s.players.p2.cash).toBe(c2 + 20);
   });
@@ -198,7 +198,7 @@ describe('revenue shares', () => {
 
   it('lets a seller keep a cut of the deed they sell', () => {
     let s = hotelRow(game());
-    // p1 sells Boardwalk to p2 and keeps 30% of its rent for five rounds.
+    // p1 sells Tashkent to p2 and keeps 30% of its rent for five rounds.
     const deal = offer('p1', 'p2', {
       giveProperties: [39],
       wantCash: 400,
@@ -649,8 +649,8 @@ describe('counter-offers', () => {
 
   it('a bot counters a person’s offer that falls just short, with one it would take', () => {
     const s = createGame({ ...CLASSIC, ...DEALS, seed: 5 }, [
-      { id: 'p0', name: 'Human', token: 'topper', color: '#fff', isBot: false },
-      { id: 'p1', name: 'Bot', token: 'boot', color: '#fff', isBot: true },
+      { id: 'p0', name: 'Human', token: 'camel', color: '#fff', isBot: false },
+      { id: 'p1', name: 'Bot', token: 'lamp', color: '#fff', isBot: true },
     ]);
     let g = reduce(s, { type: 'START_GAME', playerId: 'p0' }).state;
     for (const id of [16, 18]) g.properties[id].owner = 'p0';
@@ -704,13 +704,13 @@ describe('bots that deal', () => {
 
   it('offer a person money for a free stay on the square they are about to roll onto', () => {
     const s = createGame({ ...CLASSIC, ...DEALS, seed: 21 }, [
-      { id: 'p0', name: 'Bot', token: 'topper', color: '#fff', isBot: true },
-      { id: 'p1', name: 'Human', token: 'boot', color: '#fff', isBot: false },
+      { id: 'p0', name: 'Bot', token: 'camel', color: '#fff', isBot: true },
+      { id: 'p1', name: 'Human', token: 'lamp', color: '#fff', isBot: false },
     ]);
     const g = reduce(s, { type: 'START_GAME', playerId: 'p0' }).state;
     for (const id of [37, 39]) { g.properties[id].owner = 'p1'; g.properties[id].houses = 5; }
     g.hotelsRemaining -= 2;
-    g.players.p0.position = 32; // seven short of Boardwalk
+    g.players.p0.position = 32; // seven short of Tashkent
     g.players.p0.cash = 1500;
     const o = passPurchase(g, 'p0', 'normal');
     expect(o).not.toBeNull();

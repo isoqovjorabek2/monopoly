@@ -1,6 +1,6 @@
 import type { CFDict } from './cf-en';
 
-/* Uzbek for Cashflow, Latin alphabet, with the same conventions as uz.ts:
+/* Uzbek for Nest Egg, Latin alphabet, with the same conventions as uz.ts:
  * oʻ and gʻ written with ‘ (U+2018), the tutuq belgisi with ’ (U+2019),
  * and counts as "3 ta" rather than inflected plurals. */
 
@@ -12,25 +12,25 @@ const dat = (name: string): string => {
 };
 
 export const cfUz: CFDict = {
-  name: 'Cashflow',
+  name: 'Nest Egg',
 
   picker: {
     title: 'O‘yinni tanlang',
     aria: 'Qaysi o‘yinni o‘ynash',
     monopoly: {
-      name: 'Monopoly',
-      sub: 'Royale',
-      pitch: 'Maydonni sotib oling, quring va do‘stlaringizni bankrot qiling. Barcha rasmiy qoidalar.',
+      name: 'Bazaar',
+      sub: 'Barons',
+      pitch: 'Maydonni sotib oling, quring va do‘stlaringizni bankrot qiling. To‘liq qoidalar, auksionlari bilan.',
       meta: '2–8 o‘yinchi · 1–3 soat',
     },
     cashflow: {
-      name: 'Cashflow',
-      sub: 'Kalamush poygasi',
-      pitch: 'Xarajatlardan katta passiv daromad yarating, kalamush poygasidan chiqing va orzuingizni sotib oling.',
+      name: 'Nest Egg',
+      sub: 'Olmaxon g‘ildiragi',
+      pitch: 'Xarajatlardan katta passiv daromad yarating, olmaxon g‘ildiragidan chiqing va orzuingizni sotib oling.',
       meta: '2–6 o‘yinchi · 1–2 soat',
     },
-    lead: 'Har kimga kasb, maosh va bir dasta hisob-kitob beriladi. Har oy pul keltiradigan narsalarni sotib oling — aksiyalar, ijaradagi uylar, kir yuvish shoxobchasi — toki ish kerak bo‘lmay qolguncha. Keyin tezkor yo‘l: yirik bitimlar va boshida tanlagan orzuingiz.',
-    note: 'Monopoly bilan bir xil stol: biringiz mezbon bo‘lasiz, qolganlar to‘g‘ridan-to‘g‘ri o‘sha oynaga ulanadi. Ro‘yxatdan o‘tish ham, o‘rnatish ham yo‘q.',
+    lead: 'Har kimga kasb, maosh va bir dasta hisob-kitob beriladi. Har oy pul keltiradigan narsalarni sotib oling — aksiyalar, ijaradagi uylar, kir yuvish shoxobchasi — toki ish kerak bo‘lmay qolguncha. Keyin erkin yo‘l: yirik bitimlar va boshida tanlagan orzuingiz.',
+    note: 'Bazaar Barons bilan bir xil stol: biringiz mezbon bo‘lasiz, qolganlar to‘g‘ridan-to‘g‘ri o‘sha oynaga ulanadi. Ro‘yxatdan o‘tish ham, o‘rnatish ham yo‘q.',
   },
 
   professions: {
@@ -56,7 +56,7 @@ export const cfUz: CFDict = {
     charity: 'Xayriya',
     baby: 'Farzand',
     downsized: 'Qisqartirish',
-    cashflowDay: 'CASHFLOW kuni',
+    cashflowDay: 'Dividend kuni',
     business: 'Biznes',
     venture: 'Tavakkal loyiha',
     dream: 'Orzu',
@@ -66,15 +66,15 @@ export const cfUz: CFDict = {
   },
 
   hints: {
-    opportunity: 'Kichik yoki katta bitim kartasini oling.',
+    opportunity: 'Tezkor yoki yirik bitim kartasini oling.',
     payday: 'Oylik pul oqimingizni oling. O‘tib ketish ham hisoblanadi.',
     market: 'Kimdadir bor aktivlarga xaridorlar va hamma uchun voqealar.',
     doodad: 'Rejalashtirilmagan xarajat. To‘lash majburiy.',
     charity: 'Daromadning 10% ini bering va uch navbat ikki zar tashlang.',
     baby: 'Oilada yangi a’zo. Bolalar xarajati oshadi.',
     downsized: 'Bir oylik xarajatni to‘lang va ikki navbatni o‘tkazib yuboring.',
-    cashflowDay: 'CASHFLOW kuni daromadingizni oling. O‘tib ketish ham hisoblanadi.',
-    business: 'Sotib oling — u har CASHFLOW kuni sizga to‘laydi.',
+    cashflowDay: 'Dividend kuni daromadingizni oling. O‘tib ketish ham hisoblanadi.',
+    business: 'Sotib oling — u har Dividend kuni sizga to‘laydi.',
     venture: 'Bir zar tashlashga pul tiking.',
     dream: 'O‘z orzuingizga yetarli pul bilan tushsangiz — g‘alaba.',
     fastCharity: 'Bir, ikki yoki uch zarni butunlay tanlash uchun 10% bering.',
@@ -186,8 +186,8 @@ export const cfUz: CFDict = {
   },
 
   decks: {
-    small: 'Kichik bitim',
-    big: 'Katta bitim',
+    small: 'Tezkor bitim',
+    big: 'Yirik bitim',
     market: 'Bozor',
     doodad: 'Mayda-chuyda',
   },
@@ -223,14 +223,14 @@ export const cfUz: CFDict = {
   actions: {
     yourTurn: 'Sizning navbatingiz',
     theirTurn: (name) => `${name}ning navbati`,
-    rollNote: 'Kalamush poygasi bo‘ylab yurish uchun zar tashlang.',
-    rollFastNote: 'Tezkor yo‘l bo‘ylab yurish uchun zar tashlang.',
+    rollNote: 'Olmaxon g‘ildiragi bo‘ylab yurish uchun zar tashlang.',
+    rollFastNote: 'Erkin yo‘l bo‘ylab yurish uchun zar tashlang.',
     roll: (n) => (n === 1 ? 'Bitta zar tashlash' : `${n} ta zar tashlash`),
     charityDice: (n) => `Xayriya: yana ${n} ta navbat ikki zar.`,
     opportunity: 'Imkoniyat',
-    pickDeck: 'Kichik bitimga kirish $5,000 dan oshmaydi. Katta bitimlar $6,000 dan boshlanadi.',
-    drawSmall: 'Kichik bitim',
-    drawBig: 'Katta bitim',
+    pickDeck: 'Tezkor bitimga kirish $5,000 dan oshmaydi. Yirik bitimlar $6,000 dan boshlanadi.',
+    drawSmall: 'Tezkor bitim',
+    drawBig: 'Yirik bitim',
     sharesAria: 'Nechta aksiya olish',
     buyShares: (n, x) => `${n} tasini ${x}ga olish`,
     sellShares: (n, x) => `${n} tasini ${x}ga sotish`,
@@ -244,7 +244,7 @@ export const cfUz: CFDict = {
     donateFast: 'O‘yin oxirigacha bir, ikki yoki uch zarni tanlaysiz.',
     endTurn: 'Navbatni tugatish',
     buyBusiness: (x) => `${x}ga sotib olish`,
-    businessNote: (x) => `Har CASHFLOW kuniga ${x} qo‘shadi.`,
+    businessNote: (x) => `Har Dividend kuniga ${x} qo‘shadi.`,
     businessTaken: (name) => `Bu allaqachon ${name}niki.`,
     tryVenture: (x) => `${x} tikish`,
     ventureNote: (faces, x) => `${faces} tushsa, ${x} to‘laydi.`,
@@ -257,9 +257,9 @@ export const cfUz: CFDict = {
     spectatingNote: 'Siz o‘yindan chiqdingiz, lekin oxirigacha tomosha qilishingiz mumkin.',
     sitting: (n) => `O‘tkazib yuborish: yana ${n} ta navbat.`,
     chooseDream: 'Orzuingizni tanlang',
-    chooseDreamNote: 'Uni tezkor yo‘lda sotib olsangiz — g‘alaba. Undan oldin unga tushgan har bir raqib uni qimmatlashtiradi.',
+    chooseDreamNote: 'Uni erkin yo‘lda sotib olsangiz — g‘alaba. Undan oldin unga tushgan har bir raqib uni qimmatlashtiradi.',
     waitingDreams: 'Hamma orzu tanlashini kutyapmiz…',
-    escaped: 'Siz kalamush poygasidan chiqdingiz.',
+    escaped: 'Siz olmaxon g‘ildiragidan chiqdingiz.',
     moneyTitle: 'Pul',
   },
 
@@ -278,7 +278,7 @@ export const cfUz: CFDict = {
     loanPayment: 'Bank krediti to‘lovi',
     totalExpenses: 'Jami xarajatlar',
     payCheck: 'Oylik pul oqimi',
-    escapeGoal: 'Passiv daromad barcha xarajatlardan oshganda kalamush poygasidan chiqasiz.',
+    escapeGoal: 'Passiv daromad barcha xarajatlardan oshganda olmaxon g‘ildiragidan chiqasiz.',
     of: (a, b) => `${b} dan ${a}`,
     assets: 'Aktivlar',
     liabilities: 'Majburiyatlar',
@@ -293,8 +293,8 @@ export const cfUz: CFDict = {
     noLoan: 'Bu maoshga bank ortiq bermaydi.',
     payOff: (x) => `${x} to‘lab yopish`,
     onlyOnTurn: 'Qarz olish va to‘lash faqat o‘z navbatingizda.',
-    fastTitle: 'Tezkor yo‘l',
-    dayIncome: 'CASHFLOW kuni daromadi',
+    fastTitle: 'Erkin yo‘l',
+    dayIncome: 'Dividend kuni daromadi',
     goal: 'G‘alaba chegarasi',
     dream: 'Orzuingiz',
     dreamPrice: 'Hozirgi narxi',
@@ -304,8 +304,8 @@ export const cfUz: CFDict = {
   },
 
   rail: {
-    ratRace: 'Kalamush poygasi',
-    fastTrack: 'Tezkor yo‘l',
+    ratRace: 'Olmaxon g‘ildiragi',
+    fastTrack: 'Erkin yo‘l',
     out: 'Chiqdi',
     sitting: (n) => `O‘tkazadi: ${n}`,
     charity: (n) => `2 zar ×${n}`,
@@ -316,9 +316,9 @@ export const cfUz: CFDict = {
   },
 
   board: {
-    aria: 'Cashflow maydoni',
-    ratRace: 'Kalamush poygasi',
-    fastTrack: 'Tezkor yo‘l',
+    aria: 'Nest Egg maydoni',
+    ratRace: 'Olmaxon g‘ildiragi',
+    fastTrack: 'Erkin yo‘l',
     hud: {
       dreams: 'Orzular tanlanmoqda',
       roll: 'zar tashlaydi',
@@ -341,7 +341,7 @@ export const cfUz: CFDict = {
     rolled: (p, dice) => `${p} ${dice} tashladi.`,
     payday: (p, x) => `${p} maosh kunida ${x} oldi.`,
     paydayNegative: (p, x) => `${p} maosh kunida ${x} to‘ladi.`,
-    cashflowDay: (p, x) => `${p} CASHFLOW kunida ${x} oldi.`,
+    cashflowDay: (p, x) => `${p} Dividend kunida ${x} oldi.`,
     card: (p, deck, what) => `${p} «${deck}» kartasini oldi: ${what}.`,
     boughtStock: (p, n, sym, x) => `${p} ${n} ta ${sym} aksiyasini ${x}dan oldi.`,
     soldStock: (p, n, sym, x) => `${p} ${n} ta ${sym} aksiyasini ${x}dan sotdi.`,
@@ -363,7 +363,7 @@ export const cfUz: CFDict = {
     downsized: (p, x) => `${p} ishdan qisqartirildi: ${x} to‘ladi va ikki navbatni o‘tkazadi.`,
     bankrupt: (p) => `${p} bankrot bo‘ldi va uch navbatni o‘tkazadi.`,
     bankruptOut: (p) => `${p} bankrot bo‘ldi va o‘yindan chiqdi.`,
-    escaped: (p, x) => `${p} kalamush poygasidan chiqdi! CASHFLOW kuni endi ${x} to‘laydi.`,
+    escaped: (p, x) => `${p} olmaxon g‘ildiragidan chiqdi! Dividend kuni endi ${x} to‘laydi.`,
     business: (p, what, x, cf) => `${p} «${what}»ni ${x}ga oldi: kuniga +${cf}.`,
     ventureWon: (p, what, roll) => `${p} ${roll} tashladi — «${what}» omad keltirdi!`,
     ventureLost: (p, what, roll) => `${p} ${roll} tashladi. «${what}» besamar ketdi.`,
@@ -385,14 +385,14 @@ export const cfUz: CFDict = {
     about: 'Kasblar o‘yin boshida tasodifiy beriladi. Orzular stolda tanlanadi.',
     strictLoans: ['Bank maoshga qarab qarz beradi', 'Kredit faqat oylik pul oqimi minusga tushmasa beriladi. O‘chirilsa, istalgan narsaga qarz olish mumkin.'],
     roundLimit: 'Aylanalar chegarasi',
-    fastGoal: 'Tezkor yo‘ldagi maqsad',
+    fastGoal: 'Erkin yo‘ldagi maqsad',
     fastGoalHint: 'Orzu oldinroq amalga oshmasa, g‘alaba uchun qancha qo‘shimcha oylik daromad yaratish kerak.',
     chipGoal: (x) => `g‘alaba uchun +${x}`,
     strict: 'Qat’iy kreditlar',
     open: 'Erkin kreditlar',
     chipRounds: (n) => `${n} aylana`,
     noLimit: 'Cheklovsiz',
-    inviteOnly: 'Cashflow stollari hozircha faqat taklif bilan: kod yoki havolani ulashing.',
+    inviteOnly: 'Nest Egg stollari hozircha faqat taklif bilan: kod yoki havolani ulashing.',
   },
 
   gameOver: {
@@ -402,20 +402,20 @@ export const cfUz: CFDict = {
   },
 
   help: {
-    title: 'Cashflow qanday o‘ynaladi',
+    title: 'Nest Egg qanday o‘ynaladi',
     sections: [
       ['Maqsad', [
         'Ish maosh beradi, hisob-kitoblar uning ko‘p qismini yeydi. Qolgani — pul oqimingiz, u har «Maosh» maydonida to‘lanadi.',
-        'Har oy pul keltiradigan aktivlarni sotib oling. Passiv daromad barcha xarajatlardan oshsa, kalamush poygasidan chiqasiz.',
+        'Har oy pul keltiradigan aktivlarni sotib oling. Passiv daromad barcha xarajatlardan oshsa, olmaxon g‘ildiragidan chiqasiz.',
       ]],
-      ['Kalamush poygasi', [
-        'Imkoniyat: kichik bitim ($5,000 gacha) yoki katta bitim. Aksiyalar, ko‘chmas mulk, biznes.',
+      ['Olmaxon g‘ildiragi', [
+        'Imkoniyat: tezkor bitim ($5,000 gacha) yoki yirik bitim. Aksiyalar, ko‘chmas mulk, biznes.',
         'Bozor: kimdadir bor aktivga xaridor. Egasi bo‘lgan har kim sotishi mumkin.',
         'Mayda-chuydalar pul talab qiladi. Xayriya ikkinchi zarni beradi. Qisqartirish bir oy va ikki navbatga tushadi.',
         'Bank $1,000 dan, oyiga 10% bilan qarz beradi; har qanday qarzni o‘z navbatingizda yopish mumkin.',
       ]],
-      ['Tezkor yo‘l', [
-        'Passiv daromadingizdan yuz baravar ko‘p daromad bilan chiqasiz — u har CASHFLOW kuni to‘lanadi.',
+      ['Erkin yo‘l', [
+        'Passiv daromadingizdan yuz baravar ko‘p daromad bilan chiqasiz — u har Dividend kuni to‘lanadi.',
         'Orzuingizni sotib olsangiz — g‘alaba. Yoki bizneslardan yetarli yangi oylik daromad yarating.',
         'Tekshiruv va sud naqd pulning yarmini, ajrashish esa hammasini oladi.',
       ]],

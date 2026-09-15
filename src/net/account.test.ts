@@ -126,7 +126,7 @@ function makeHost(seatFor: (uid: string) => string = (uid) => uid) {
 }
 
 const hello = (playerId: string, extra: Partial<Extract<Up, { t: 'HELLO' }>> = {}): Up =>
-  ({ t: 'HELLO', playerId, name: 'n', token: 'topper', secret: 's', ...extra });
+  ({ t: 'HELLO', playerId, name: 'n', token: 'camel', secret: 's', ...extra });
 
 describe('the host, with passes', () => {
   it('binds a signed-in player to the seat their account plays, whatever id they send', async () => {
@@ -257,12 +257,12 @@ describe('the host, with passes', () => {
 /* ------------------------ the seat changing hands ------------------------ */
 
 const seats = [
-  { id: 'p0', name: 'Host', token: 'topper' as const, color: '#fff', isBot: false },
-  { id: 'bot_ada', name: 'Ada', token: 'boot' as const, color: '#fff', isBot: true },
+  { id: 'p0', name: 'Host', token: 'camel' as const, color: '#fff', isBot: false },
+  { id: 'bot_ada', name: 'Ada', token: 'lamp' as const, color: '#fff', isBot: true },
 ];
 
 describe('taking over a bot', () => {
-  it('hands a signed-in player the bot and everything it holds (Monopoly)', () => {
+  it('hands a signed-in player the bot and everything it holds (Bazaar Barons)', () => {
     const s = reduce(createGame({ ...CLASSIC, seed: 3 }, seats), { type: 'START_GAME', playerId: 'p0' }).state;
     s.players.bot_ada.cash = 777;
     s.properties[39].owner = 'bot_ada';

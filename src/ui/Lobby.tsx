@@ -54,7 +54,7 @@ export function Lobby() {
   const limit = seatLimit(room);
   const canEdit = isHost || isLocal;
   const enoughPlayers = room.seats.length >= 2 || s.fillWithBots;
-  const gameName = cashflow ? t.cf.name : 'Monopoly Royale';
+  const gameName = cashflow ? t.cf.name : 'Bazaar Barons';
 
   const copy = async (what: 'code' | 'link') => {
     const text = what === 'code' ? room.roomId : roomLink(room.roomId);
@@ -237,7 +237,7 @@ export function Lobby() {
   );
 }
 
-/* ------------------------- Monopoly's rulebook ----------------------- */
+/* ------------------------- Bazaar Barons' rulebook ----------------------- */
 
 function MonopolySettings({
   room, canEdit, set,
@@ -369,7 +369,7 @@ function MonopolySettings({
   );
 }
 
-/* ------------------------- Cashflow's rulebook ----------------------- */
+/* ------------------------- Nest Egg's rulebook ----------------------- */
 
 function CashflowSettings({
   room, canEdit, set, setRules,

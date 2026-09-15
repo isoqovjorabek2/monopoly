@@ -10,7 +10,7 @@ import {
 const seat = (id: string, over: Partial<SeatInfo> = {}): SeatInfo => ({
   playerId: id,
   name: id,
-  token: 'topper',
+  token: 'camel',
   color: '#fff',
   isBot: false,
   botLevel: 'normal',

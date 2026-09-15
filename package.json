@@ -1,9 +1,9 @@
 {
-  "name": "monopoly-royale",
+  "name": "party-hall",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "A visually stunning, browser-based Monopoly you can play with friends anywhere — no server, no signup.",
+  "description": "Party Hall: browser board games to play with friends anywhere - Bazaar Barons and Nest Egg.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

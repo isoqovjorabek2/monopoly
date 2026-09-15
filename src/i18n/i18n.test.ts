@@ -118,16 +118,16 @@ describe('engine strings', () => {
 
   it('translates the templated ones', () => {
     const ru = dictFor('ru');
-    expect(trReason(ru, 'rent on Boardwalk')).toBe('аренда за «Набережная»');
+    expect(trReason(ru, 'rent on Tashkent')).toBe('аренда за «Ташкент»');
     expect(trReason(ru, 'You need $1500')).toBe('Нужно $1,500');
-    expect(trReason(ru, 'Income Tax')).toBe('Подоходный налог');
+    expect(trReason(ru, 'Customs Duty')).toBe('Таможенная пошлина');
     expect(trReason(ru, CHANCE[9].text)).toBe(ru.cards[CHANCE[9].id]);
   });
 
   it('leaves English, and anything unknown, as it was', () => {
     const en = dictFor('en');
     for (const raw of engineLiterals()) expect(trReason(en, raw)).toBe(raw);
-    expect(trReason(en, 'rent on Boardwalk')).toBe('rent on Boardwalk');
+    expect(trReason(en, 'rent on Tashkent')).toBe('rent on Tashkent');
     expect(trReason(dictFor('ru'), 'something new')).toBe('something new');
     expect(trReason(en, undefined)).toBeUndefined();
   });
@@ -137,7 +137,7 @@ describe('engine strings', () => {
 
 const seats = (n: number): SeatSpec[] =>
   Array.from({ length: n }, (_, i) => ({
-    id: `p${i}`, name: `P${i}`, token: 'topper' as const, color: '#fff', isBot: true,
+    id: `p${i}`, name: `P${i}`, token: 'camel' as const, color: '#fff', isBot: true,
   }));
 
 /** Every event a few full bot games produce, with the state it landed on. */

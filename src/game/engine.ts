@@ -301,7 +301,7 @@ function movePlayer(
     me.lapsCompleted += 1;
     const landedExactlyOnGo = to === 0;
     const amount = s.settings.goSalary * (landedExactlyOnGo && s.settings.doubleOnGo ? 2 : 1);
-    credit(s, events, pid, amount, 'passing GO');
+    credit(s, events, pid, amount, 'passing Start');
     events.push({ type: 'PASSED_GO', playerId: pid, amount });
   }
 }
@@ -317,7 +317,7 @@ function teleport(
   events.push({ type: 'MOVED', playerId: pid, from, to, steps: forwardSteps, direct: true });
   if (passGoPays && to !== from && from + forwardSteps >= BOARD_SIZE) {
     me.lapsCompleted += 1;
-    credit(s, events, pid, s.settings.goSalary, 'passing GO');
+    credit(s, events, pid, s.settings.goSalary, 'passing Start');
     events.push({ type: 'PASSED_GO', playerId: pid, amount: s.settings.goSalary });
   }
 }
@@ -366,14 +366,14 @@ function resolveLanding(
     }
 
     case 'gotojail':
-      sendToJail(s, events, pid, 'landed on Go To Jail');
+      sendToJail(s, events, pid, 'ordered to the Zindan');
       return;
 
     case 'freeparking':
       if (s.settings.freeParkingJackpot && s.freeParkingPot > 0) {
         const amount = s.freeParkingPot;
         s.freeParkingPot = 0;
-        credit(s, events, pid, amount, 'the Free Parking pot');
+        credit(s, events, pid, amount, 'the Caravanserai pot');
         events.push({ type: 'FREE_PARKING', playerId: pid, amount });
       }
       return;
@@ -934,7 +934,7 @@ function doUseJailCard(s: GameState, events: GameEvent[], pid: string): void {
   me.inJail = false;
   me.jailTurns = 0;
   returnJailCard(s);
-  events.push({ type: 'LEFT_JAIL', playerId: pid, how: 'used a Get Out of Jail Free card' });
+  events.push({ type: 'LEFT_JAIL', playerId: pid, how: 'used a Royal Pardon card' });
   s.phase = 'preroll';
 }
 
@@ -1178,7 +1178,7 @@ function settleContractsOnBankruptcy(
 }
 
 /** Deeds that arrive mortgaged cost their new owner the interest up front
- *  (official rule). canTrade has already checked it can be paid. */
+ *  (standard rule). canTrade has already checked it can be paid. */
 function chargeTransferFees(s: GameState, events: GameEvent[], pid: string, ids: number[]): void {
   const fee = ids.reduce((n, id) => n + (s.properties[id].mortgaged ? transferFee(s, id) : 0), 0);
   if (fee <= 0) return;
@@ -1235,7 +1235,7 @@ function doBankrupt(
     }
   } else {
     // To the bank: the deeds come back unimproved and unmortgaged, and the
-    // bank sells them on at auction (official rule).
+    // bank sells them on at auction (standard rule).
     for (const id of owned) {
       const st = s.properties[id];
       if (st.houses === 5) s.hotelsRemaining += 1;

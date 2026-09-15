@@ -85,7 +85,7 @@ export const unmortgageCost = (s: GameState, spaceId: number): number =>
   Math.ceil((BOARD[spaceId].mortgage ?? 0) * (1 + s.settings.mortgageInterestPct / 100));
 
 /** Interest owed up front by whoever takes over a mortgaged deed, by trade
- *  or from a bankrupt estate (official rule). */
+ *  or from a bankrupt estate (standard rule). */
 export const transferFee = (s: GameState, spaceId: number): number =>
   Math.ceil((BOARD[spaceId].mortgage ?? 0) * s.settings.mortgageInterestPct / 100);
 

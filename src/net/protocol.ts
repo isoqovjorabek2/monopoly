@@ -258,7 +258,7 @@ export function redactForGuests(snapshot: RoomSnapshot): RoomSnapshot {
  * existed in the host's tab - so the new host deals fresh decks from a new
  * seed. Nobody at the table loses anything by it: that order was never
  * knowledge any of them had. Cards already drawn stay drawn, because they
- * are in the state; the two Get Out of Jail Free cards are the only ones a
+ * are in the state; the two Royal Pardon cards are the only ones a
  * player can be holding, so a held one is kept out of the new shuffle.
  */
 export function rehydrateForHost(snapshot: RoomSnapshot, seed: number): RoomSnapshot {

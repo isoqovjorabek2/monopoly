@@ -424,9 +424,9 @@ function Medallion() {
 
       {/* Type sits above and below the live chrome, never behind it. */}
       <g className="medallion__type">
-        <text x="200" y="126" textAnchor="middle">MONOPOLY</text>
+        <text x="200" y="126" textAnchor="middle">BAZAAR</text>
         <path d="M138 146 H262" />
-        <text x="200" y="296" textAnchor="middle" className="medallion__sub">ROYALE</text>
+        <text x="200" y="296" textAnchor="middle" className="medallion__sub">BARONS</text>
       </g>
     </svg>
   );

@@ -26,7 +26,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     // Keep the detail in the console for anyone who opens devtools.
-    console.error('Monopoly Royale crashed:', error, info.componentStack);
+    console.error('Party Hall crashed:', error, info.componentStack);
     this.props.onError?.(error);
   }
 

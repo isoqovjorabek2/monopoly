@@ -6,9 +6,9 @@ import type {
 /* ------------------------------------------------------------------ *
  * The tables. Every number the game can charge or pay is here.
  *
- * The shape follows the published game - twelve professions, a 24-space
- * Rat Race, four decks, a 40-space Fast Track - but the figures and the
- * cards are this project's own, written and balanced for it. Names are
+ * Twelve professions, a 24-space Grind, four decks and a 40-space Free
+ * Lane. Every figure and every card is this project's own, written and
+ * balanced for it. Names are
  * keys: the words live in the dictionaries so every language prints them.
  * ------------------------------------------------------------------ */
 
@@ -30,18 +30,18 @@ const prof = (
 /** A high salary comes with high expenses. The janitor is often the first
  *  one out, which is the lesson the whole game is built around. */
 export const PROFESSIONS: readonly Profession[] = [
-  prof('janitor', 1650, 290, 310, 80, 600, [210, 21000], [0, 0], [60, 4000], [60, 2000], [50, 1000]),
-  prof('mechanic', 2050, 370, 460, 110, 650, [310, 31000], [0, 0], [70, 3500], [60, 2000], [50, 1000]),
-  prof('secretary', 2500, 460, 560, 140, 700, [400, 38000], [0, 0], [80, 4000], [60, 2000], [50, 1000]),
-  prof('trucker', 2600, 480, 600, 140, 750, [400, 40000], [0, 0], [90, 4500], [60, 2000], [50, 1000]),
-  prof('police', 3000, 580, 690, 160, 520, [400, 46000], [0, 0], [100, 5000], [60, 2000], [50, 1000]),
-  prof('nurse', 3100, 600, 700, 170, 480, [400, 47000], [30, 6000], [100, 5000], [90, 3000], [50, 1000]),
-  prof('teacher', 3300, 630, 760, 180, 400, [500, 50000], [60, 12000], [100, 5000], [90, 3000], [50, 1000]),
-  prof('manager', 4600, 910, 1000, 240, 400, [700, 75000], [60, 12000], [120, 6000], [90, 3000], [50, 1000]),
-  prof('engineer', 4900, 1050, 1090, 250, 400, [700, 75000], [90, 18000], [140, 7000], [120, 4000], [50, 1000]),
-  prof('lawyer', 7500, 1830, 1650, 380, 400, [1100, 115000], [390, 78000], [220, 11000], [180, 6000], [50, 1000]),
-  prof('pilot', 9500, 2350, 2210, 480, 400, [1330, 143000], [0, 0], [300, 15000], [660, 22000], [50, 1000]),
-  prof('doctor', 13200, 3420, 2880, 640, 400, [1900, 202000], [750, 150000], [380, 19000], [270, 9000], [50, 1000]),
+  prof('janitor', 1720, 300, 330, 90, 560, [220, 23000], [0, 0], [70, 3800], [50, 1600], [40, 900]),
+  prof('mechanic', 2180, 400, 480, 120, 600, [330, 33000], [0, 0], [80, 4200], [60, 1900], [40, 900]),
+  prof('secretary', 2380, 440, 540, 130, 720, [380, 36000], [0, 0], [70, 3600], [60, 2100], [40, 800]),
+  prof('trucker', 2750, 510, 620, 150, 680, [420, 42000], [0, 0], [100, 5200], [70, 2300], [50, 1100]),
+  prof('police', 3150, 610, 720, 170, 560, [440, 48000], [0, 0], [110, 5400], [70, 2400], [40, 900]),
+  prof('nurse', 2960, 570, 660, 160, 520, [390, 45000], [40, 7000], [90, 4600], [80, 2700], [50, 1100]),
+  prof('teacher', 3420, 660, 790, 190, 450, [520, 53000], [70, 13000], [110, 5500], [90, 3200], [40, 900]),
+  prof('manager', 4450, 870, 980, 230, 500, [680, 72000], [50, 11000], [130, 6400], [100, 3400], [50, 1200]),
+  prof('engineer', 5150, 1110, 1140, 260, 420, [740, 79000], [100, 19000], [150, 7400], [110, 3700], [60, 1300]),
+  prof('lawyer', 7800, 1900, 1720, 400, 480, [1150, 121000], [360, 72000], [230, 11500], [190, 6300], [70, 1500]),
+  prof('pilot', 9900, 2450, 2300, 500, 540, [1400, 150000], [0, 0], [280, 14000], [600, 20000], [80, 1800]),
+  prof('doctor', 12600, 3260, 2750, 610, 520, [1820, 194000], [700, 140000], [360, 18000], [260, 8600], [90, 2000]),
 ];
 
 export const professionById = (id: string): Profession =>
@@ -55,10 +55,10 @@ export const MAX_CHILDREN = 3;
 export const LOAN_UNIT = 1000;
 export const LOAN_RATE = 0.1;
 
-/** CASHFLOW Day income on leaving the Rat Race: this times passive income. */
+/** Dividend Day income on leaving the Grind: this times passive income. */
 export const BUYOUT_MULTIPLE = 100;
 
-/* ----------------------------- the Rat Race --------------------------- */
+/* ----------------------------- the Grind --------------------------- */
 
 const RAT_LAYOUT: RatKind[] = [
   'opportunity', 'doodad', 'opportunity', 'charity', 'opportunity', 'payday',
@@ -70,7 +70,7 @@ const RAT_LAYOUT: RatKind[] = [
 export const RAT_BOARD: readonly RatSpace[] = RAT_LAYOUT.map((kind, id) => ({ id, kind }));
 export const RAT_SIZE = RAT_BOARD.length;
 
-/* ----------------------------- the Fast Track ------------------------- */
+/* ----------------------------- the Free Lane ------------------------- */
 
 const biz = (key: string, cost: number, cashflow: number): Omit<FastSpace, 'id'> =>
   ({ kind: 'business', key, cost, cashflow });

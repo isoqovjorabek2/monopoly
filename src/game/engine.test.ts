@@ -13,7 +13,7 @@ const seats = (n: number, bots = false): SeatSpec[] =>
   Array.from({ length: n }, (_, i) => ({
     id: `p${i}`,
     name: `P${i}`,
-    token: 'topper' as const,
+    token: 'camel' as const,
     color: '#fff',
     isBot: bots,
   }));
@@ -34,7 +34,7 @@ describe('board data', () => {
     expect(BOARD[10].kind).toBe('jail');
     expect(BOARD[20].kind).toBe('freeparking');
     expect(BOARD[30].kind).toBe('gotojail');
-    expect(BOARD[39].name).toBe('Boardwalk');
+    expect(BOARD[39].name).toBe('Tashkent');
   });
 
   it('prices mortgages at exactly half', () => {
@@ -52,7 +52,7 @@ describe('board data', () => {
     }
   });
 
-  it('matches the printed deed for Boardwalk and Mediterranean', () => {
+  it('keeps the deed values for Tashkent and Nukus', () => {
     expect(BOARD[39].rent).toEqual([50, 200, 600, 1400, 1700, 2000]);
     expect(BOARD[39].houseCost).toBe(200);
     expect(BOARD[1].rent).toEqual([2, 10, 30, 90, 160, 250]);
@@ -339,7 +339,7 @@ describe('debt and bankruptcy', () => {
     s.phase = 'preroll';
     s.chanceOrder = ['ch11', ...s.chanceOrder.filter((id) => id !== 'ch11')];
     s.chanceCursor = 0;
-    s.rngCursor = findCursorForTotal(s.settings.seed, 4); // 3 -> Chance at 7
+    s.rngCursor = findCursorForTotal(s.settings.seed, 4); // 3 -> Fortune at 7
     s = apply(s, { type: 'ROLL', playerId: 'p0' });
 
     // General repairs: 8 houses at $25 is $200 against $50 in hand.
@@ -375,12 +375,12 @@ describe('rules that used to go wrong', () => {
   };
   const onTop = (order: string[], id: string): string[] => [id, ...order.filter((c) => c !== id)];
 
-  it('adds a tax raised through must_raise to the Free Parking pot once', () => {
+  it('adds a tax raised through must_raise to the Caravanserai pot once', () => {
     let s = game({ freeParkingJackpot: true, freeParkingSeed: 0 });
     s.players.p0.cash = 10;
     s.properties[39].owner = 'p0';
     s.properties[37].owner = 'p0';
-    s.rngCursor = noDouble(s.settings.seed, 4); // GO -> Income Tax
+    s.rngCursor = noDouble(s.settings.seed, 4); // Start -> Income Tax
     s = apply(s, { type: 'ROLL', playerId: 'p0' });
     expect(s.phase).toBe('must_raise');
     const owed = s.debt!.amount;
@@ -391,11 +391,11 @@ describe('rules that used to go wrong', () => {
     expect(s.freeParkingPot).toBe(owed);
   });
 
-  it('returns a Community Chest jail card to the bottom of Community Chest', () => {
+  it('returns a Bazaar jail card to the bottom of Bazaar', () => {
     let s = game();
     s.chestOrder = onTop(s.chestOrder, 'cc05');
     s.chestCursor = 0;
-    s.rngCursor = findCursorForTotal(s.settings.seed, 2); // GO -> Community Chest
+    s.rngCursor = findCursorForTotal(s.settings.seed, 2); // Start -> Bazaar
     s = apply(s, { type: 'ROLL', playerId: 'p0' });
     expect(s.players.p0.getOutOfJailCards).toBe(1);
     expect(s.chestOrder).not.toContain('cc05');
@@ -429,7 +429,7 @@ describe('rules that used to go wrong', () => {
     s.properties[39].owner = 'p0';
     s.chanceOrder = onTop(s.chanceOrder, 'ch14');
     s.chanceCursor = 0;
-    s.rngCursor = findCursorForTotal(s.settings.seed, 7); // GO -> Chance
+    s.rngCursor = findCursorForTotal(s.settings.seed, 7); // Start -> Fortune
     s = apply(s, { type: 'ROLL', playerId: 'p0' });
     expect(s.phase).toBe('must_raise');
     expect(s.debt).toMatchObject({ amount: 150, to: null, split: ['p1', 'p2', 'p3'] });
@@ -455,7 +455,7 @@ describe('rules that used to go wrong', () => {
     let s = game();
     s.chanceOrder = onTop(s.chanceOrder, 'ch03');
     s.chanceCursor = 0;
-    s.rngCursor = findCursorForTotal(s.settings.seed, 7); // GO -> Chance -> St. Charles
+    s.rngCursor = findCursorForTotal(s.settings.seed, 7); // Start -> Fortune -> Osh
     s = apply(s, { type: 'ROLL', playerId: 'p0' });
     expect(s.phase).toBe('awaiting_buy');
     expect(s.activeCard?.id).toBe('ch03');
@@ -469,7 +469,7 @@ describe('rules that used to go wrong', () => {
     s.properties[12].owner = 'p1';
     s.chanceOrder = onTop(s.chanceOrder, 'ch04');
     s.chanceCursor = 0;
-    s.rngCursor = findCursorForTotal(s.settings.seed, 7); // GO -> Chance -> Electric Company
+    s.rngCursor = findCursorForTotal(s.settings.seed, 7); // Start -> Fortune -> Power Grid
     const r = reduce(s, { type: 'ROLL', playerId: 'p0' });
     const throws = r.events.flatMap((e) => (e.type === 'DICE_ROLLED' ? [e.dice] : []));
     expect(throws).toHaveLength(2);

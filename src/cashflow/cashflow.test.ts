@@ -14,7 +14,7 @@ import type { CFAction, CFEvent, CFSettings, CFState } from './types';
 
 const seats = (n: number, bots = true): SeatSpec[] =>
   Array.from({ length: n }, (_, i) => ({
-    id: `p${i}`, name: `P${i}`, token: 'topper' as const, color: '#fff', isBot: bots,
+    id: `p${i}`, name: `P${i}`, token: 'camel' as const, color: '#fff', isBot: bots,
   }));
 
 const settings = (seed: number, patch: Partial<CFSettings> = {}): CFSettings =>

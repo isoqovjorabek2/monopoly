@@ -1,8 +1,8 @@
 import type { GameSettings, TokenId } from './types';
 import { randomSeed } from './rng';
 
-/** Official Hasbro rules, as printed. This is the baseline every preset
- *  deviates from, and every deviation is visible in the lobby. */
+/** The standard rules. This is the baseline every preset deviates
+ *  from, and every deviation is visible in the lobby. */
 export const CLASSIC: GameSettings = {
   startingCash: 1500,
   goSalary: 200,
@@ -50,7 +50,7 @@ export const PRESETS: Preset[] = [
   {
     id: 'classic',
     name: 'Classic',
-    blurb: 'The rules exactly as Hasbro prints them, auctions and all. Plays until one player is left.',
+    blurb: 'The standard rules, auctions and all. Plays until one player is left.',
     minutes: '90-180 min',
     patch: {},
   },
@@ -72,7 +72,7 @@ export const PRESETS: Preset[] = [
   {
     id: 'friendly',
     name: 'House Rules',
-    blurb: 'The way most people actually play: Free Parking jackpot, no auctions, no building shortage.',
+    blurb: 'The way most people actually play: Caravanserai jackpot, no auctions, no building shortage.',
     minutes: '60-120 min',
     patch: {
       freeParkingJackpot: true,
@@ -86,7 +86,7 @@ export const PRESETS: Preset[] = [
   {
     id: 'dealmaker',
     name: 'Deal Maker',
-    blurb: 'The printed rules, plus contracts. Sell rent-free stays, buy a cut of somebody else’s rent, lend at interest. The table negotiates as much as it rolls.',
+    blurb: 'The standard rules, plus contracts. Sell rent-free stays, buy a cut of somebody else’s rent, lend at interest. The table negotiates as much as it rolls.',
     minutes: '90-150 min',
     patch: {
       dealsEnabled: true,
@@ -126,15 +126,28 @@ export function defaultSettings(): GameSettings {
  * ---------------------------------------------------------------- */
 
 export const TOKENS: { id: TokenId; label: string }[] = [
-  { id: 'topper', label: 'Top Hat' },
-  { id: 'roadster', label: 'Roadster' },
-  { id: 'terrier', label: 'Terrier' },
-  { id: 'thimble', label: 'Thimble' },
-  { id: 'boot', label: 'Boot' },
-  { id: 'battleship', label: 'Battleship' },
-  { id: 'iron', label: 'Iron' },
-  { id: 'wheelbarrow', label: 'Wheelbarrow' },
+  { id: 'camel', label: 'Camel' },
+  { id: 'teapot', label: 'Teapot' },
+  { id: 'lamp', label: 'Oil Lamp' },
+  { id: 'pomegranate', label: 'Pomegranate' },
+  { id: 'dutar', label: 'Dutar' },
+  { id: 'horse', label: 'Horse' },
+  { id: 'doppi', label: 'Doppi' },
+  { id: 'minaret', label: 'Minaret' },
 ];
+
+/** Pieces from before the Silk Road set, as a browser or a saved table may
+ *  still hold them, each mapped to the piece that took its place. */
+const LEGACY_TOKENS: Record<string, TokenId> = {
+  topper: 'camel', roadster: 'horse', terrier: 'teapot', thimble: 'doppi',
+  boot: 'lamp', battleship: 'minaret', iron: 'dutar', wheelbarrow: 'pomegranate',
+};
+
+/** Any stored or received piece id, as one this build can draw. */
+export function normalizeToken(id: string | null | undefined): TokenId {
+  if (id && TOKENS.some((t) => t.id === id)) return id as TokenId;
+  return (id && LEGACY_TOKENS[id]) || 'camel';
+}
 
 export const PLAYER_COLORS = [
   '#e8b448', // champagne gold

@@ -1,32 +1,32 @@
 import type { DebtKey, HoldingTag } from '../cashflow/types';
 
 /* ------------------------------------------------------------------ *
- * Cashflow's words, English. Every other language fills in this exact
+ * Nest Egg's words, English. Every other language fills in this exact
  * shape (i18n.test.ts checks it). Money arrives already formatted.
  * ------------------------------------------------------------------ */
 
 const s = (n: number): string => (n === 1 ? '' : 's');
 
 export const cfEn = {
-  name: 'Cashflow',
+  name: 'Nest Egg',
 
   picker: {
     title: 'Choose a game',
     aria: 'Which game to play',
     monopoly: {
-      name: 'Monopoly',
-      sub: 'Royale',
-      pitch: 'Buy the board, build on it, bankrupt your friends. The whole official rulebook.',
+      name: 'Bazaar',
+      sub: 'Barons',
+      pitch: 'Buy the board, build on it, bankrupt your friends. The complete rules, auctions and all.',
       meta: '2–8 players · 1–3 hours',
     },
     cashflow: {
-      name: 'Cashflow',
-      sub: 'The Rat Race',
-      pitch: 'Build passive income bigger than your bills, escape the Rat Race, then buy your dream.',
+      name: 'Nest Egg',
+      sub: 'Escape the Grind',
+      pitch: 'Build passive income bigger than your bills, escape the Grind, then buy your dream.',
       meta: '2–6 players · 1–2 hours',
     },
-    lead: 'Everyone is dealt a job, a pay cheque and a pile of bills. Buy what pays you every month - shares, rentals, a laundromat - until you no longer need the job. Then the Fast Track: bigger deals, and the dream you picked at the start.',
-    note: 'Same table as Monopoly: one of you hosts, the rest connect straight to that tab. No signup, no install.',
+    lead: 'Everyone is dealt a job, a pay cheque and a pile of bills. Buy what pays you every month - shares, rentals, a laundromat - until you no longer need the job. Then the Free Lane: bigger deals, and the dream you picked at the start.',
+    note: 'Same table as Bazaar Barons: one of you hosts, the rest connect straight to that tab. No signup, no install.',
   },
 
   professions: {
@@ -48,11 +48,11 @@ export const cfEn = {
     opportunity: 'Opportunity',
     payday: 'Pay Check',
     market: 'The Market',
-    doodad: 'Doodads',
+    doodad: 'Splurges',
     charity: 'Charity',
     baby: 'Baby',
     downsized: 'Downsized',
-    cashflowDay: 'CASHFLOW Day',
+    cashflowDay: 'Dividend Day',
     business: 'Business',
     venture: 'Venture',
     dream: 'Dream',
@@ -62,15 +62,15 @@ export const cfEn = {
   } as Record<string, string>,
 
   hints: {
-    opportunity: 'Draw a Small Deal or a Big Deal.',
+    opportunity: 'Draw a Quick Deal or a Major Deal.',
     payday: 'Collect your monthly cash flow. Passing counts too.',
     market: 'Buyers for what people hold, and events for everyone.',
     doodad: 'A bill you did not plan for. Not optional.',
     charity: 'Give 10% of your income to roll two dice for three turns.',
     baby: 'A new arrival. Your child expenses go up.',
     downsized: 'Pay a month of expenses and sit out two turns.',
-    cashflowDay: 'Collect your CASHFLOW Day income. Passing counts too.',
-    business: 'Buy it and it pays you every CASHFLOW Day.',
+    cashflowDay: 'Collect your Dividend Day income. Passing counts too.',
+    business: 'Buy it and it pays you every Dividend Day.',
     venture: 'Stake cash on one roll of the die.',
     dream: 'Land on your own dream with the cash and you win.',
     fastCharity: 'Give 10% to choose one, two or three dice for good.',
@@ -79,7 +79,7 @@ export const cfEn = {
     divorce: 'Lose all your cash.',
   } as Record<string, string>,
 
-  /** Fast Track businesses, ventures and dreams, by key. */
+  /** Free Lane businesses, ventures and dreams, by key. */
   fast: {
     coffee: 'Coffee chain',
     laundry: 'Laundry chain',
@@ -185,10 +185,10 @@ export const cfEn = {
   } as Record<DebtKey, string>,
 
   decks: {
-    small: 'Small Deal',
-    big: 'Big Deal',
+    small: 'Quick Deal',
+    big: 'Major Deal',
     market: 'The Market',
-    doodad: 'Doodad',
+    doodad: 'Splurge',
   } as Record<string, string>,
 
   card: {
@@ -222,14 +222,14 @@ export const cfEn = {
   actions: {
     yourTurn: 'Your turn',
     theirTurn: (name: string) => `${name}'s turn`,
-    rollNote: 'Roll to move around the Rat Race.',
-    rollFastNote: 'Roll to move around the Fast Track.',
+    rollNote: 'Roll to move around the Grind.',
+    rollFastNote: 'Roll to move around the Free Lane.',
     roll: (n: number) => (n === 1 ? 'Roll one die' : `Roll ${n} dice`),
     charityDice: (n: number) => `Charity: two dice for ${n} more turn${s(n)}.`,
     opportunity: 'Opportunity',
-    pickDeck: 'Small Deals cost $5,000 or less to get into. Big Deals start at $6,000.',
-    drawSmall: 'Small Deal',
-    drawBig: 'Big Deal',
+    pickDeck: 'Quick Deals cost $5,000 or less to get into. Major Deals start at $6,000.',
+    drawSmall: 'Quick Deal',
+    drawBig: 'Major Deal',
     sharesAria: 'Shares to buy',
     buyShares: (n: number, x: string) => `Buy ${n} for ${x}`,
     sellShares: (n: number, x: string) => `Sell ${n} for ${x}`,
@@ -243,7 +243,7 @@ export const cfEn = {
     donateFast: 'Choose one, two or three dice for the rest of the game.',
     endTurn: 'End turn',
     buyBusiness: (x: string) => `Buy for ${x}`,
-    businessNote: (x: string) => `Adds ${x} to every CASHFLOW Day.`,
+    businessNote: (x: string) => `Adds ${x} to every Dividend Day.`,
     businessTaken: (name: string) => `${name} already owns this.`,
     tryVenture: (x: string) => `Stake ${x}`,
     ventureNote: (faces: string, x: string) => `Roll ${faces} and it pays ${x}.`,
@@ -256,9 +256,9 @@ export const cfEn = {
     spectatingNote: 'You are out of the game, but you can watch it finish.',
     sitting: (n: number) => `Sitting out: ${n} turn${s(n)} left.`,
     chooseDream: 'Choose your dream',
-    chooseDreamNote: 'Buy it on the Fast Track and you win. Every rival who lands on it first makes it dearer.',
+    chooseDreamNote: 'Buy it on the Free Lane and you win. Every rival who lands on it first makes it dearer.',
     waitingDreams: 'Waiting for everyone to choose a dream…',
-    escaped: 'You are out of the Rat Race.',
+    escaped: 'You are out of the Grind.',
     moneyTitle: 'Money',
   },
 
@@ -277,7 +277,7 @@ export const cfEn = {
     loanPayment: 'Bank loan payment',
     totalExpenses: 'Total expenses',
     payCheck: 'Monthly cash flow',
-    escapeGoal: 'Out of the Rat Race when passive income beats total expenses.',
+    escapeGoal: 'Out of the Grind when passive income beats total expenses.',
     of: (a: string, b: string) => `${a} of ${b}`,
     assets: 'Assets',
     liabilities: 'Liabilities',
@@ -292,8 +292,8 @@ export const cfEn = {
     noLoan: 'The bank will not lend more against this pay cheque.',
     payOff: (x: string) => `Pay off ${x}`,
     onlyOnTurn: 'Borrow and pay down on your own turn.',
-    fastTitle: 'Fast Track',
-    dayIncome: 'CASHFLOW Day income',
+    fastTitle: 'Free Lane',
+    dayIncome: 'Dividend Day income',
     goal: 'Win at',
     dream: 'Your dream',
     dreamPrice: 'Price now',
@@ -303,8 +303,8 @@ export const cfEn = {
   },
 
   rail: {
-    ratRace: 'Rat Race',
-    fastTrack: 'Fast Track',
+    ratRace: 'The Grind',
+    fastTrack: 'The Free Lane',
     out: 'Out',
     sitting: (n: number) => `Sits out ${n}`,
     charity: (n: number) => `2 dice ×${n}`,
@@ -315,9 +315,9 @@ export const cfEn = {
   },
 
   board: {
-    aria: 'Cashflow board',
-    ratRace: 'The Rat Race',
-    fastTrack: 'The Fast Track',
+    aria: 'Nest Egg board',
+    ratRace: 'The Grind',
+    fastTrack: 'The Free Lane',
     hud: {
       dreams: 'Choosing dreams',
       roll: 'to roll',
@@ -340,7 +340,7 @@ export const cfEn = {
     rolled: (p: string, dice: string) => `${p} rolled ${dice}.`,
     payday: (p: string, x: string) => `${p} collected ${x} at Pay Check.`,
     paydayNegative: (p: string, x: string) => `${p} paid ${x} at Pay Check.`,
-    cashflowDay: (p: string, x: string) => `${p} collected ${x} on CASHFLOW Day.`,
+    cashflowDay: (p: string, x: string) => `${p} collected ${x} on Dividend Day.`,
     card: (p: string, deck: string, what: string) => `${p} drew ${deck}: ${what}.`,
     boughtStock: (p: string, n: number, sym: string, x: string) => `${p} bought ${n} ${sym} at ${x}.`,
     soldStock: (p: string, n: number, sym: string, x: string) => `${p} sold ${n} ${sym} at ${x}.`,
@@ -362,7 +362,7 @@ export const cfEn = {
     downsized: (p: string, x: string) => `${p} was downsized: paid ${x} and sits out two turns.`,
     bankrupt: (p: string) => `${p} went bankrupt and sits out three turns.`,
     bankruptOut: (p: string) => `${p} is bankrupt and out of the game.`,
-    escaped: (p: string, x: string) => `${p} is out of the Rat Race! CASHFLOW Day now pays ${x}.`,
+    escaped: (p: string, x: string) => `${p} is out of the Grind! Dividend Day now pays ${x}.`,
     business: (p: string, what: string, x: string, cf: string) => `${p} bought ${what} for ${x}, adding ${cf} a day.`,
     ventureWon: (p: string, what: string, roll: number) => `${p} rolled ${roll} and cracked ${what}!`,
     ventureLost: (p: string, what: string, roll: number) => `${p} rolled ${roll}. ${what} came to nothing.`,
@@ -384,14 +384,14 @@ export const cfEn = {
     about: 'Professions are dealt at random when the game starts. Dreams are chosen at the table.',
     strictLoans: ['The bank lends against your pay cheque', 'Loans only while monthly cash flow stays at or above zero. Off, you can borrow into anything.'] as [string, string],
     roundLimit: 'Round limit',
-    fastGoal: 'Fast Track goal',
-    fastGoalHint: 'Extra monthly income to build on the Fast Track to win, if the dream does not come first.',
+    fastGoal: 'Free Lane goal',
+    fastGoalHint: 'Extra monthly income to build on the Free Lane to win, if the dream does not come first.',
     chipGoal: (x: string) => `+${x} to win`,
     strict: 'Strict loans',
     open: 'Open loans',
     chipRounds: (n: number) => `${n} rounds`,
     noLimit: 'No limit',
-    inviteOnly: 'Cashflow tables are invite-only for now: share the code or the link.',
+    inviteOnly: 'Nest Egg tables are invite-only for now: share the code or the link.',
   },
 
   gameOver: {
@@ -401,20 +401,20 @@ export const cfEn = {
   },
 
   help: {
-    title: 'How Cashflow works',
+    title: 'How Nest Egg works',
     sections: [
       ['The goal', [
         'Your job pays a salary; your bills eat most of it. What is left each month is your cash flow, paid at every Pay Check.',
-        'Buy assets that pay you every month. When passive income beats total expenses, you leave the Rat Race.',
+        'Buy assets that pay you every month. When passive income beats total expenses, you leave the Grind.',
       ]],
-      ['The Rat Race', [
-        'Opportunity: draw a Small Deal ($5,000 or less) or a Big Deal. Shares, rentals, businesses.',
+      ['The Grind', [
+        'Opportunity: draw a Quick Deal ($5,000 or less) or a Major Deal. Shares, rentals, businesses.',
         'The Market: a buyer for what somebody holds. Everyone holding it may sell.',
-        'Doodads cost money. Charity buys you a second die. Downsized costs a month and two turns.',
+        'Splurges cost money. Charity buys you a second die. Downsized costs a month and two turns.',
         'Borrow from the bank in $1,000s at 10% a month, and pay any debt down on your own turn.',
       ]],
-      ['The Fast Track', [
-        'You leave with a hundred times your passive income, paid every CASHFLOW Day.',
+      ['The Free Lane', [
+        'You leave with a hundred times your passive income, paid every Dividend Day.',
         'Buy your dream and you win. Or build enough new monthly income from businesses.',
         'Audits and lawsuits take half your cash; divorce takes all of it.',
       ]],

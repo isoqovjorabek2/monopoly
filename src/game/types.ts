@@ -47,8 +47,8 @@ export interface Card {
 }
 
 export type TokenId =
-  | 'topper' | 'roadster' | 'terrier' | 'thimble'
-  | 'boot' | 'battleship' | 'iron' | 'wheelbarrow';
+  | 'camel' | 'teapot' | 'lamp' | 'pomegranate'
+  | 'dutar' | 'horse' | 'doppi' | 'minaret';
 
 export type BotLevel = 'easy' | 'normal' | 'hard';
 
@@ -193,13 +193,13 @@ export interface GameSettings {
   snakeEyesBonus: number;
 
   /* --- property rules --- */
-  /** Declining to buy sends the property to auction (official rule). */
+  /** Declining to buy sends the property to auction (standard rule). */
   auctionsEnabled: boolean;
-  /** Double rent on an unimproved full colour set (official rule). */
+  /** Double rent on an unimproved full colour set (standard rule). */
   doubleRentOnMonopoly: boolean;
-  /** Bank has a finite 32 houses / 12 hotels (official rule). */
+  /** Bank has a finite 32 houses / 12 hotels (standard rule). */
   buildingShortage: boolean;
-  /** Must own the whole colour group to build (official rule). */
+  /** Must own the whole colour group to build (standard rule). */
   requireFullSetToBuild: boolean;
   /** Must complete one lap of the board before buying anything. */
   mustLapBeforeBuying: boolean;

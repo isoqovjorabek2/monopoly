@@ -18,7 +18,7 @@ export const entryEn = {
     who: 'Who can join?',
     private: ['Private', 'Only people you send the link or code to'] as [string, string],
     public: ['Public', 'Anyone can find it on this page and take a seat until it starts'] as [string, string],
-    publicCashflow: 'Cashflow tables are invite-only for now.',
+    publicCashflow: 'Nest Egg tables are invite-only for now.',
     create: (visibility: 'private' | 'public', game: string) =>
       `Create a ${visibility} ${game} table`,
     after: 'You get a link to share, and set the rules before anyone rolls.',
@@ -31,7 +31,7 @@ export const entryEn = {
     invited: (code: string) => `You were invited to ${code}. Press Join when you are ready.`,
     publicTitle: 'Open public tables',
     yourGames: 'Your games',
-    yourGamesHint: 'Saved on aytingchi.uz while they are played. Resume rejoins the table, or restarts it from the save if nobody is hosting.',
+    yourGamesHint: 'Saved on our server while they are played. Resume rejoins the table, or restarts it from the save if nobody is hosting.',
     resume: 'Resume',
     forget: 'Remove',
     savedMeta: (game: string, round: number, names: string) => `${game} · round ${round} · ${names}`,

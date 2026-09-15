@@ -223,14 +223,14 @@ function useWordmark() {
     c.fillStyle = gold;
     c.font = '500 132px Oswald, "Arial Narrow", sans-serif';
     c.letterSpacing = '22px';
-    c.fillText('MONOPOLY', 512, 222);
+    c.fillText('BAZAAR', 512, 222);
 
     c.fillStyle = '#c8912f';
     c.fillRect(300, 300, 424, 3);
 
     c.font = '400 52px Oswald, "Arial Narrow", sans-serif';
     c.letterSpacing = '40px';
-    c.fillText('ROYALE', 512, 352);
+    c.fillText('BARONS', 512, 352);
 
     const tex = new CanvasTexture(canvas);
     tex.colorSpace = SRGBColorSpace;

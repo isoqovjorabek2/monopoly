@@ -6,7 +6,7 @@ import { logLine, type LogLine } from '../game/describe';
 import { tr } from '../i18n';
 import { clockKey, clockSeconds, legalActions, waitingOn } from '../game/rules';
 import { randomSeed } from '../game/rng';
-import { BOT_NAMES, PLAYER_COLORS, TOKENS, defaultSettings } from '../game/settings';
+import { BOT_NAMES, PLAYER_COLORS, TOKENS, defaultSettings, normalizeToken } from '../game/settings';
 import type { GameAction, GameEvent, GameSettings, GameState, TokenId } from '../game/types';
 import { botDecide as cfBotDecide, botDelay as cfBotDelay } from '../cashflow/ai';
 import { cfLogLine, type CFLogLine } from '../cashflow/describe';
@@ -210,7 +210,7 @@ const savedName = (): string => {
   try { return localStorage.getItem('mply.name') ?? ''; } catch { return ''; }
 };
 const savedToken = (): TokenId => {
-  try { return (localStorage.getItem('mply.token') as TokenId) ?? 'topper'; } catch { return 'topper'; }
+  try { return normalizeToken(localStorage.getItem('mply.token')); } catch { return 'camel'; }
 };
 const savedSound = (): boolean => {
   try { return localStorage.getItem('mply.sound') !== 'off'; } catch { return true; }
@@ -1047,7 +1047,7 @@ export const useStore = create<Store>((set, get) => {
     const used = new Set(room.seats.map((s) => s.name));
     const name = BOT_NAMES.find((n) => !used.has(n)) ?? tr().defaults.bot(room.seats.length + 1);
     const usedTokens = new Set(room.seats.map((s) => s.token));
-    const token = TOKENS.find((t) => !usedTokens.has(t.id))?.id ?? 'thimble';
+    const token = TOKENS.find((t) => !usedTokens.has(t.id))?.id ?? 'doppi';
     const seat: SeatInfo = {
       ...emptySeat(`bot_${Math.random().toString(36).slice(2, 8)}`, name, token, room.seats.length, false),
       isBot: true,
@@ -1521,7 +1521,7 @@ export const useStore = create<Store>((set, get) => {
       for (const w of room.watchers ?? []) {
         if (seats.length >= seatLimit(room) || seats.some((x) => x.playerId === w.uid)) continue;
         const taken = new Set(seats.map((x) => x.token));
-        const token = TOKENS.find((tk) => !taken.has(tk.id))?.id ?? 'topper';
+        const token = TOKENS.find((tk) => !taken.has(tk.id))?.id ?? 'camel';
         seats.push(emptySeat(w.uid, w.name, token, seats.length, false));
       }
       set({ screen: 'lobby', log: [], cfLog: [], animPos: {}, inspecting: null });

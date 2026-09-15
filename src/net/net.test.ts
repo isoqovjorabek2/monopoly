@@ -21,14 +21,14 @@ class FakeConn {
 }
 
 const hello = (playerId: string, secret: string): Up =>
-  ({ t: 'HELLO', playerId, name: playerId, token: 'topper', secret });
+  ({ t: 'HELLO', playerId, name: playerId, token: 'camel', secret });
 
 const attachTo = (host: HostNet, conn: FakeConn) =>
   (host as unknown as { attach: (c: FakeConn) => void }).attach(conn);
 
 const seats = [
-  { id: 'p0', name: 'p0', token: 'topper' as const, color: '#fff', isBot: false },
-  { id: 'p1', name: 'p1', token: 'boot' as const, color: '#fff', isBot: false },
+  { id: 'p0', name: 'p0', token: 'camel' as const, color: '#fff', isBot: false },
+  { id: 'p1', name: 'p1', token: 'lamp' as const, color: '#fff', isBot: false },
 ];
 
 describe('seat security', () => {
@@ -126,7 +126,7 @@ describe('a table handed to a new host', () => {
 });
 
 describe('snapshots sent to guests', () => {
-  it('carry no seed and no undrawn decks (Monopoly)', () => {
+  it('carry no seed and no undrawn decks (Bazaar Barons)', () => {
     const game = reduce(createGame({ ...CLASSIC, seed: 424242 }, seats), { type: 'START_GAME', playerId: 'p0' }).state;
     const snapshot: RoomSnapshot = {
       roomId: 'ROOM', hostId: 'p0', kind: 'monopoly', seats: [],
