@@ -88,7 +88,7 @@ id and secret are in `/etc/playerauth/config.json`. That client needs this
 Credentials:
 
 ```
-https://aytingchi.uz/auth/google/callback
+https://partyhall.io/auth/google/callback
 ```
 
 Until it is added, Google answers `redirect_uri_mismatch`. If the OAuth

@@ -61,7 +61,7 @@ if os.path.exists(PANEL_CONFIG):
         panel = json.load(fh)
 
 cfg.setdefault("_comment", "Player sign-in. Root-owned, 0640, never in git.")
-cfg.setdefault("redirect_uri", "https://aytingchi.uz/auth/google/callback")
+cfg.setdefault("redirect_uri", "https://partyhall.io/auth/google/callback")
 for field in ("state_secret", "uid_secret"):
     if not cfg.get(field):
         cfg[field] = secrets.token_urlsafe(48)

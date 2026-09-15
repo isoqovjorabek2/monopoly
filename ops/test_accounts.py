@@ -93,6 +93,8 @@ print("return addresses")
 for good in [
     "https://aytingchi.uz/",
     "https://www.aytingchi.uz/",
+    "https://partyhall.io/",
+    "https://www.partyhall.io/",
     "https://isoqovjorabek2.github.io/monopoly/",
     "http://localhost:5173/monopoly/",
 ]:

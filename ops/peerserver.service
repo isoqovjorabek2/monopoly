@@ -18,7 +18,8 @@ WorkingDirectory=/opt/peerserver
 ExecStart=/usr/bin/node /opt/peerserver/node_modules/peer/dist/bin/peerjs.js \
   --host 127.0.0.1 --port 9300 --path /peer --key mply --proxied \
   --concurrent_limit 1000 --alive_timeout 60000 \
-  --cors https://aytingchi.uz https://www.aytingchi.uz https://isoqovjorabek2.github.io \
+  --cors https://aytingchi.uz https://www.aytingchi.uz https://partyhall.io https://www.partyhall.io \
+         https://isoqovjorabek2.github.io \
          http://localhost:5173 http://localhost:5317
 Restart=always
 RestartSec=3

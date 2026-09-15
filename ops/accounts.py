@@ -99,7 +99,7 @@ POINT_RE = re.compile(r"^[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}$")
 # Where a pass may be sent back to. Anything else could be a page that
 # collects passes, so it is refused before Google is ever involved.
 RETURN_RE = re.compile(
-    r"^(https://(aytingchi\.uz|www\.aytingchi\.uz)/"
+    r"^(https://(aytingchi\.uz|www\.aytingchi\.uz|partyhall\.io|www\.partyhall\.io)/"
     r"|https://isoqovjorabek2\.github\.io/monopoly/"
     r"|http://(localhost|127\.0\.0\.1)(:\d{2,5})?/)"
     r"[^#\s]*$"
@@ -126,7 +126,7 @@ def cfg() -> dict:
 
 
 def redirect_uri() -> str:
-    return cfg().get("redirect_uri", "https://aytingchi.uz/auth/google/callback")
+    return cfg().get("redirect_uri", "https://partyhall.io/auth/google/callback")
 
 
 _key: ec.EllipticCurvePrivateKey | None = None
@@ -334,7 +334,7 @@ SAVES_PER_PLAYER = 30
 PROOF_WINDOW = 300
 ROOM_RE = re.compile(r"^[A-Z]{3,10}-[A-Z]{3,10}-\d{1,3}$")
 ALLOWED_ORIGINS = re.compile(
-    r"^(https://(aytingchi\.uz|www\.aytingchi\.uz|isoqovjorabek2\.github\.io)"
+    r"^(https://(aytingchi\.uz|www\.aytingchi\.uz|partyhall\.io|www\.partyhall\.io|isoqovjorabek2\.github\.io)"
     r"|http://(localhost|127\.0\.0\.1)(:\d{2,5})?)$"
 )
 

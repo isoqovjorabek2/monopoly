@@ -404,10 +404,11 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- plumbing ----------------------------------------------------------
     def _cors(self):
-        # The game is served from two places - the droplet and GitHub Pages -
-        # and both should be able to see the same list.
+        # The game is served from the droplet (under both of its domains) and
+        # GitHub Pages, and all of them should be able to see the same list.
         origin = self.headers.get("Origin", "")
-        if re.fullmatch(r"https://(aytingchi\.uz|www\.aytingchi\.uz|[a-z0-9-]+\.github\.io)"
+        if re.fullmatch(r"https://(aytingchi\.uz|www\.aytingchi\.uz|partyhall\.io|www\.partyhall\.io"
+                        r"|[a-z0-9-]+\.github\.io)"
                         r"|http://localhost:\d+", origin or ""):
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Vary", "Origin")
