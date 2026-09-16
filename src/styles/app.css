@@ -799,6 +799,9 @@
   width: 100%;
 }
 .game__top { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+/* A pull-to-refresh gesture at the table drops the WebRTC session the
+ * game lives on. The gesture means "reload" everywhere but here. */
+.game { overscroll-behavior: none; }
 .game__turn { color: var(--brass-300); }
 
 .game__layout {
@@ -2628,4 +2631,31 @@
   /* ---- modals get the short axis, not 88% of it plus a gutter ---- */
   .scrim { padding: var(--s-2); }
   .modal { max-height: calc(100dvh - var(--s-2) * 2); }
+}
+
+/* ---- the "new version" toast: quiet, bottom-centre, above every layer ---- */
+.pwaToast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--s-4) + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border-brass);
+  background: var(--bg-raised);
+  box-shadow: var(--e-3);
+  font-size: var(--t-sm);
+  animation: pwaToastIn 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.pwaToast__text { white-space: nowrap; }
+@keyframes pwaToastIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pwaToast { animation: none; }
 }

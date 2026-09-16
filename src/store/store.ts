@@ -32,6 +32,7 @@ import {
   cleanText, generateRoomCode, localPlayerId, rehydrateForHost,
 } from '../net/protocol';
 import type { TakeoverPolicy } from '../game/types';
+import { buzz, buzzFor, cfBuzzFor, readHaptics } from '../ui/haptics';
 
 export type Screen = 'home' | 'account' | 'lobby' | 'game';
 export type Role = 'host' | 'guest' | 'local';
@@ -85,6 +86,8 @@ interface Store {
   /** Which side panel is open on small screens. */
   sheet: 'none' | 'players' | 'log' | 'manage' | 'trade';
   soundOn: boolean;
+  /** Short vibration pulses on events that matter to the holder (phones). */
+  hapticsOn: boolean;
 
   setPick: (kind: GameKind) => void;
   /** Open the account screen, and go back to where it was opened from. */
@@ -133,6 +136,7 @@ interface Store {
   inspect: (spaceId: number | null) => void;
   openSheet: (sheet: Store['sheet']) => void;
   toggleSound: () => void;
+  toggleHaptics: () => void;
 }
 
 /* ------------------------------------------------------------------ *
@@ -327,10 +331,12 @@ export const useStore = create<Store>((set, get) => {
   const pushEvents = (state: GameState, events: GameEvent[]): void => {
     const lines: LogLine[] = [];
     const floats: CashFloat[] = [];
-    const { soundOn, me } = get();
+    const { soundOn, hapticsOn, me } = get();
     for (const e of events) {
       const cue = cueFor(e, me.playerId);
       if (cue) play(cue, soundOn);
+      const pulse = buzzFor(e, me.playerId);
+      if (pulse) buzz(hapticsOn, pulse);
       const l = logLine(e, logSeq++);
       if (l) lines.push(l);
       if (e.type === 'MONEY' && Math.abs(e.delta) > 0) {
@@ -349,10 +355,12 @@ export const useStore = create<Store>((set, get) => {
   const pushCfEvents = (events: CFEvent[]): void => {
     if (events.length === 0) return;
     const lines: CFLogLine[] = [];
-    const { soundOn, me } = get();
+    const { soundOn, hapticsOn, me } = get();
     for (const e of events) {
       const cue = cfCueFor(e, me.playerId);
       if (cue) play(cue, soundOn);
+      const pulse = cfBuzzFor(e, me.playerId);
+      if (pulse) buzz(hapticsOn, pulse);
       const l = cfLogLine(e, logSeq++);
       if (l) lines.push(l);
       if (e.type === 'ROLLED') spin(1);
@@ -1265,6 +1273,7 @@ export const useStore = create<Store>((set, get) => {
     inspecting: null,
     sheet: 'none',
     soundOn: savedSound(),
+    hapticsOn: readHaptics(),
 
     setPick: (kind) => {
       try { localStorage.setItem('mply.game', kind); } catch { /* private mode */ }
@@ -1640,6 +1649,11 @@ export const useStore = create<Store>((set, get) => {
       const soundOn = !s.soundOn;
       try { localStorage.setItem('mply.sound', soundOn ? 'on' : 'off'); } catch { /* private mode */ }
       return { soundOn };
+    }),
+    toggleHaptics: () => set((s) => {
+      const hapticsOn = !s.hapticsOn;
+      try { localStorage.setItem('mply.haptics', hapticsOn ? 'on' : 'off'); } catch { /* private mode */ }
+      return { hapticsOn };
     }),
   };
 });

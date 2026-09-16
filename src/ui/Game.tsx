@@ -20,6 +20,7 @@ import { HelpModal, useGameKeys } from './Help';
 import { ContractGlyph, ContractsModal, myContractCount } from './Deals';
 import { SeatRequestsDock, CoownerDock, TakeSeatPanel } from './Account';
 import { tableNeed, useAlertsSwitch, useTableAlert } from './alerts';
+import { useWakeLock } from './wakeLock';
 import { LangSwitch } from './LangSwitch';
 import { canKick } from '../net/moderation';
 
@@ -43,14 +44,20 @@ export function Game() {
   const inspecting = useStore((s) => s.inspecting);
   const sheet = useStore((s) => s.sheet);
   const soundOn = useStore((s) => s.soundOn);
+  const hapticsOn = useStore((s) => s.hapticsOn);
   const netError = useStore((s) => s.netError);
 
   const dispatch = useStore((s) => s.dispatch);
   const inspect = useStore((s) => s.inspect);
   const openSheet = useStore((s) => s.openSheet);
   const toggleSound = useStore((s) => s.toggleSound);
+  const toggleHaptics = useStore((s) => s.toggleHaptics);
   const leave = useStore((s) => s.leave);
   const removeSeat = useStore((s) => s.removeSeat);
+
+  // The screen stays lit while the table is on it - a turn timer for
+  // reading text should not dim a board game mid-hand.
+  useWakeLock(true);
 
   const [portfolioOf, setPortfolioOf] = useState<string | null>(null);
   /* Who the board is currently pointing at.
@@ -205,6 +212,21 @@ export function Game() {
               : <path d="M10.8 5.8l3.4 4.4M14.2 5.8l-3.4 4.4" />}
           </svg>
           <span className="btn__label">{soundOn ? t.game.soundOn : t.game.soundOff}</span>
+        </button>
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          onClick={toggleHaptics}
+          aria-pressed={hapticsOn}
+          title={t.game.haptics}
+        >
+          <svg {...glyph}>
+            <rect x="5.4" y="2.6" width="5.2" height="10.8" rx="1.4" />
+            {hapticsOn
+              ? <path d="M2.6 6.4v3.2M13.4 6.4v3.2M1.4 7.6v.8M14.6 7.6v.8" />
+              : <path d="M2.8 3.2l10.6 9.6" />}
+          </svg>
+          <span className="btn__label">{t.game.haptics}</span>
         </button>
         <button
           type="button"

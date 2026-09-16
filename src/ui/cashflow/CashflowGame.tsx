@@ -6,6 +6,7 @@ import { useStore } from '../../store/store';
 import { canKick } from '../../net/moderation';
 import { SeatRequestsDock, CoownerDock } from '../Account';
 import { tableNeed, useAlertsSwitch, useTableAlert } from '../alerts';
+import { useWakeLock } from '../wakeLock';
 import { FxLayer, useFx } from '../Fx';
 import { useGameKeys } from '../Help';
 import { LangSwitch } from '../LangSwitch';
@@ -32,12 +33,17 @@ export default function CashflowGame() {
   const rolling = useStore((s) => s.rolling);
   const sheet = useStore((s) => s.sheet);
   const soundOn = useStore((s) => s.soundOn);
+  const hapticsOn = useStore((s) => s.hapticsOn);
   const netError = useStore((s) => s.netError);
   const dispatch = useStore((s) => s.dispatch);
   const openSheet = useStore((s) => s.openSheet);
   const toggleSound = useStore((s) => s.toggleSound);
+  const toggleHaptics = useStore((s) => s.toggleHaptics);
   const leave = useStore((s) => s.leave);
   const sendChat = useStore((s) => s.sendChat);
+
+  // As on the other table: the screen stays lit while the game is on it.
+  useWakeLock(true);
 
   const [helpOpen, setHelpOpen] = useState(false);
   const [viewing, setViewing] = useState<string | null>(null);
@@ -97,6 +103,15 @@ export default function CashflowGame() {
         <div className="spacer" />
         <button type="button" className="btn btn--ghost btn--sm" onClick={toggleSound} aria-pressed={soundOn}>
           {soundOn ? t.game.soundOn : t.game.soundOff}
+        </button>
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          onClick={toggleHaptics}
+          aria-pressed={hapticsOn}
+          title={t.game.haptics}
+        >
+          {t.game.haptics}
         </button>
         <button
           type="button"

@@ -220,6 +220,7 @@ export const en = {
     boardFlat: 'Flat board',
     soundOn: 'Sound on',
     soundOff: 'Sound off',
+    haptics: 'Vibration',
     helpTitle: 'Rules and keyboard shortcuts',
     howToPlay: 'How to play',
     panelsAria: 'Panels',
@@ -574,6 +575,22 @@ export const en = {
     Record<string, { name: string; blurb: string; minutes: string }>,
   tokens: Object.fromEntries(TOKENS.map((t) => [t.id, t.label])) as Record<TokenId, string>,
   stickers: Object.fromEntries(STICKERS.map((st) => [st.id, st.label])) as Record<string, string>,
+
+  /** The installable app shell: updates, the install offer, iOS steps. */
+  pwa: {
+    update: 'A new version of Party Hall is ready.',
+    refresh: 'Refresh',
+    later: 'Later',
+    install: 'Install the app',
+    installHint: 'Full screen, straight from your home screen.',
+    iosTitle: 'Add to your Home Screen',
+    iosSteps: [
+      'Tap the Share button in Safari.',
+      'Choose “Add to Home Screen”.',
+      'Tap “Add”.',
+    ],
+    iosNote: 'On iPhone the game installs from Safari’s Share menu. It still opens full screen, like an app.',
+  },
 
   /** Everything the second game says. Its own file, because it is its own game. */
   cf: cfEn,

@@ -39,6 +39,17 @@ function codeFrom(input: string): string {
   return normaliseCode(link ? link[1] : input);
 }
 
+/** App-shortcut deep links: `?do=host|join|solo` opens the matching tab.
+ *  Read once, on mount; an invite code in the URL still wins over it. */
+function modeFromUrl(): Mode | null {
+  try {
+    const doParam = new URLSearchParams(window.location.search).get('do');
+    if (doParam === 'host' || doParam === 'join') return doParam;
+    if (doParam === 'solo') return 'practice';
+  } catch { /* no window (test render) */ }
+  return null;
+}
+
 export function EntryCard({ pick, urlCode }: { pick: GameKind; urlCode: string }) {
   const t = useT();
   const E = t.entry;
@@ -54,7 +65,7 @@ export function EntryCard({ pick, urlCode }: { pick: GameKind; urlCode: string }
 
   const [name, setName] = useState(me.name);
   const [token, setToken] = useState<TokenId>(me.token);
-  const [mode, setMode] = useState<Mode>(urlCode ? 'join' : 'host');
+  const [mode, setMode] = useState<Mode>(urlCode ? 'join' : modeFromUrl() ?? 'host');
   const [visibility, setVisibility] = useState<'private' | 'public'>('private');
   const [code, setCode] = useState(urlCode);
   const [plusOpen, setPlusOpen] = useState(false);

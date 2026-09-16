@@ -6,6 +6,7 @@ import { AccountPage } from './ui/AccountPage';
 import { Lobby } from './ui/Lobby';
 import { Game } from './ui/Game';
 import { RotatePrompt } from './ui/RotatePrompt';
+import { UpdateToast } from './ui/Pwa';
 
 /* The Cashflow table is its own chunk: a Monopoly player never downloads
  * it, and the front door does not wait on it either. */
@@ -65,6 +66,8 @@ export default function App() {
       )}
       {/* Only at the table: the front door and the lobby read fine upright. */}
       {screen === 'game' && <RotatePrompt />}
+      {/* Above everything, and never in the way of a turn. */}
+      <UpdateToast />
     </motion.div>
   );
 }

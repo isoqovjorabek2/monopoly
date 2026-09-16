@@ -505,6 +505,44 @@ next frame throws deep in the renderer and takes the whole game with it.
 An error boundary around the 3D tree backs all of that up: any throw out of
 three costs the board, never the game everyone is in the middle of.
 
+## An app, without the store
+
+The game installs to a phone's home screen like a native app, while staying a
+static site. Three small decisions make it work here specifically:
+
+- **The manifest serves both deploys from one file.** `start_url`, `scope` and
+  the icon paths are all relative, so the same `manifest.webmanifest` installs
+  from `/monopoly/` on GitHub Pages and from `/` on partyhall.io. Its
+  shortcuts (`?do=host|join|solo`) open the front door on the matching tab.
+  The icons are the brass medallion on felt, with a maskable pair drawn
+  inside the adaptive safe zone, and the screenshots are the real front door
+  - Android's install dialog shows them.
+- **The service worker caches the shell, never the game.** The build and the
+  generated art go to caches; PeerJS, the lobby directory and the auth
+  service share the partyhall.io origin, so the navigation fallback has a
+  denylist - a cached answer from any of those would be a lie, and serving
+  `index.html` for `/auth/…` would break sign-in outright. Offline, the app
+  opens and practice mode plays (the bots live in the bundle); multiplayer
+  is honest about needing a network, because it is one.
+- **An update is offered, never forced.** A new service worker waits for the
+  toast's Refresh button (`registerType: 'prompt'`). The host's tab *is* the
+  table, and a page that reloads itself takes a room of players down with
+  it.
+
+The worker also fixes a quiet gap: Android Chrome only shows notifications
+from a service worker, so the "your turn" alert in `ui/alerts.ts` now posts
+through the registration where one exists.
+
+At the table itself, phones get three more touches. A **wake lock** holds the
+screen on while a game is mounted - a turn-based game is mostly waiting, and
+a screen timer set for reading text should not dim it mid-hand. **Haptics**
+pulse on the events that involve the player holding the phone - their turn
+arriving, an offer landing, their own throw - with their own toggle in the
+header, next to sound (`mply.haptics`; iOS has no Vibration API, so it is a
+no-op there). And **pull-to-refresh is off at the table** (`overscroll` on
+`.game` / `.cfGame`): that gesture drops the WebRTC session the game lives
+on, so everywhere but the table it still works.
+
 ## Nest Egg
 
 The second table. Pick it on the front door and everything else - room
@@ -602,6 +640,7 @@ src/
   ui/            React components
     Pieces.tsx     every drawn 2D asset: pieces, buildings, board icons
     BoardStage.tsx picks the 3D or flat renderer, with capability fallback
+    Pwa.tsx        install prompt, update toast; wakeLock/haptics alongside
     three/         the 3D board: layout, tile textures, pieces, dice
   styles/        design tokens, board geometry, screen layouts
 ```

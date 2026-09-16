@@ -108,10 +108,24 @@ export function useTableAlert(need: Need | null, alertsOn: boolean): void {
     }, 1000);
 
     if (alertsOn && canNotify() && Notification.permission === 'granted') {
-      try {
-        const n = new Notification(need.message, { tag: 'mply-table', body: baseTitle.current });
-        n.onclick = () => { window.focus(); n.close(); };
-      } catch { /* some mobile browsers only notify from a service worker */ }
+      // Android Chrome shows notifications only from a service worker, so
+      // prefer the registration when there is one and fall back to the page
+      // where that is the only option (or none exists yet).
+      void notify(need.message, baseTitle.current);
     }
   }, [need, alertsOn, stop]);
+}
+
+async function notify(message: string, body: string): Promise<void> {
+  try {
+    const reg = typeof navigator !== 'undefined' && 'serviceWorker' in navigator
+      ? await navigator.serviceWorker.getRegistration()
+      : undefined;
+    if (reg) {
+      await reg.showNotification(message, { tag: 'mply-table', body, icon: 'icons/icon-192.png' });
+      return;
+    }
+    const n = new Notification(message, { tag: 'mply-table', body });
+    n.onclick = () => { window.focus(); n.close(); };
+  } catch { /* alerts are a nicety, never a failure */ }
 }
