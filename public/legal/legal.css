@@ -1,0 +1,79 @@
+/* The legal and pricing pages: plain, readable, and in the game's colours. */
+:root {
+  --bg: #07120d;
+  --surface: #0e1e17;
+  --line: rgb(224 190 118 / 0.22);
+  --text: #dee5e0;
+  --muted: #9fb0a7;
+  --brass: #e8b448;
+  --brass-soft: #f2d99a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: radial-gradient(ellipse at top, #10261c 0%, var(--bg) 60%) fixed, var(--bg);
+  color: var(--text);
+  font: 16px/1.65 Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+a { color: var(--brass); }
+a:hover { color: var(--brass-soft); }
+
+.top {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 20px;
+  max-width: 880px; margin: 0 auto; padding: 18px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.brand {
+  font: 600 1.35rem/1 Oswald, "Arial Narrow", Impact, sans-serif;
+  letter-spacing: 0.06em; text-transform: uppercase; text-decoration: none; color: var(--brass);
+}
+.top nav { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 0.92rem; }
+.top nav a { color: var(--muted); text-decoration: none; }
+.top nav a:hover, .top nav a[aria-current="page"] { color: var(--brass); }
+
+main { max-width: 760px; margin: 0 auto; padding: 28px 16px 56px; }
+h1 {
+  margin: 0 0 4px;
+  font: 600 clamp(2rem, 6vw, 2.8rem)/1.1 Oswald, "Arial Narrow", Impact, sans-serif;
+  letter-spacing: 0.02em; color: var(--brass-soft);
+}
+h2 { margin: 2.2em 0 0.4em; font-size: 1.25rem; color: var(--brass-soft); }
+h3 { margin: 1.6em 0 0.3em; font-size: 1.05rem; color: var(--text); }
+p, li { color: var(--text); }
+ul { padding-left: 1.3em; }
+li + li { margin-top: 0.35em; }
+.meta { margin: 0 0 1.6em; color: var(--muted); font-size: 0.92rem; }
+.lede { font-size: 1.12rem; }
+.note {
+  padding: 12px 16px; border-left: 3px solid var(--brass);
+  background: var(--surface); border-radius: 0 8px 8px 0;
+}
+
+.plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin: 26px 0; }
+.plan {
+  position: relative; padding: 20px 18px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surface);
+}
+.plan.best { border-color: var(--brass); box-shadow: inset 0 0 0 1px rgb(232 180 72 / 0.35); }
+.plan h2 { margin: 0; font-size: 1.1rem; }
+.price { margin: 6px 0 2px; font: 600 2.2rem/1.1 Oswald, "Arial Narrow", Impact, sans-serif; color: var(--text); }
+.price span { margin-left: 3px; font: 400 0.9rem Inter, system-ui, sans-serif; color: var(--muted); }
+.save {
+  position: absolute; top: 14px; right: 14px; margin: 0; padding: 1px 8px; border-radius: 999px;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: #1d1406; background: linear-gradient(180deg, #f2cf7c, #c8912f);
+}
+.plan ul { margin: 12px 0 0; padding-left: 1.1em; font-size: 0.95rem; }
+.cta {
+  display: inline-block; margin-top: 8px; padding: 10px 18px; border-radius: 8px;
+  font-weight: 600; text-decoration: none; color: #1d1406;
+  background: linear-gradient(180deg, #f2cf7c, #c8912f);
+}
+.cta:hover { color: #1d1406; filter: brightness(1.06); }
+
+.foot {
+  max-width: 880px; margin: 0 auto; padding: 18px 16px 32px;
+  border-top: 1px solid var(--line); color: var(--muted); font-size: 0.88rem;
+}

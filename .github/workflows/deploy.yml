@@ -66,6 +66,11 @@ jobs:
           VITE_TURN_URLS: ${{ secrets.TURN_URLS }}
           VITE_TURN_USERNAME: ${{ secrets.TURN_USERNAME }}
           VITE_TURN_CREDENTIAL: ${{ secrets.TURN_CREDENTIAL }}
+          # Plus checkout. Public values, so repository variables, not secrets.
+          VITE_PADDLE_CLIENT_TOKEN: ${{ vars.PADDLE_CLIENT_TOKEN }}
+          VITE_PADDLE_ENV: ${{ vars.PADDLE_ENV }}
+          VITE_PADDLE_PRICE_MONTHLY: ${{ vars.PADDLE_PRICE_MONTHLY }}
+          VITE_PADDLE_PRICE_YEARLY: ${{ vars.PADDLE_PRICE_YEARLY }}
         run: |
           npm run build
           # SPA fallback: the app uses hash routing, but this keeps a stray
@@ -80,6 +85,11 @@ jobs:
           VITE_TURN_URLS: ${{ secrets.TURN_URLS }}
           VITE_TURN_USERNAME: ${{ secrets.TURN_USERNAME }}
           VITE_TURN_CREDENTIAL: ${{ secrets.TURN_CREDENTIAL }}
+          # Plus checkout. Public values, so repository variables, not secrets.
+          VITE_PADDLE_CLIENT_TOKEN: ${{ vars.PADDLE_CLIENT_TOKEN }}
+          VITE_PADDLE_ENV: ${{ vars.PADDLE_ENV }}
+          VITE_PADDLE_PRICE_MONTHLY: ${{ vars.PADDLE_PRICE_MONTHLY }}
+          VITE_PADDLE_PRICE_YEARLY: ${{ vars.PADDLE_PRICE_YEARLY }}
         run: |
           npm run build
           mv dist dist-aytingchi

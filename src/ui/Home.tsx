@@ -10,6 +10,7 @@ import { normaliseCode, type GameKind } from '../net/protocol';
 import { fmt } from './bits';
 import { LangSwitch } from './LangSwitch';
 import { EntryCard } from './Entry';
+import { LegalLinks } from './Plus';
 
 /** Reads a #/join/CODE deep link once on mount. */
 function useJoinCodeFromUrl(): string {
@@ -122,6 +123,7 @@ export function Home() {
             )}
 
             <EntryCard pick={pick} urlCode={urlCode} />
+            <LegalLinks />
           </motion.section>
         </div>
       </motion.div>

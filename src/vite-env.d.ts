@@ -16,6 +16,13 @@ interface ImportMetaEnv {
   readonly VITE_PEER_HOST?: string;
   /** The public lobby directory. Defaults to https://aytingchi.uz/lobbies. */
   readonly VITE_LOBBY_URL?: string;
+  /** Paddle client-side token (public by design). No token, no checkout. */
+  readonly VITE_PADDLE_CLIENT_TOKEN?: string;
+  /** `sandbox` for Paddle's test environment; anything else is live. */
+  readonly VITE_PADDLE_ENV?: string;
+  /** Paddle price ids for the two Plus plans (net/pricing.ts). */
+  readonly VITE_PADDLE_PRICE_MONTHLY?: string;
+  readonly VITE_PADDLE_PRICE_YEARLY?: string;
 }
 
 interface ImportMeta {
