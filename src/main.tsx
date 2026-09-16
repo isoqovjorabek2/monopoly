@@ -4,7 +4,8 @@ import App from './App';
 import { PAPER } from './art/art';
 import { ErrorBoundary } from './ui/ErrorBoundary';
 import { startTelemetry } from './net/telemetry';
-import { consumeAuthReturn } from './net/account';
+import { startHistoryReports } from './net/history';
+import { consumeAuthReturn, refreshPass } from './net/account';
 import './styles/global.css';
 import './styles/board.css';
 import './styles/app.css';
@@ -27,6 +28,10 @@ void consumeAuthReturn().then((isPopup) => {
   }
   // Tables tell the operator's panel what they look like. Never blocks play.
   startTelemetry();
+  // Finished games go into each signed-in player's history (Party Hall Plus).
+  startHistoryReports();
+  // A Plus purchase made anywhere shows up here without signing in again.
+  void refreshPass();
   createRoot(root).render(
     <StrictMode>
       <ErrorBoundary>

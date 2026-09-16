@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { ACCOUNT_KEY } from './accountKey';
-import { deviceKey, devicePublicKeyNow, encodePoint, isPoint, type PublicPoint } from './deviceKey';
+import { deviceKey, devicePublicKeyNow, encodePoint, isPoint, signProof, type PublicPoint } from './deviceKey';
 
 /* ------------------------------------------------------------------ *
  * Player accounts.
@@ -34,6 +34,9 @@ export interface Account {
   pass: string;
   /** Seconds since the epoch. */
   exp: number;
+  /** Party Hall Plus runs until then, in seconds since the epoch; 0 or
+   *  absent without it. */
+  plus?: number;
   /** Who is signed in, for this player's own screen only: full name,
    *  address and picture. Unsigned and never sent to anyone - hosts see the
    *  pass, and the pass does not carry it. */
@@ -67,6 +70,8 @@ export interface PassClaims {
   sub: string;
   name: string;
   exp: number;
+  /** Plus paid-until date, seconds since the epoch; 0 when the pass has none. */
+  plus: number;
   /** The browser key the pass was issued to. A host checks the player can
    *  sign with it before believing the pass is theirs. */
   cnf: PublicPoint;
@@ -148,7 +153,8 @@ export async function verifyPass(
     // be handing its seat to whoever copied the string. Refused outright.
     if (!isPoint(c.cnf)) return null;
     const name = typeof c.name === 'string' ? c.name.slice(0, 18) : '';
-    return { sub: c.sub, name, exp: c.exp, cnf: { x: c.cnf.x, y: c.cnf.y } };
+    const plus = typeof c.plus === 'number' && Number.isFinite(c.plus) ? Math.floor(c.plus) : 0;
+    return { sub: c.sub, name, exp: c.exp, plus, cnf: { x: c.cnf.x, y: c.cnf.y } };
   } catch {
     return null;
   }
@@ -203,7 +209,7 @@ async function adopt(pass: string, profile?: AccountProfile): Promise<boolean> {
     useAccount.setState({ pending: false, error: 'invalid' });
     return false;
   }
-  const account: Account = { uid: claims.sub, name: claims.name, pass, exp: claims.exp, profile };
+  const account: Account = { uid: claims.sub, name: claims.name, pass, exp: claims.exp, plus: claims.plus, profile };
   try { localStorage.setItem(STORE_KEY, JSON.stringify(account)); } catch { /* private mode */ }
   useAccount.setState({ account, pending: false, error: null });
   return true;
@@ -212,6 +218,54 @@ async function adopt(pass: string, profile?: AccountProfile): Promise<boolean> {
 export function signOut(): void {
   try { localStorage.removeItem(STORE_KEY); } catch { /* private mode */ }
   useAccount.setState({ account: null, error: null });
+}
+
+/* ---------------------------- Party Hall Plus ------------------------- */
+
+/** Whether an account's Plus is running right now. */
+export const hasPlus = (a: Account | null | undefined, now = Date.now() / 1000): boolean =>
+  Boolean(a && (a.plus ?? 0) > now);
+
+const REFRESH_KEY = 'mply.passRefreshedAt';
+const REFRESH_EVERY_MS = 10 * 60 * 1000;
+
+async function sha256hex(body: string): Promise<string> {
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body));
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Swap the pass for a fresh one: the same player and browser key, stamped
+ * with whatever Plus the server says they hold now. This is how a purchase
+ * reaches this browser, and every table it sits at, without signing in
+ * again. Quiet on failure - the old pass keeps working. At most every ten
+ * minutes unless `force`d, so an open tab does not keep asking.
+ */
+export async function refreshPass(force = false): Promise<boolean> {
+  const account = currentAccount();
+  if (!account) return false;
+  try {
+    const last = Number(localStorage.getItem(REFRESH_KEY) ?? 0);
+    if (!force && Date.now() - last < REFRESH_EVERY_MS) return false;
+    localStorage.setItem(REFRESH_KEY, String(Date.now()));
+  } catch { /* private mode: refresh anyway */ }
+  const path = '/refresh';
+  const ts = String(Math.floor(Date.now() / 1000));
+  const sig = await signProof(`mply-save|POST|${path}|${ts}|${await sha256hex('')}`);
+  if (!sig) return false;
+  try {
+    const res = await fetch(`${AUTH_BASE}${path}`, {
+      method: 'POST',
+      headers: { 'X-Pass': account.pass, 'X-Proof': sig, 'X-Proof-Time': ts },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return false;
+    const data = await res.json() as { pass?: unknown };
+    if (typeof data.pass !== 'string') return false;
+    return await adopt(data.pass, account.profile);
+  } catch {
+    return false;
+  }
 }
 
 /* ------------------------------ sign-in ----------------------------- */

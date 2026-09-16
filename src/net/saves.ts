@@ -33,7 +33,11 @@ async function sha256hex(body: string): Promise<string> {
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-async function signedFetch(method: 'GET' | 'PUT' | 'DELETE', path: string, body = ''): Promise<Response | null> {
+/** A request to the account server carrying the pass and a signature from
+ *  this browser's key - saves, and game history (net/history.ts). */
+export async function signedFetch(
+  method: 'GET' | 'PUT' | 'DELETE' | 'POST', path: string, body = '',
+): Promise<Response | null> {
   const account = currentAccount();
   if (!account) return null;
   const ts = String(Math.floor(Date.now() / 1000));

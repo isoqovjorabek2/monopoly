@@ -1,0 +1,191 @@
+/* ====================================================================== *
+   Party Hall Plus: the badge, and the sheet that explains it.
+   ====================================================================== */
+
+.plusBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
+  font-size: var(--t-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-on-brass);
+  background: linear-gradient(180deg, var(--brass-300), var(--brass-500));
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.22), 0 1px 3px rgb(0 0 0 / 0.4);
+  white-space: nowrap;
+}
+.plusBadge--sm { padding: 0 6px; font-size: 10px; }
+
+/* The badge doubles as the way back into the sheet once Plus is active. */
+.whoami__plus {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.whoami__plus:focus-visible { outline: 2px solid var(--brass-300); outline-offset: 3px; border-radius: var(--r-pill); }
+
+.plusSheet { display: flex; flex-direction: column; gap: var(--s-4); }
+.plusSheet__lead { margin: 0; color: var(--brass-100); }
+.plusSheet__perks { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-3); }
+.plusSheet__perk { display: flex; gap: var(--s-3); align-items: flex-start; }
+.plusSheet__tick { color: var(--brass-300); line-height: 1.45; }
+.plusSheet__perkName { display: block; font-weight: 600; color: var(--brass-100); }
+.plusSheet__perkHint { display: block; font-size: var(--t-xs); color: var(--text-muted); }
+.plusSheet__note { margin: 0; font-size: var(--t-xs); color: var(--text-muted); }
+.plusSheet__active { display: flex; align-items: center; gap: var(--s-2); margin: 0; color: var(--brass-100); }
+.plusSheet__get { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-3); }
+.plusSheet__id { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+.plusSheet__uid {
+  padding: 4px 8px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-brass);
+  background: rgb(0 0 0 / 0.3);
+  color: var(--brass-100);
+  font-size: var(--t-xs);
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+
+/* The board picker sits above the presets, spanning their grid. */
+.themePicker { grid-column: 1 / -1; }
+.themePicker__label { display: inline-flex; align-items: center; gap: var(--s-2); }
+.segmented__item:disabled { opacity: 0.42; cursor: not-allowed; }
+
+/* ----------------------- piece & dice finishes ------------------------ *
+   Every finish keeps the player's colour, so a piece still says whose it
+   is at a glance; the finish changes what it is made of. */
+
+.avatar[data-finish="mirror"], .token[data-finish="mirror"] {
+  background: linear-gradient(135deg,
+    color-mix(in oklab, var(--tc) 45%, #fff 55%) 0%, var(--tc) 34%,
+    color-mix(in oklab, var(--tc) 55%, #000 45%) 60%, color-mix(in oklab, var(--tc) 60%, #fff 40%) 100%);
+  border-color: rgb(255 255 255 / 0.55);
+}
+.avatar[data-finish="glass"], .token[data-finish="glass"] {
+  background: radial-gradient(circle at 32% 26%, rgb(255 255 255 / 0.55),
+    color-mix(in oklab, var(--tc) 40%, transparent) 55%, color-mix(in oklab, var(--tc) 30%, transparent));
+  border-color: color-mix(in oklab, var(--tc) 70%, #fff 30%);
+  color: color-mix(in oklab, var(--tc) 55%, #fff 45%);
+  backdrop-filter: blur(3px);
+}
+.avatar[data-finish="neon"], .token[data-finish="neon"] {
+  background: radial-gradient(circle at 50% 40%, #182420, #070b09);
+  border-color: var(--tc);
+  color: var(--tc);
+}
+.avatar[data-finish="neon"]:not([data-active]), .token[data-finish="neon"]:not(.token--active) {
+  box-shadow: 0 0 0 1px var(--tc), 0 0 12px -2px var(--tc), inset 0 0 8px -3px var(--tc);
+}
+.avatar[data-finish="neon"] .avatar__piece, .token[data-finish="neon"] .token__piece {
+  filter: drop-shadow(0 0 2.5px currentColor);
+}
+.avatar[data-finish="gilded"], .token[data-finish="gilded"] { border-color: #f1d58a; }
+.avatar[data-finish="gilded"]:not([data-active]), .token[data-finish="gilded"]:not(.token--active) {
+  box-shadow: 0 0 0 1.5px #d9b35b, 0 0 0 3px rgb(0 0 0 / 0.45), 0 2px 6px rgb(0 0 0 / 0.55), inset 0 1px 1px rgb(255 255 255 / 0.4);
+}
+
+.diceTray[data-finish="mirror"] .die__face {
+  background: linear-gradient(155deg, #f6f8fa, #a4adb5 55%, #e6eaee);
+  border-color: rgb(255 255 255 / 0.6);
+}
+.diceTray[data-finish="glass"] .die__face {
+  background: rgb(214 236 255 / 0.3);
+  border-color: rgb(255 255 255 / 0.6);
+  box-shadow: inset 0 0 9px rgb(255 255 255 / 0.4);
+  backdrop-filter: blur(2px);
+}
+.diceTray[data-finish="glass"] .pip { background: radial-gradient(circle at 35% 32%, #fff, #cfe3f1); }
+.diceTray[data-finish="neon"] .die__face {
+  background: linear-gradient(155deg, #141c1f, #06090b);
+  border-color: var(--tc, #39ffb0);
+  box-shadow: inset 0 0 8px -2px var(--tc, #39ffb0);
+}
+.diceTray[data-finish="neon"] .pip { background: var(--tc, #39ffb0); box-shadow: 0 0 6px var(--tc, #39ffb0); }
+.diceTray[data-finish="gilded"] .die__face {
+  background: linear-gradient(155deg, #f6dc8e, #b8872f);
+  border-color: rgb(80 55 10 / 0.6);
+}
+.diceTray[data-finish="gilded"] .pip { background: radial-gradient(circle at 35% 32%, #5a3d0c, #1c1204); }
+
+/* The finish picker on the front door, under the pieces. */
+.finishRow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+.finishRow__label { display: inline-flex; align-items: center; gap: var(--s-2); }
+.finishRow__item:disabled { opacity: 0.42; cursor: not-allowed; }
+
+/* ------------------------------ your games ------------------------------ */
+
+.stats { display: flex; flex-direction: column; gap: var(--s-4); }
+.stats__totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-3); }
+.stats__stat {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: var(--s-3) var(--s-2);
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-brass);
+  background: rgb(0 0 0 / 0.22);
+}
+.stats__value { font-family: var(--font-display); font-size: 1.9rem; line-height: 1; color: var(--brass-100); }
+.stats__label { font-size: var(--t-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+.stats__kinds { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--s-3); }
+.stats__kind { display: flex; flex-direction: column; gap: 2px; }
+.stats__kindName { font-weight: 600; color: var(--brass-100); }
+.stats__heading { display: flex; align-items: center; gap: var(--s-2); margin: 0; font-size: var(--t-md); color: var(--brass-100); }
+.stats__locked { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-2); }
+.stats__games { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-2); max-height: 44vh; overflow-y: auto; }
+.stats__game {
+  display: grid; grid-template-columns: 4.5em minmax(0, 1fr) auto; align-items: center; gap: var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-md);
+  background: rgb(0 0 0 / 0.18);
+}
+.stats__place { font-weight: 700; color: var(--text-muted); }
+.stats__game[data-won] .stats__place { color: var(--brass-300); }
+.stats__gameMain { display: flex; flex-direction: column; min-width: 0; }
+.stats__gameName { font-weight: 600; color: var(--brass-100); }
+.stats__gameMeta { white-space: nowrap; }
+@media (max-width: 520px) {
+  .stats__game { grid-template-columns: 3.5em minmax(0, 1fr); }
+  .stats__gameMeta { grid-column: 2; white-space: normal; }
+}
+
+/* -------------------------------- plans -------------------------------- */
+
+.plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--s-3); width: 100%; }
+.plan {
+  position: relative;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-brass);
+  background: rgb(0 0 0 / 0.25);
+  color: var(--brass-100);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.plan:hover:not(:disabled) { border-color: var(--brass-300); background: rgb(232 180 72 / 0.08); }
+.plan:focus-visible { outline: 2px solid var(--brass-300); outline-offset: 2px; }
+.plan:disabled { opacity: 0.6; cursor: progress; }
+.plan[data-best] { border-color: var(--brass-300); box-shadow: inset 0 0 0 1px var(--brass-500); }
+.plan__name { font-weight: 600; }
+.plan__price { font-family: var(--font-display); font-size: 1.7rem; line-height: 1.1; }
+.plan__per { margin-left: 2px; font-family: var(--font-body, inherit); font-size: var(--t-xs); color: var(--text-muted); }
+.plan__save {
+  position: absolute; top: 8px; right: 10px;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-on-brass);
+  background: linear-gradient(180deg, var(--brass-300), var(--brass-500));
+}
+.plan__opening { font-size: var(--t-xs); color: var(--text-muted); }
+
+/* Pricing, terms, privacy, refunds - under the seat card and in the sheet. */
+.legalLinks { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; font-size: var(--t-xs); }
+.legalLinks a { color: var(--text-muted); text-decoration: none; }
+.legalLinks a:hover, .legalLinks a:focus-visible { color: var(--brass-300); text-decoration: underline; }
+.joinCard .legalLinks { margin-top: var(--s-3); }

@@ -1,8 +1,8 @@
-import { useMemo, useRef } from 'react';
+import { createContext, useContext, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Color, type Group } from 'three';
 import { normalizeToken } from '../../game/settings';
-import type { TokenId } from '../../game/types';
+import type { SkinId, TokenId } from '../../game/types';
 
 /* Pieces are assembled from primitives rather than loaded as models: the
  * whole set is a few hundred triangles, there is nothing to download, and
@@ -10,7 +10,25 @@ import type { TokenId } from '../../game/types';
 
 interface PartProps { color: string }
 
+/* A Plus finish (see net/plus.ts) is the material the whole piece is cast in,
+ * set once for the piece rather than threaded through every part. */
+const FinishContext = createContext<SkinId>('classic');
+
 function Metal({ color, rough = 0.25 }: { color: string; rough?: number }) {
+  const finish = useContext(FinishContext);
+  if (finish === 'mirror') return <meshStandardMaterial color={color} metalness={1} roughness={0.04} />;
+  if (finish === 'glass') {
+    return (
+      <meshPhysicalMaterial
+        color={color} metalness={0} roughness={0.06} transmission={0.85} thickness={0.35} ior={1.45}
+        transparent opacity={0.9}
+      />
+    );
+  }
+  if (finish === 'neon') {
+    return <meshStandardMaterial color="#0b0f0d" emissive={color} emissiveIntensity={1.5} metalness={0.2} roughness={0.45} toneMapped={false} />;
+  }
+  if (finish === 'gilded') return <meshStandardMaterial color={color} metalness={1} roughness={0.16} />;
   return <meshStandardMaterial color={color} metalness={0.92} roughness={rough} />;
 }
 
@@ -252,13 +270,15 @@ const SHAPES: Record<TokenId, (p: PartProps) => JSX.Element> = {
 };
 
 export function Token3D({
-  token, color, position, active, jailed,
+  token, color, position, active, jailed, finish = 'classic',
 }: {
   token: TokenId;
   color: string;
   position: [number, number, number];
   active: boolean;
   jailed: boolean;
+  /** A Plus player's finish; classic for everyone else. */
+  finish?: SkinId;
 }) {
   const group = useRef<Group>(null);
   const current = useRef<[number, number, number]>(position);
@@ -266,11 +286,13 @@ export function Token3D({
   const Shape = SHAPES[normalizeToken(token)];
 
   // A brighter, desaturated-toward-white version reads as polished metal.
+  // Gilded pieces are the player's colour worked halfway into gold.
   const metal = useMemo(() => {
     const c = new Color(color);
-    c.lerp(new Color('#ffffff'), 0.18);
+    if (finish === 'gilded') c.lerp(new Color('#e3b654'), 0.55);
+    else c.lerp(new Color('#ffffff'), 0.18);
     return `#${c.getHexString()}`;
-  }, [color]);
+  }, [color, finish]);
 
   useFrame((_, dt) => {
     const g = group.current;
@@ -300,7 +322,15 @@ export function Token3D({
   return (
     <group ref={group} position={position}>
       <group scale={jailed ? 0.85 : 1}>
-        <Shape color={metal} />
+        <FinishContext.Provider value={finish}>
+          <Shape color={metal} />
+        </FinishContext.Provider>
+        {finish === 'gilded' && (
+          <mesh position={[0, 0.006, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+            <ringGeometry args={[0.2, 0.26, 32]} />
+            <meshStandardMaterial color="#e3b654" metalness={1} roughness={0.2} />
+          </mesh>
+        )}
       </group>
       {active && (
         <mesh position={[0, 0.012, 0]} rotation={[-Math.PI / 2, 0, 0]}>

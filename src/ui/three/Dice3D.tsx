@@ -1,20 +1,34 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { CanvasTexture, LinearFilter, SRGBColorSpace, type Group, type Mesh } from 'three';
+import type { SkinId } from '../../game/types';
 
 /* The engine decides the roll before anything moves. These dice only play
  * the throw and land showing the value they were given - the animation is
  * never allowed to produce a result. */
 
-function pipTexture(value: number): CanvasTexture {
+/** How a finish (Party Hall Plus) prints the dice: the stock, the pips, and
+ *  what the surface does with light. Neon pips glow in the roller's colour. */
+const LOOK: Record<SkinId, {
+  face: [string, string]; pip: [string, string]; roughness: number; metalness: number; opacity?: number; glow?: boolean;
+}> = {
+  classic: { face: ['#fdfaf2', '#e4dcc8'], pip: ['#5a5044', '#14100a'], roughness: 0.35, metalness: 0.05 },
+  mirror: { face: ['#f6f8fa', '#a4adb5'], pip: ['#3a3f44', '#0c0e10'], roughness: 0.08, metalness: 0.85 },
+  glass: { face: ['#eaf6ff', '#b8d5ea'], pip: ['#ffffff', '#cfe3f1'], roughness: 0.05, metalness: 0, opacity: 0.72 },
+  neon: { face: ['#11181b', '#06090b'], pip: ['#ffffff', '#ffffff'], roughness: 0.4, metalness: 0.2, glow: true },
+  gilded: { face: ['#f6dc8e', '#b8872f'], pip: ['#5a3d0c', '#1c1204'], roughness: 0.2, metalness: 0.85 },
+};
+
+function pipTexture(value: number, finish: SkinId, glowColor: string): CanvasTexture {
+  const look = LOOK[finish];
   const S = 128;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = S;
   const c = canvas.getContext('2d')!;
 
   const g = c.createLinearGradient(0, 0, S, S);
-  g.addColorStop(0, '#fdfaf2');
-  g.addColorStop(1, '#e4dcc8');
+  g.addColorStop(0, look.face[0]);
+  g.addColorStop(1, look.face[1]);
   c.fillStyle = g;
   c.fillRect(0, 0, S, S);
 
@@ -29,10 +43,16 @@ function pipTexture(value: number): CanvasTexture {
 
   for (const [x, y] of spots[value] ?? []) {
     const r = S * 0.085;
-    const rg = c.createRadialGradient(x * S - r * 0.3, y * S - r * 0.3, r * 0.1, x * S, y * S, r);
-    rg.addColorStop(0, '#5a5044');
-    rg.addColorStop(1, '#14100a');
-    c.fillStyle = rg;
+    if (look.glow) {
+      c.shadowColor = glowColor;
+      c.shadowBlur = S * 0.09;
+      c.fillStyle = glowColor;
+    } else {
+      const rg = c.createRadialGradient(x * S - r * 0.3, y * S - r * 0.3, r * 0.1, x * S, y * S, r);
+      rg.addColorStop(0, look.pip[0]);
+      rg.addColorStop(1, look.pip[1]);
+      c.fillStyle = rg;
+    }
     c.beginPath();
     c.arc(x * S, y * S, r, 0, Math.PI * 2);
     c.fill();
@@ -65,17 +85,18 @@ const FACE_UP: Record<number, [number, number, number]> = {
 };
 
 function Die({
-  value, offset, seed, rolling,
-}: { value: number; offset: number; seed: number; rolling: boolean }) {
+  value, offset, seed, rolling, finish, glowColor,
+}: { value: number; offset: number; seed: number; rolling: boolean; finish: SkinId; glowColor: string }) {
   const mesh = useRef<Mesh>(null);
   const t = useRef(1);
   const from = useRef<[number, number, number]>([0, 0, 0]);
+  const look = LOOK[finish];
 
   // BoxGeometry material order is +X -X +Y -Y +Z -Z. Opposite faces of a die
   // always sum to seven.
   const textures = useMemo(
-    () => [4, 3, 2, 5, 1, 6].map(pipTexture),
-    [],
+    () => [4, 3, 2, 5, 1, 6].map((v) => pipTexture(v, finish, glowColor)),
+    [finish, glowColor],
   );
   useEffect(() => () => textures.forEach((x) => x.dispose()), [textures]);
 
@@ -119,19 +140,33 @@ function Die({
     <mesh ref={mesh} position={[offset, 0.34, 0]} castShadow>
       <boxGeometry args={[0.52, 0.52, 0.52]} />
       {textures.map((tex, i) => (
-        <meshStandardMaterial key={i} attach={`material-${i}`} map={tex} roughness={0.35} metalness={0.05} />
+        <meshStandardMaterial
+          key={i}
+          attach={`material-${i}`}
+          map={tex}
+          roughness={look.roughness}
+          metalness={look.metalness}
+          transparent={look.opacity !== undefined}
+          opacity={look.opacity ?? 1}
+          emissive={look.glow ? '#ffffff' : '#000000'}
+          emissiveMap={look.glow ? tex : undefined}
+          emissiveIntensity={look.glow ? 0.9 : 0}
+          toneMapped={!look.glow}
+        />
       ))}
     </mesh>
   );
 }
 
-export function Dice3D({ dice, rolling }: { dice: [number, number] | null; rolling: boolean }) {
+export function Dice3D({
+  dice, rolling, finish = 'classic', color = '#39ffb0',
+}: { dice: [number, number] | null; rolling: boolean; finish?: SkinId; color?: string }) {
   const group = useRef<Group>(null);
   if (!dice) return null;
   return (
     <group ref={group}>
-      <Die value={dice[0]} offset={-0.45} seed={dice[0]} rolling={rolling} />
-      <Die value={dice[1]} offset={0.45} seed={dice[1] + 1} rolling={rolling} />
+      <Die value={dice[0]} offset={-0.45} seed={dice[0]} rolling={rolling} finish={finish} glowColor={color} />
+      <Die value={dice[1]} offset={0.45} seed={dice[1] + 1} rolling={rolling} finish={finish} glowColor={color} />
     </group>
   );
 }

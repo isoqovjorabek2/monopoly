@@ -3,11 +3,11 @@ import { play, type SfxName } from '../audio/sfx';
 import { botDecide, botDelay } from '../game/ai';
 import { createGame, botifySeat, handOverSeat, reduce, type SeatSpec } from '../game/engine';
 import { logLine, type LogLine } from '../game/describe';
-import { tr } from '../i18n';
+import { tr, setBoardTheme } from '../i18n';
 import { clockKey, clockSeconds, legalActions, waitingOn } from '../game/rules';
 import { randomSeed } from '../game/rng';
 import { BOT_NAMES, PLAYER_COLORS, TOKENS, defaultSettings, normalizeToken } from '../game/settings';
-import type { GameAction, GameEvent, GameSettings, GameState, TokenId } from '../game/types';
+import type { GameAction, GameEvent, GameSettings, GameState, TokenId, SkinId } from '../game/types';
 import { botDecide as cfBotDecide, botDelay as cfBotDelay } from '../cashflow/ai';
 import { cfLogLine, type CFLogLine } from '../cashflow/describe';
 import {
@@ -20,7 +20,8 @@ import {
 } from '../cashflow/rules';
 import type { CFAction, CFEvent, CFRules, CFSettings, CFState } from '../cashflow/types';
 import { GuestNet, HostNet, type NetStatus } from '../net/net';
-import { currentAccount, isAccountId, signOut, useAccount } from '../net/account';
+import { currentAccount, isAccountId, signOut, useAccount, hasPlus } from '../net/account';
+import { cleanSkin, roomTheme } from '../net/plus';
 import { fetchTable, membersOf, uploadTable } from '../net/saves';
 import { announce as announceRoom, close as closeRoom, closeOnUnload } from '../net/directory';
 import {
@@ -59,7 +60,7 @@ interface Store {
   code: string;
   /** Whether this room is announced in the public directory. Host only. */
   listed: boolean;
-  me: { playerId: string; name: string; token: TokenId };
+  me: { playerId: string; name: string; token: TokenId; skin?: SkinId };
   /** Which game the front door has selected. Remembered between visits. */
   pick: GameKind;
 
@@ -87,6 +88,12 @@ interface Store {
 
   setPick: (kind: GameKind) => void;
   setProfile: (name: string, token: TokenId) => void;
+  /** Show this tab's own seat with the Plus its pass now carries. Host or
+   *  solo only: a guest's seat is set by the host from the pass it shows. */
+  syncPlus: () => void;
+  /** Choose a finish for this player's piece and dice. The table shows it only
+   *  while their seat holds Plus; the choice is remembered either way. */
+  setSkin: (skin: SkinId) => void;
   /** Open a table. `listed` puts it on the public list from the start; a
    *  host can still change that from the lobby. */
   hostRoom: (settings?: GameSettings, kind?: GameKind, opts?: { listed?: boolean }) => void;
@@ -184,7 +191,7 @@ export interface SavedGame {
   epoch: number;
   kind: GameKind;
   room: RoomSnapshot | null;
-  me: { playerId: string; name: string; token: TokenId };
+  me: { playerId: string; name: string; token: TokenId; skin?: SkinId };
   secrets: Record<string, string>;
   at: number;
 }
@@ -211,6 +218,9 @@ const savedName = (): string => {
 };
 const savedToken = (): TokenId => {
   try { return normalizeToken(localStorage.getItem('mply.token')); } catch { return 'camel'; }
+};
+const savedSkin = (): SkinId => {
+  try { return cleanSkin(localStorage.getItem('mply.skin')); } catch { return 'classic'; }
 };
 const savedSound = (): boolean => {
   try { return localStorage.getItem('mply.sound') !== 'off'; } catch { return true; }
@@ -779,7 +789,11 @@ export const useStore = create<Store>((set, get) => {
         if (existing) {
           // Reconnect: identity is the playerId, never the connection.
           const seats = room.seats.map((s) =>
-            s.playerId === from ? { ...s, connected: true, name } : s);
+            s.playerId === from ? {
+              ...s, connected: true, name,
+              plus: uid ? Boolean(msg.verifiedPlus) : s.plus,
+              skin: uid ? (msg.verifiedPlus ? cleanSkin(msg.skin) : undefined) : s.skin,
+            } : s);
           const next = { ...room, seats };
           set({ room: next });
           host?.welcome(from, next);
@@ -809,7 +823,11 @@ export const useStore = create<Store>((set, get) => {
         const token = taken.has(msg.token)
           ? TOKENS.find((t) => !taken.has(t.id))?.id ?? msg.token
           : msg.token;
-        const seat = emptySeat(from, name, token, room.seats.length, false);
+        const seat = {
+          ...emptySeat(from, name, token, room.seats.length, false),
+          plus: Boolean(msg.verifiedPlus),
+          skin: msg.verifiedPlus ? cleanSkin(msg.skin) : undefined,
+        };
         const next = { ...room, seats: [...room.seats, seat] };
         set({ room: next });
         host?.welcome(from, next);
@@ -826,7 +844,8 @@ export const useStore = create<Store>((set, get) => {
           : msg.token;
         publish({
           ...room,
-          seats: room.seats.map((s) => (s.playerId === from ? { ...s, name, token } : s)),
+          // A finish shows only on a seat the host verified as Plus.
+          seats: room.seats.map((s) => (s.playerId === from ? { ...s, name, token, skin: s.plus ? cleanSkin(msg.skin) : undefined } : s)),
         });
         return;
       }
@@ -1225,7 +1244,7 @@ export const useStore = create<Store>((set, get) => {
     role: 'local',
     code: '',
     listed: false,
-    me: { playerId: currentAccount()?.uid ?? localPlayerId(), name: savedName(), token: savedToken() },
+    me: { playerId: currentAccount()?.uid ?? localPlayerId(), name: savedName(), token: savedToken(), skin: savedSkin() },
     pick: savedPick(),
 
     room: null,
@@ -1258,7 +1277,7 @@ export const useStore = create<Store>((set, get) => {
       set((s) => ({ me: { ...s.me, name: clean, token } }));
 
       const { role, room, me } = get();
-      if (role === 'guest') guest?.send({ t: 'PROFILE', playerId: me.playerId, name: clean, token });
+      if (role === 'guest') guest?.send({ t: 'PROFILE', playerId: me.playerId, name: clean, token, skin: me.skin });
       else if (room && !inGame(room)) {
         publish({
           ...room,
@@ -1267,13 +1286,44 @@ export const useStore = create<Store>((set, get) => {
       }
     },
 
+    setSkin: (skin) => {
+      const clean = cleanSkin(skin);
+      try { localStorage.setItem('mply.skin', clean); } catch { /* private mode */ }
+      set((st) => ({ me: { ...st.me, skin: clean } }));
+      const { role, room, me } = get();
+      if (role === 'guest') {
+        guest?.send({ t: 'PROFILE', playerId: me.playerId, name: me.name, token: me.token, skin: clean });
+      } else if (room && !inGame(room)) {
+        publish({
+          ...room,
+          seats: room.seats.map((x) => (x.playerId === me.playerId ? { ...x, skin: x.plus ? clean : undefined } : x)),
+        });
+      }
+    },
+
+    syncPlus: () => {
+      const { role, room, me } = get();
+      if (!room || role === 'guest') return;
+      const plus = hasPlus(currentAccount());
+      const mine = room.seats.find((x) => x.playerId === me.playerId);
+      if (!mine || Boolean(mine.plus) === plus) return;
+      publish({
+        ...room,
+        seats: room.seats.map((x) => (x.playerId === me.playerId ? { ...x, plus, skin: plus ? cleanSkin(me.skin) : undefined } : x)),
+      });
+    },
+
     hostRoom: (settings, kind = get().pick, opts = {}) => {
       teardown();
       const me = get().me;
       const code = generateRoomCode();
       const room = freshRoom(
         code,
-        emptySeat(me.playerId, me.name || tr().defaults.host, me.token, 0, true),
+        {
+          ...emptySeat(me.playerId, me.name || tr().defaults.host, me.token, 0, true),
+          plus: hasPlus(currentAccount()),
+          skin: hasPlus(currentAccount()) ? cleanSkin(me.skin) : undefined,
+        },
         kind,
         { ...(settings ?? defaultSettings()), seed: randomSeed() },
       );
@@ -1298,7 +1348,7 @@ export const useStore = create<Store>((set, get) => {
         role: 'guest', code, room: null, screen: 'lobby',
         log: [], cfLog: [], chat: [], netError: null, netStatus: 'connecting',
       });
-      guest = new GuestNet(code, { playerId: me.playerId, name: me.name || tr().defaults.player, token: me.token }, {
+      guest = new GuestNet(code, { playerId: me.playerId, name: me.name || tr().defaults.player, token: me.token, skin: me.skin }, {
         onDown: handleDown,
         onStatus: (status, detail) => {
           // A host that came back late and found no table still has its own
@@ -1357,7 +1407,11 @@ export const useStore = create<Store>((set, get) => {
       const me = get().me;
       const room = freshRoom(
         'LOCAL',
-        emptySeat(me.playerId, me.name || tr().defaults.you, me.token, 0, true),
+        {
+          ...emptySeat(me.playerId, me.name || tr().defaults.you, me.token, 0, true),
+          plus: hasPlus(currentAccount()),
+          skin: hasPlus(currentAccount()) ? cleanSkin(me.skin) : undefined,
+        },
         kind,
         { ...defaultSettings(), fillWithBots: true },
       );
@@ -1442,6 +1496,13 @@ export const useStore = create<Store>((set, get) => {
         }
       }
       if (seats.length < 2) return;
+
+      // The board is fixed for the game from here on: a Plus player who
+      // leaves mid-game does not take the theme with them (see roomTheme).
+      if (room.kind === 'monopoly' && room.settings.boardTheme !== roomTheme(room)) {
+        const current = snapshot() ?? room;
+        publish({ ...current, settings: { ...current.settings, boardTheme: roomTheme(room) } });
+      }
 
       // A listed table stays listed into its game while it has bots to take
       // over; the heartbeat decides, and says so at once.
@@ -1576,6 +1637,8 @@ export const useStore = create<Store>((set, get) => {
  * the next connect presents the pass. A sign-in that was prompted by being
  * turned away from a game in progress goes straight back to that game. */
 useAccount.subscribe((next, prev) => {
+  // A refreshed pass can bring Plus with it; the seat this tab hosts shows it.
+  if (hasPlus(next.account) !== hasPlus(prev.account)) useStore.getState().syncPlus();
   if (next.account?.uid === prev.account?.uid) return;
   const st = useStore.getState();
   if (st.screen === 'home') {
@@ -1587,10 +1650,16 @@ useAccount.subscribe((next, prev) => {
   }
 });
 
+/* The table's board decides what every square is called on this screen. */
+useStore.subscribe((s) => setBoardTheme(roomTheme(s.room)));
+
 // Dev-only handle so the store can be poked from the console while
 // debugging a live game. Stripped from production builds.
 if (import.meta.env.DEV) {
   (window as unknown as { __mply: unknown }).__mply = useStore;
+  // The account store too, so a signed-in (or Plus) screen can be checked
+  // without a real Google round trip.
+  (window as unknown as { __mplyAccount: unknown }).__mplyAccount = useAccount;
 }
 
 /* ------------------------- derived selectors ------------------------ */

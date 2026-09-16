@@ -21,8 +21,13 @@ describe('passes', () => {
   it('accepts a pass the server signed, with the browser key it names', async () => {
     const claims = await verifyPass(fixture.pass, fixture.jwk, at);
     expect(claims).toEqual({
-      sub: 'u_fixture0000000000000', name: 'Fixture', exp: expect.any(Number), cnf: fixture.point,
+      sub: 'u_fixture0000000000000', name: 'Fixture', exp: expect.any(Number), plus: 0, cnf: fixture.point,
     });
+  });
+
+  it('reads the Plus paid-until date the server stamped into a pass', async () => {
+    const claims = await verifyPass(fixture.plusPass, fixture.jwk, at);
+    expect(claims?.plus).toBe(fixture.plusUntil);
   });
 
   it('refuses it under any other key', async () => {
@@ -88,7 +93,7 @@ async function keyFor(uid: string) {
 const fakeVerify = async (pass: unknown): Promise<PassClaims | null> => {
   if (typeof pass !== 'string' || !pass.startsWith('pass:')) return null;
   const uid = pass.slice(5);
-  return { sub: uid, name: 'X', exp: 9e9, cnf: (await keyFor(uid)).point };
+  return { sub: uid, name: 'X', exp: 9e9, plus: uid.startsWith('u_plus') ? 9e9 : 0, cnf: (await keyFor(uid)).point };
 };
 
 const settle = (ms = 0) => new Promise((r) => setTimeout(r, ms));
@@ -129,6 +134,21 @@ const hello = (playerId: string, extra: Partial<Extract<Up, { t: 'HELLO' }>> = {
   ({ t: 'HELLO', playerId, name: 'n', token: 'camel', secret: 's', ...extra });
 
 describe('the host, with passes', () => {
+  it('passes on the Plus date of a verified pass, and never one a peer claims', async () => {
+    const { host, ups } = makeHost();
+    const member = new FakeConn();
+    attachTo(host, member);
+    await signInOn(member, 'u_plus_player');
+    const bound = ups.find((u) => u.from === 'u_plus_player')?.msg as Extract<Up, { t: 'HELLO' }> | undefined;
+    expect(bound?.verifiedPlus).toBe(9e9);
+    const liar = new FakeConn();
+    attachTo(host, liar);
+    liar.emit('data', wrap(hello('p_liar', { verifiedPlus: 9e9 })));
+    const unverified = ups.find((u) => u.from === 'p_liar')?.msg as Extract<Up, { t: 'HELLO' }> | undefined;
+    expect(unverified).toBeDefined();
+    expect(unverified?.verifiedPlus).toBeUndefined();
+  });
+
   it('binds a signed-in player to the seat their account plays, whatever id they send', async () => {
     const { host, ups } = makeHost((uid) => (uid === 'u_asil' ? 'bot_ada' : uid));
     host.reserve('bot_ada');

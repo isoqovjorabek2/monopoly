@@ -1,9 +1,11 @@
 import { create } from 'zustand';
 import { BOARD } from '../game/board';
+import type { BoardTheme } from '../game/types';
 import { CHANCE, CHEST } from '../game/cards';
 import { en, type Dict } from './en';
 import { ru } from './ru';
 import { uz } from './uz';
+import { themeCards, themeSpaces } from './themes';
 
 /* ------------------------------------------------------------------ *
  * Which language this player reads the game in.
@@ -62,11 +64,45 @@ stampDocument(useLangStore.getState().lang);
 export const useLang = (): Lang => useLangStore((s) => s.lang);
 export const useSetLang = (): ((lang: Lang) => void) => useLangStore((s) => s.setLang);
 
-/** The dictionary for the current language. Re-renders on a switch. */
-export const useT = (): Dict => useLangStore((s) => DICTS[s.lang]);
+/* A board theme (Party Hall Plus) is words, like a language: the squares a
+ * table plays on are renamed in the dictionary itself. So everything that
+ * already reads a name through the dictionary - tiles, deeds, the log, the
+ * cards, the reasons - follows the table's board without knowing boards
+ * exist. The store sets it from the room (see net/plus.ts, roomTheme). */
+const useThemeStore = create<{ theme: BoardTheme }>(() => ({ theme: 'silk' }));
+
+export const setBoardTheme = (theme: BoardTheme): void => {
+  if (useThemeStore.getState().theme !== theme) useThemeStore.setState({ theme });
+};
+export const useBoardTheme = (): BoardTheme => useThemeStore((s) => s.theme);
+
+const themed = new Map<string, Dict>();
+
+/** One dictionary object per language and board, so memoised components see
+ *  a new object exactly when what they print has changed. */
+function dictWith(lang: Lang, theme: BoardTheme): Dict {
+  const base = DICTS[lang];
+  if (theme === 'silk') return base;
+  const key = `${lang}:${theme}`;
+  const known = themed.get(key);
+  if (known) return known;
+  const over = themeSpaces(theme, lang);
+  const spaces = base.spaces.map((pair, id) => over[id] ?? pair) as Dict['spaces'];
+  const nameOf = (id: number): string => spaces[id]?.[0] ?? BOARD[id].name;
+  const dict: Dict = { ...base, spaces, cards: { ...base.cards, ...themeCards(theme, lang, nameOf) } };
+  themed.set(key, dict);
+  return dict;
+}
+
+/** The dictionary for the current language and board. Re-renders on a switch. */
+export const useT = (): Dict => {
+  const lang = useLangStore((s) => s.lang);
+  const theme = useThemeStore((s) => s.theme);
+  return dictWith(lang, theme);
+};
 
 /** The same, outside React: network errors, the store, canvas faces. */
-export const tr = (): Dict => DICTS[useLangStore.getState().lang];
+export const tr = (): Dict => dictWith(useLangStore.getState().lang, useThemeStore.getState().theme);
 
 export const dictFor = (lang: Lang): Dict => DICTS[lang];
 

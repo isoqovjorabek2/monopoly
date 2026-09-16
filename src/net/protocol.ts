@@ -2,7 +2,7 @@ import { DECK_CARDS } from '../cashflow/data';
 import type { CFAction, CFRules, CFState } from '../cashflow/types';
 import { CHANCE, CHEST } from '../game/cards';
 import { shuffle } from '../game/rng';
-import type { BotLevel, GameAction, GameEvent, GameSettings, GameState, TokenId } from '../game/types';
+import type { BotLevel, GameAction, GameEvent, GameSettings, GameState, TokenId, SkinId } from '../game/types';
 
 /** 2: a room carries which game it plays. A tab still on 1 cannot read a
  *  Cashflow table, so it is refused at the envelope rather than half-drawn.
@@ -28,6 +28,11 @@ export interface SeatInfo {
   connected: boolean;
   /** Round-trip time in ms, host-measured. */
   ping: number;
+  /** The player holds Party Hall Plus. Set by the host only, from a pass it
+   *  verified - never from anything a guest says about itself. */
+  plus?: boolean;
+  /** That player's finish, set by the host only on a Plus seat. */
+  skin?: SkinId;
 }
 
 /** Everything a client needs to render the room, game or no game. */
@@ -96,13 +101,17 @@ export interface ChatMessage {
 export type Up =
   | {
     t: 'HELLO'; playerId: string; name: string; token: TokenId; secret: string;
+    /** The finish this player picked; the host keeps it only for a Plus seat. */
+    skin?: SkinId;
     /** A signed-in player's pass (see net/account.ts). */
     auth?: string;
     /** Set by the host's own transport once the pass has checked out, and
      *  stripped from anything a peer sends. Never trusted off the wire. */
     verified?: string;
+    /** Likewise: the Plus paid-until date from that verified pass. */
+    verifiedPlus?: number;
   }
-  | { t: 'PROFILE'; playerId: string; name: string; token: TokenId }
+  | { t: 'PROFILE'; playerId: string; name: string; token: TokenId; skin?: SkinId }
   | { t: 'SETTINGS'; playerId: string; settings: GameSettings; cfRules?: CFRules }
   | { t: 'ADD_BOT'; playerId: string }
   | { t: 'REMOVE_SEAT'; playerId: string; target: string }

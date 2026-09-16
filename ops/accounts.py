@@ -35,6 +35,11 @@ Routes, behind nginx at /auth/:
     GET /key                       -> the public key, as a JWK
     GET /health
 
+    POST   /refresh                -> a fresh pass, carrying the player's Plus status
+    POST   /history                -> record a game the caller finished
+    GET    /history                -> the caller's totals, and their games with Plus
+    POST   /paddle/webhook         -> Paddle payment events: grants and refunds Plus
+
     GET    /saves                  -> the caller's saved tables (summaries)
     GET    /saves/<code>           -> one saved table, if the caller sat at it
     PUT    /saves/<code>           -> save a table the caller sits at
@@ -56,6 +61,9 @@ Operator commands (run as root on the droplet):
     python3 accounts.py pubkey              print the public JWK
     python3 accounts.py mint <sub> <name> <x.y>   issue a pass bound to that
                                                  browser key, for testing
+    python3 accounts.py plus <sub>          show a player's Plus
+    python3 accounts.py plus <sub> <days> [note]  add days of Plus (negative
+                                                 takes days away)
 """
 
 from __future__ import annotations
@@ -181,7 +189,7 @@ def point_ok(point: str) -> bool:
 
 
 def mint_pass(sub: str, name: str, key: ec.EllipticCurvePrivateKey | None = None,
-              now: float | None = None, cnf: str | None = None) -> str:
+              now: float | None = None, cnf: str | None = None, plus: int = 0) -> str:
     """A compact JWS (ES256). The signature is raw r||s, as JWS and WebCrypto
     both expect - not the DER that ``cryptography`` produces by default."""
     now = int(now if now is not None else time.time())
@@ -193,6 +201,10 @@ def mint_pass(sub: str, name: str, key: ec.EllipticCurvePrivateKey | None = None
     if cnf:
         x, y = cnf.split(".")
         payload["cnf"] = {"x": x, "y": y}
+    # Party Hall Plus, as a paid-until date. Only stamped while it is still
+    # running, so a host can trust it without asking this server anything.
+    if plus and int(plus) > now:
+        payload["plus"] = int(plus)
     signing_input = f"{b64u(json.dumps(header, separators=(',', ':')).encode())}." \
                     f"{b64u(json.dumps(payload, separators=(',', ':')).encode())}"
     der = (key or signing_key()).sign(signing_input.encode(), ec.ECDSA(hashes.SHA256()))
@@ -326,11 +338,67 @@ def google_exchange(code: str) -> dict | None:
     return claims
 
 
+# -------------------------------------------------------------------- plus --
+# Party Hall Plus. This server is the only place that decides who has it: a
+# player's paid-until date lives here and is stamped into every pass it signs,
+# so a host believes a Plus seat the same way it believes the seat itself.
+
+def plus_path() -> str:
+    os.makedirs(STATE_DIR, exist_ok=True)
+    return os.path.join(STATE_DIR, "plus.json")
+
+
+def _plus_all() -> dict:
+    try:
+        with open(plus_path(), encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def plus_until(uid: str, now: float | None = None) -> int:
+    """When the player's Plus runs out, in seconds since the epoch; 0 without it."""
+    rec = _plus_all().get(uid)
+    until = int(rec.get("until", 0)) if isinstance(rec, dict) else 0
+    return until if until > (now if now is not None else time.time()) else 0
+
+
+def grant_plus(uid: str, days: float, source: str = "manual", now: float | None = None) -> int:
+    """Add days of Plus: from today, or from the end of what is left, so buying
+    early never loses time. Negative days take time away. Returns the new
+    paid-until date, or 0 once there is none."""
+    if not isinstance(uid, str) or not uid.startswith("u_") or len(uid) > 40:
+        raise ValueError("not a player id")
+    t = int(now if now is not None else time.time())
+    data = _plus_all()
+    current = plus_until(uid, now=t)
+    until = (max(t, current) + int(days * 86400)) if days > 0 else (current + int(days * 86400))
+    if until <= t:
+        data.pop(uid, None)
+        until = 0
+    else:
+        data[uid] = {"until": until, "source": str(source)[:60], "updated": t}
+    tmp = plus_path() + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=1, sort_keys=True)
+    os.replace(tmp, plus_path())
+    # Run as root from a shell, the file must still belong to the service.
+    try:
+        st = os.stat(STATE_DIR)
+        os.chown(plus_path(), st.st_uid, st.st_gid)
+    except (OSError, AttributeError):
+        pass
+    return until
+
+
 # ------------------------------------------------------------------- saves --
 
 SAVE_MAX_BYTES = 600_000
 SAVE_TTL = 14 * 24 * 3600
 SAVES_PER_PLAYER = 30
+PLUS_SAVE_TTL = 90 * 24 * 3600   # while anyone at the table has Plus
+PLUS_SAVES_PER_PLAYER = 100
 PROOF_WINDOW = 300
 ROOM_RE = re.compile(r"^[A-Z]{3,10}-[A-Z]{3,10}-\d{1,3}$")
 ALLOWED_ORIGINS = re.compile(
@@ -386,7 +454,7 @@ def _read_save(code: str) -> dict | None:
             data = json.load(fh)
     except (OSError, ValueError):
         return None
-    if time.time() - data.get("updatedAt", 0) > SAVE_TTL:
+    if time.time() - data.get("updatedAt", 0) > data.get("ttl", SAVE_TTL):
         try:
             os.remove(_save_path(code))
         except OSError:
@@ -440,7 +508,7 @@ def put_save(uid: str, code: str, payload) -> tuple[int, dict]:
         return 200, {"ok": True, "deleted": True}
     if not existing:
         mine = sum(1 for s in _all_saves() if uid in s.get("members", []))
-        if mine >= SAVES_PER_PLAYER:
+        if mine >= (PLUS_SAVES_PER_PLAYER if plus_until(uid) else SAVES_PER_PLAYER):
             return 429, {"error": "too many saved tables"}
     record = {
         "code": code,
@@ -449,6 +517,8 @@ def put_save(uid: str, code: str, payload) -> tuple[int, dict]:
         "epoch": int(room.get("epoch", 0)) if isinstance(room.get("epoch"), int) else 0,
         "room": room,
         "updatedAt": int(time.time()),
+        # Kept longer while anyone at the table has Plus.
+        "ttl": PLUS_SAVE_TTL if any(plus_until(m) for m in members) else SAVE_TTL,
     }
     tmp = _save_path(code) + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
@@ -477,6 +547,246 @@ def forget_save(uid: str, code: str) -> None:
         return
     with open(_save_path(code), "w", encoding="utf-8") as fh:
         json.dump(existing, fh, separators=(",", ":"))
+
+
+# ----------------------------------------------------------------- history --
+# Every game a signed-in player finishes, kept for them. Each player's own
+# browser reports its own result when a game ends: the table has no server to
+# ask, and nobody can file a result into somebody else's history, because the
+# request is signed by that player's own browser key. The totals are shown to
+# everyone; the game-by-game list is a Party Hall Plus perk.
+
+HISTORY_KEEP = 200
+HISTORY_SHOWN = 50
+UID_RE = re.compile(r"^u_[a-z0-9]{1,38}$")
+GAME_ID_RE = re.compile(r"^[A-Za-z0-9:_-]{1,64}$")
+
+
+def history_path(uid: str) -> str:
+    path = os.path.join(STATE_DIR, "history")
+    os.makedirs(path, exist_ok=True)
+    return os.path.join(path, f"{uid}.json")
+
+
+def _read_games(uid: str) -> list:
+    try:
+        with open(history_path(uid), encoding="utf-8") as fh:
+            data = json.load(fh)
+        games = data.get("games") if isinstance(data, dict) else None
+        return games if isinstance(games, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def _int(v, lo: int, hi: int):
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
+        return None
+    return int(v)
+
+
+def clean_game(payload) -> dict | None:
+    """A reported game, reduced to what history shows, or None if malformed."""
+    if not isinstance(payload, dict):
+        return None
+    gid, kind, players = payload.get("id"), payload.get("kind"), payload.get("players")
+    if not isinstance(gid, str) or not GAME_ID_RE.match(gid) or kind not in ("monopoly", "cashflow"):
+        return None
+    if not isinstance(players, list) or not 1 <= len(players) <= 8:
+        return None
+    rows = []
+    for p in players:
+        if not isinstance(p, dict):
+            return None
+        score = _int(p.get("score"), -10**9, 10**9)
+        if score is None:
+            return None
+        rows.append({
+            "name": re.sub(r"\s+", " ", str(p.get("name") or "")).strip()[:NAME_MAX] or "Player",
+            "score": score,
+            "bot": p.get("bot") is True,
+            "you": p.get("you") is True,
+        })
+    if sum(1 for r in rows if r["you"]) != 1:
+        return None
+    place = _int(payload.get("place"), 1, 8)
+    rounds = _int(payload.get("rounds"), 0, 10000)
+    if place is None or rounds is None or place > len(rows):
+        return None
+    theme = payload.get("theme")
+    return {
+        "id": gid,
+        "kind": kind,
+        # A win is first place; a report cannot claim one from anywhere else.
+        "won": payload.get("won") is True and place == 1,
+        "place": place,
+        "rounds": rounds,
+        "players": rows,
+        "score": next(r["score"] for r in rows if r["you"]),
+        "theme": theme if theme in ("silk", "tashkent", "europe") else "silk",
+    }
+
+
+def record_game(uid: str, payload, now: float | None = None) -> tuple[int, dict]:
+    if not isinstance(uid, str) or not UID_RE.match(uid):
+        return 400, {"error": "bad player"}
+    game = clean_game(payload)
+    if not game:
+        return 400, {"error": "bad game"}
+    games = _read_games(uid)
+    if any(g.get("id") == game["id"] for g in games):
+        return 200, {"ok": True, "duplicate": True}
+    game["at"] = int(now if now is not None else time.time())
+    games = [game] + games
+    tmp = history_path(uid) + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump({"games": games[:HISTORY_KEEP]}, fh, separators=(",", ":"))
+    os.replace(tmp, history_path(uid))
+    return 200, {"ok": True}
+
+
+def read_history(uid: str, full: bool) -> dict:
+    """Totals for everyone; the games themselves only with Plus."""
+    games = _read_games(uid) if isinstance(uid, str) and UID_RE.match(uid) else []
+    totals = {"played": len(games), "wins": sum(1 for g in games if g.get("won")), "byKind": {}}
+    for kind in ("monopoly", "cashflow"):
+        mine = [g for g in games if g.get("kind") == kind]
+        totals["byKind"][kind] = {
+            "played": len(mine),
+            "wins": sum(1 for g in mine if g.get("won")),
+            "best": max((g.get("score", 0) for g in mine), default=0),
+        }
+    return {"totals": totals, "games": games[:HISTORY_SHOWN] if full else [], "plus": bool(full)}
+
+
+# ------------------------------------------------------------------ paddle --
+# Payments for Plus. Paddle is the merchant of record: it takes the money and
+# tells this service what happened, by webhook. A notification is believed only
+# if it carries Paddle's signature under "paddle_webhook_secret" in config.json,
+# and only prices listed in "paddle_prices" (price id -> days of Plus) grant
+# anything. Each event and each transaction is acted on once, so Paddle's
+# retries - or anyone replaying a captured notification - change nothing.
+
+PADDLE_TOLERANCE = 300          # seconds of clock skew allowed; replays are harmless anyway
+PADDLE_KEEP_EVENTS = 2000
+
+
+def paddle_path() -> str:
+    os.makedirs(STATE_DIR, exist_ok=True)
+    return os.path.join(STATE_DIR, "paddle.json")
+
+
+def _paddle_state() -> dict:
+    try:
+        with open(paddle_path(), encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    data.setdefault("events", [])
+    data.setdefault("transactions", {})
+    data.setdefault("subscriptions", {})
+    return data
+
+
+def _save_paddle_state(data: dict) -> None:
+    data["events"] = data["events"][-PADDLE_KEEP_EVENTS:]
+    tmp = paddle_path() + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, separators=(",", ":"))
+    os.replace(tmp, paddle_path())
+    try:
+        st = os.stat(STATE_DIR)
+        os.chown(paddle_path(), st.st_uid, st.st_gid)
+    except (OSError, AttributeError):
+        pass
+
+
+def paddle_signature_ok(header: str, raw: bytes, secret: str, now: float | None = None) -> bool:
+    """Paddle-Signature is `ts=<unix>;h1=<hex>` (several h1 during a secret
+    rotation): an HMAC-SHA256, under the notification secret, of `ts:raw body`."""
+    if not secret or not isinstance(header, str):
+        return False
+    pairs = [part.split("=", 1) for part in header.split(";") if "=" in part]
+    ts = next((v.strip() for k, v in pairs if k.strip() == "ts"), "")
+    sigs = [v.strip() for k, v in pairs if k.strip() == "h1"]
+    if not ts.isdigit() or not sigs:
+        return False
+    if abs((now if now is not None else time.time()) - int(ts)) > PADDLE_TOLERANCE:
+        return False
+    want = hmac.new(secret.encode(), ts.encode() + b":" + raw, hashlib.sha256).hexdigest()
+    return any(hmac.compare_digest(want, sig) for sig in sigs)
+
+
+def _paddle_completed(state: dict, data: dict, prices: dict, now: float | None) -> dict:
+    txn = str(data.get("id") or "")
+    if not txn or txn in state["transactions"]:
+        return {"ok": True, "duplicate": True}
+    sub = data.get("subscription_id")
+    custom = data.get("custom_data") if isinstance(data.get("custom_data"), dict) else {}
+    uid = custom.get("uid")
+    # A renewal may not carry the checkout's custom data; its subscription does.
+    if not (isinstance(uid, str) and UID_RE.match(uid)) and isinstance(sub, str):
+        uid = state["subscriptions"].get(sub)
+    if not (isinstance(uid, str) and UID_RE.match(uid)):
+        return {"ok": True, "ignored": "no player"}
+    days = 0
+    for item in data.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        price = (item.get("price") or {}).get("id") if isinstance(item.get("price"), dict) else None
+        qty = item.get("quantity", 1)
+        if isinstance(price, str) and price in prices:
+            days += int(prices[price]) * (qty if isinstance(qty, int) and 0 < qty <= 10 else 1)
+    if days <= 0:
+        return {"ok": True, "ignored": "no Plus price"}
+    until = grant_plus(uid, days, source=f"paddle {txn}", now=now)
+    state["transactions"][txn] = {"uid": uid, "days": days, "at": int(now if now is not None else time.time())}
+    if isinstance(sub, str):
+        state["subscriptions"][sub] = uid
+    return {"ok": True, "granted": days, "until": until}
+
+
+def _paddle_adjustment(state: dict, data: dict, now: float | None) -> dict:
+    """An approved full refund or chargeback takes back what its transaction
+    granted. A partial refund keeps Plus; a pending one waits for approval."""
+    if data.get("action") not in ("refund", "chargeback") or data.get("status") != "approved":
+        return {"ok": True, "ignored": "not an approved refund"}
+    if data.get("type", "full") != "full":
+        return {"ok": True, "ignored": "partial"}
+    rec = state["transactions"].get(str(data.get("transaction_id") or ""))
+    if not rec or rec.get("refunded"):
+        return {"ok": True, "ignored": "nothing to take back"}
+    until = grant_plus(rec["uid"], -int(rec["days"]), source=f"refund {data.get('transaction_id')}", now=now)
+    rec["refunded"] = True
+    return {"ok": True, "revoked": rec["days"], "until": until}
+
+
+def paddle_webhook(header: str, raw: bytes, now: float | None = None, config: dict | None = None) -> tuple[int, dict]:
+    c = config if config is not None else cfg()
+    if not paddle_signature_ok(header, raw, str(c.get("paddle_webhook_secret", "")), now=now):
+        return 401, {"error": "bad signature"}
+    try:
+        event = json.loads(raw)
+    except ValueError:
+        return 400, {"error": "bad json"}
+    if not isinstance(event, dict) or not isinstance(event.get("data"), dict):
+        return 400, {"error": "bad event"}
+    state = _paddle_state()
+    event_id = str(event.get("event_id") or "")
+    if event_id and event_id in state["events"]:
+        return 200, {"ok": True, "duplicate": True}
+    prices = c.get("paddle_prices") if isinstance(c.get("paddle_prices"), dict) else {}
+    kind, data = event.get("event_type"), event["data"]
+    result = {"ok": True, "ignored": "event not used"}
+    if kind == "transaction.completed":
+        result = _paddle_completed(state, data, prices, now)
+    elif kind in ("adjustment.created", "adjustment.updated"):
+        result = _paddle_adjustment(state, data, now)
+    if event_id:
+        state["events"].append(event_id)
+    _save_paddle_state(state)
+    return 200, result
 
 
 # ------------------------------------------------------------------ server --
@@ -532,7 +842,7 @@ class Handler(BaseHTTPRequestHandler):
             return {}
         return {
             "Access-Control-Allow-Origin": origin,
-            "Access-Control-Allow-Methods": "GET, PUT, DELETE",
+            "Access-Control-Allow-Methods": "GET, PUT, DELETE, POST",
             "Access-Control-Allow-Headers": "Content-Type, X-Pass, X-Proof, X-Proof-Time",
             "Access-Control-Max-Age": "600",
             "Vary": "Origin",
@@ -580,6 +890,48 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.json(404, {"error": "not found"})
 
+    def do_POST(self):  # noqa: N802
+        path = urllib.parse.urlsplit(self.path).path.rstrip("/")
+        if path == "/paddle/webhook":
+            # Signed by Paddle, not by a player: no pass, no browser proof.
+            length = int(self.headers.get("Content-Length") or 0)
+            if length > 262144:
+                self.send(413, b"too big")
+                return
+            raw = self.rfile.read(length) if length else b""
+            status, out = paddle_webhook(self.headers.get("Paddle-Signature", ""), raw)
+            if status != 200:
+                print(f"paddle webhook refused: {out}", file=sys.stderr, flush=True)
+            self.send(status, json.dumps(out).encode(), "application/json")
+            return
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > 8192:
+            self.json(413, {"error": "too big"})
+            return
+        body = self.rfile.read(length) if length else b""
+        if path not in ("/refresh", "/history"):
+            self.json(404, {"error": "not found"})
+            return
+        claims = check_request(self.headers, "POST", path, body)
+        if not claims:
+            self.json(401, {"error": "sign in again"})
+            return
+        if path == "/history":
+            try:
+                payload = json.loads(body or b"{}")
+            except ValueError:
+                self.json(400, {"error": "bad json"})
+                return
+            status, out = record_game(claims["sub"], payload)
+            self.json(status, out)
+            return
+        # The same player and the same browser key, stamped with whatever Plus
+        # they hold now: how a purchase reaches the table without signing in.
+        cnf = claims["cnf"]
+        until = plus_until(claims["sub"])
+        pass_ = mint_pass(claims["sub"], str(claims.get("name") or ""), cnf=f"{cnf['x']}.{cnf['y']}", plus=until)
+        self.json(200, {"pass": pass_, "plus": until})
+
     def do_PUT(self):  # noqa: N802
         self.saves("PUT")
 
@@ -594,6 +946,14 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/health":
             self.send(200, b"ok")
+            return
+
+        if path == "/history":
+            claims = check_request(self.headers, "GET", path, b"")
+            if not claims:
+                self.json(401, {"error": "sign in again"})
+                return
+            self.json(200, read_history(claims["sub"], full=bool(plus_until(claims["sub"]))))
             return
 
         if path == "/saves" or path.startswith("/saves/"):
@@ -637,7 +997,7 @@ class Handler(BaseHTTPRequestHandler):
             sub = player_id(str(claims["sub"]))
             # The name the table sees is the one on the Google account.
             name = claims.get("name") or claims.get("given_name") or "Player"
-            pass_ = mint_pass(sub, name, cnf=point if point_ok(point) else None)
+            pass_ = mint_pass(sub, name, cnf=point if point_ok(point) else None, plus=plus_until(sub))
             self.redirect(with_fragment(return_to, "auth", pass_, profile=profile_blob(claims)))
             return
 
@@ -652,6 +1012,15 @@ def main() -> None:
         if not point_ok(sys.argv[4]):
             sys.exit("mint needs the browser's key point as x.y")
         print(mint_pass(sys.argv[2], sys.argv[3], cnf=sys.argv[4]))
+        return
+    if len(sys.argv) >= 3 and sys.argv[1] == "plus":
+        uid = sys.argv[2]
+        until = (grant_plus(uid, float(sys.argv[3]), source=" ".join(sys.argv[4:]) or "manual")
+                 if len(sys.argv) >= 4 else plus_until(uid))
+        print(json.dumps({
+            "uid": uid, "plus_until": until,
+            "utc": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(until)) if until else None,
+        }))
         return
     signing_key()  # fail at start, not on the first sign-in
     server = ThreadingHTTPServer((HOST, PORT), Handler)

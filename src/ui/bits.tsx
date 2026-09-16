@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import type { TokenId } from '../game/types';
+import type { TokenId, SkinId } from '../game/types';
 import { tr, useT } from '../i18n';
 import { Piece } from './Pieces';
 
@@ -52,8 +52,8 @@ export function Money({ value, className = '' }: { value: number; className?: st
 export const tokenLabel = (id: TokenId): string => tr().tokens[id] ?? id;
 
 export function Avatar({
-  color, token, size = 30, active = false, dim = false,
-}: { color: string; token: TokenId; size?: number; active?: boolean; dim?: boolean }) {
+  color, token, size = 30, active = false, dim = false, finish,
+}: { color: string; token: TokenId; size?: number; active?: boolean; dim?: boolean; finish?: SkinId }) {
   return (
     <span
       aria-hidden
@@ -65,6 +65,7 @@ export function Avatar({
         opacity: dim ? 0.45 : 1,
       } as React.CSSProperties}
       data-active={active || undefined}
+      data-finish={finish && finish !== 'classic' ? finish : undefined}
     >
       <Piece token={token} className="avatar__piece" />
     </span>
@@ -233,7 +234,7 @@ export function Slider({
 
 export function Segmented<T extends string>({
   value, onChange, options, label,
-}: { value: T; onChange: (v: T) => void; options: { value: T; label: string }[]; label: string }) {
+}: { value: T; onChange: (v: T) => void; options: { value: T; label: string; disabled?: boolean }[]; label: string }) {
   return (
     <div className="segmented" role="radiogroup" aria-label={label}>
       {options.map((o) => (
@@ -244,6 +245,7 @@ export function Segmented<T extends string>({
           aria-checked={value === o.value}
           className="segmented__item"
           data-on={value === o.value || undefined}
+          disabled={o.disabled}
           onClick={() => onChange(o.value)}
         >
           {o.label}

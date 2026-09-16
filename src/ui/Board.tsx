@@ -6,6 +6,7 @@ import { BoardIcon, House, Hotel, Piece, type SpaceIcon } from './Pieces';
 import { Dice } from './Dice';
 import { fmt } from './bits';
 import { spaceName, spaceShort, useT, type Dict } from '../i18n';
+import { useSkins } from './finish';
 import { LABEL_TIERS, abbreviate, labelAdvance, longestWord } from './boardLabel';
 
 /* ---------------- geometry -------------------------------------------
@@ -210,6 +211,7 @@ export function Board({
 }) {
   const t = useT();
   const current = state.seats[state.seatIndex];
+  const skins = useSkins();
 
   /* Forty buttons in the tab order is forty presses to get past the board,
    * so the ring behaves like one composite widget: one tile is tabbable and
@@ -287,7 +289,7 @@ export function Board({
 
       <div className="board__centre">
         <Medallion />
-        <Dice dice={state.dice} rolling={rolling} />
+        <Dice dice={state.dice} rolling={rolling} finish={skins[current]} color={state.players[current]?.color} />
         <CentreHud state={state} />
       </div>
 
@@ -307,6 +309,7 @@ export function Board({
                   p.inJail ? 'token--jailed' : '',
                 ].filter(Boolean).join(' ')}
                 style={{ left, top, ['--tc' as string]: p.color } as React.CSSProperties}
+                data-finish={skins[id]}
                 title={p.name}
               >
                 <Piece token={p.token} className="token__piece" />

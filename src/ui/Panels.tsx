@@ -10,6 +10,7 @@ import { describe, type LogLine } from '../game/describe';
 import { spaceName, spaceShort, useT } from '../i18n';
 import type { ChatMessage, SeatInfo } from '../net/protocol';
 import { Avatar, Empty, Modal, Money, fmt, useCountdown } from './bits';
+import { SkinnedAvatar } from './finish';
 import type { CashFloat } from '../store/store';
 import {
   STICKERS, groupArt, parseSticker, stickerToken, stickerUrl, type GroupMotif,
@@ -87,7 +88,7 @@ export function PlayerRail({
               onBlur={() => onSpotlight(null)}
               aria-label={t.rail.aria(p.name, fmt(p.cash), active)}
             >
-              <Avatar color={p.color} token={p.token} size={34} active={active} dim={p.bankrupt} />
+              <SkinnedAvatar pid={id} color={p.color} token={p.token} size={34} active={active} dim={p.bankrupt} />
 
               <span className="playerCard__main">
                 <span className="playerCard__top">

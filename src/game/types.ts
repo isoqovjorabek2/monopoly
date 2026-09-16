@@ -180,6 +180,13 @@ export interface TradeOffer {
  *  composes. The UI, the bots and the reducer all speak this shape. */
 export type TradeBody = Omit<TradeOffer, 'id' | 'createdAt'>;
 
+/** Which board a Bazaar Barons table is drawn as (Party Hall Plus). Words
+ *  only: every theme plays the same board. See i18n/themes.ts. */
+export type BoardTheme = 'silk' | 'tashkent' | 'europe';
+
+/** A Plus player's finish for their piece and dice (see net/plus.ts). */
+export type SkinId = 'classic' | 'mirror' | 'glass' | 'neon' | 'gilded';
+
 export interface GameSettings {
   /* --- economy --- */
   startingCash: number;
@@ -214,6 +221,8 @@ export interface GameSettings {
   canBuyInJail: boolean;
 
   /* --- flow --- */
+  /** Absent in tables from before themes, which read as the Silk Road. */
+  boardTheme?: BoardTheme;
   maxPlayers: number;
   winCondition: 'last-standing' | 'turn-limit' | 'networth';
   /** Rounds, not turns: every player gets this many before it ends. */

@@ -289,6 +289,7 @@ export class HostNet {
       if (msg.t === 'HELLO') {
         // Only this transport may say a pass checked out.
         delete (msg as { verified?: string }).verified;
+        delete (msg as { verifiedPlus?: number }).verifiedPlus;
         if (msg.auth !== undefined) { void this.helloWithPass(conn, msg); return; }
         const claimed = msg.playerId;
         // An account id is only ever claimed with its pass.
@@ -434,7 +435,8 @@ export class HostNet {
     this.conns.set(seat, conn);
     this.accounts.set(seat, uid);
     this.lastSeen.set(seat, Date.now());
-    this.h.onUp(seat, { ...msg, playerId: seat, verified: uid });
+    const plus = claims.plus > Date.now() / 1000 ? claims.plus : undefined;
+    this.h.onUp(seat, { ...msg, playerId: seat, verified: uid, verifiedPlus: plus });
     if (this.conns.get(seat) === conn) this.h.onPresence(seat, true, 0);
   }
 
@@ -547,7 +549,9 @@ export class GuestNet {
 
   constructor(
     private code: string,
-    private me: { playerId: string; name: string; token: import('../game/types').TokenId },
+    private me: {
+      playerId: string; name: string; token: import('../game/types').TokenId; skin?: import('../game/types').SkinId;
+    },
     private h: GuestHandlers,
     epoch = 0,
     /** Read on every connect, so a pass signed in mid-session is used. */
@@ -624,6 +628,7 @@ export class GuestNet {
         playerId: account ? account.uid : this.me.playerId,
         name: this.me.name,
         token: this.me.token,
+        skin: this.me.skin,
         secret: localSecret(),
         ...(account ? { auth: account.pass } : {}),
       });

@@ -5,10 +5,13 @@ import type { BotLevel, GameSettings, TakeoverPolicy } from '../game/types';
 import type { CFRules } from '../cashflow/types';
 import { useT } from '../i18n';
 import { hasDirectory } from '../net/directory';
+import { tablePlus } from '../net/plus';
+import { BOARD_THEMES } from '../i18n/themes';
 import { roomLink, type RoomSnapshot } from '../net/protocol';
 import { CF_MAX_SEATS, seatLimit, useStore } from '../store/store';
 import { Avatar, Panel, Segmented, Slider, Toggle, fmt } from './bits';
 import { LangSwitch } from './LangSwitch';
+import { PlusBadge } from './Plus';
 
 type Tab = 'seats' | 'rules' | 'economy' | 'pace';
 
@@ -156,11 +159,12 @@ export function Lobby() {
                   transition={{ type: 'spring', stiffness: 420, damping: 34, delay: i * 0.03 }}
                   className="seat"
                 >
-                  <Avatar color={seat.color} token={seat.token} size={34} dim={!seat.connected} />
+                  <Avatar color={seat.color} token={seat.token} size={34} dim={!seat.connected} finish={seat.plus ? seat.skin : undefined} />
                   <span className="seat__info">
                     <span className="seat__name truncate" title={seat.name}>{seat.name}</span>
                     <span className="seat__meta">
                       {seat.isHost && <span className="chip">{t.common.host}</span>}
+                      {seat.plus && <PlusBadge small />}
                       {seat.isBot && <span className="chip">{L.botChip(L.levels[seat.botLevel])}</span>}
                       {seat.playerId === me.playerId && <span className="chip">{t.common.you}</span>}
                       {!seat.connected && <span className="chip" data-tone="bad">{L.reconnecting}</span>}
@@ -274,6 +278,7 @@ function MonopolySettings({
 
         {tab === 'seats' && (
           <div className="presets">
+            <ThemePicker room={room} set={set} />
             {PRESETS.map((p) => {
               const on = matchesPreset(s, p.id);
               const copyOf = t.presets[p.id] ?? p;
@@ -366,6 +371,34 @@ function MonopolySettings({
         )}
       </fieldset>
     </section>
+  );
+}
+
+/* ------------------------------ the board ------------------------------ */
+
+/** Which board the table plays on. Party Hall Plus: the Silk Road is always
+ *  there; the others open once somebody at the table holds Plus. */
+function ThemePicker({ room, set }: { room: RoomSnapshot; set: (patch: Partial<GameSettings>) => void }) {
+  const t = useT();
+  const P = t.account.plus;
+  const unlocked = tablePlus(room);
+  const current = unlocked ? room.settings.boardTheme ?? 'silk' : 'silk';
+  return (
+    <div className="labelled themePicker">
+      <span className="switch__label themePicker__label">
+        {P.themeLabel}
+        {!unlocked && <PlusBadge small />}
+      </span>
+      <Segmented
+        label={P.themeLabel}
+        value={current}
+        onChange={(v) => set({ boardTheme: v })}
+        options={BOARD_THEMES.map((id) => ({
+          value: id, label: P.themeNames[id], disabled: id !== 'silk' && !unlocked,
+        }))}
+      />
+      <p className="muted small">{unlocked ? P.themeHint : P.themeLocked}</p>
+    </div>
   );
 }
 

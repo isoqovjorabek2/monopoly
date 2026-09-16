@@ -186,11 +186,142 @@ st_, out = accounts.put_save("u_asil000000000000000", "GOLD-FALCON-42",
 check("a finished game is deleted, not kept", out.get("deleted") and accounts.list_saves("u_asil000000000000000") == [])
 check("a malformed code is refused", accounts.put_save("u_asil000000000000000", "../../etc", {"room": {}, "members": ["u_asil000000000000000"]})[0] == 400)
 
+print("plus")
+uidp = "u_plus0000000000000000"
+check("nobody has Plus until it is granted", accounts.plus_until(uidp, now=now) == 0)
+u1 = accounts.grant_plus(uidp, 30, now=now)
+check("thirty days of Plus runs thirty days from now", u1 == int(now) + 30 * 86400)
+u2 = accounts.grant_plus(uidp, 30, now=now + 86400)
+check("buying again extends from the end, not from today", u2 == u1 + 30 * 86400)
+check("Plus is read back", accounts.plus_until(uidp, now=now) == u2)
+check("Plus that has run out reads as none", accounts.plus_until(uidp, now=u2 + 1) == 0)
+pc = accounts.verify_pass(accounts.mint_pass(uidp, "Plus", key=key, now=now, cnf=bpoint, plus=u2), key=key, now=now)
+check("the pass carries the paid-until date", bool(pc) and pc.get("plus") == u2)
+check("a pass without Plus carries no plus claim", "plus" not in accounts.verify_pass(asil, key=key, now=now))
+check("Plus that already ran out is not stamped into a pass",
+      "plus" not in accounts.verify_pass(accounts.mint_pass(uidp, "P", key=key, now=now, plus=int(now) - 5), key=key, now=now))
+check("taking the days away ends Plus", accounts.grant_plus(uidp, -1000, now=now) == 0 and accounts.plus_until(uidp, now=now) == 0)
+try:
+    accounts.grant_plus("not-a-player", 30)
+    refused = False
+except ValueError:
+    refused = True
+check("only player ids can be granted Plus", refused)
+accounts.grant_plus("u_asil000000000000000", 30)
+st_, _ = accounts.put_save("u_asil000000000000000", "SILK-ROAD-7", {"room": room, "members": ["u_asil000000000000000"]})
+check("a table with a Plus player at it is kept ninety days",
+      st_ == 200 and accounts._read_save("SILK-ROAD-7")["ttl"] == accounts.PLUS_SAVE_TTL)
+st_, _ = accounts.put_save("u_bruno00000000000000", "BARE-TABLE-3", {"room": room, "members": ["u_bruno00000000000000"]})
+check("a table without one is kept fourteen", st_ == 200 and accounts._read_save("BARE-TABLE-3")["ttl"] == accounts.SAVE_TTL)
+
+print("history")
+asil_id = "u_asil000000000000000"
+game = {"id": "GOLD-FALCON-42:2", "kind": "monopoly", "won": True, "place": 1, "rounds": 31, "theme": "tashkent",
+        "players": [{"name": "Asil", "score": 5200, "you": True}, {"name": "Ada", "score": 0, "bot": True}]}
+st_, _ = accounts.record_game(asil_id, game, now=now)
+check("a finished game is recorded", st_ == 200)
+st_, out = accounts.record_game(asil_id, game, now=now + 5)
+check("reporting the same game twice keeps one",
+      out.get("duplicate") and accounts.read_history(asil_id, True)["totals"]["played"] == 1)
+second = dict(game, id="SILK-ROAD-7:1", kind="cashflow", won=True, place=2,
+              players=[{"name": "Asil", "score": 900, "you": True}, {"name": "Bruno", "score": 1400}])
+accounts.record_game(asil_id, second, now=now + 10)
+h = accounts.read_history(asil_id, True)
+check("totals count games and wins", h["totals"]["played"] == 2 and h["totals"]["wins"] == 1)
+check("second place is never a win, whatever the report says", h["games"][0]["won"] is False)
+check("totals split by game, with the best score",
+      h["totals"]["byKind"]["monopoly"] == {"played": 1, "wins": 1, "best": 5200})
+check("the newest game comes first", h["games"][0]["id"] == "SILK-ROAD-7:1")
+free = accounts.read_history(asil_id, False)
+check("without Plus the totals are there but the game list is not", free["totals"]["played"] == 2 and free["games"] == [])
+check("a report without exactly one 'you' is refused",
+      accounts.record_game(asil_id, dict(game, id="X:1", players=[{"name": "A", "score": 1}]))[0] == 400)
+check("a place beyond the table is refused", accounts.record_game(asil_id, dict(game, id="X:2", place=5))[0] == 400)
+check("an unknown game is refused", accounts.record_game(asil_id, dict(game, id="X:3", kind="poker"))[0] == 400)
+check("a path-like game id is refused", accounts.record_game(asil_id, dict(game, id="../../etc"))[0] == 400)
+check("a path-like player id is refused", accounts.record_game("../etc", dict(game, id="X:4"))[0] == 400)
+check("names are trimmed for the table",
+      accounts.clean_game(dict(game, players=[{"name": "  A   very long player name here ", "score": 1, "you": True}]))
+      ["players"][0]["name"] == "A very long player")
+for i in range(accounts.HISTORY_KEEP + 5):
+    accounts.record_game("u_many0000000000000000", dict(game, id=f"T:{i}"), now=now + i)
+check("history keeps only the newest games", len(accounts._read_games("u_many0000000000000000")) == accounts.HISTORY_KEEP)
+
+print("paddle")
+import hashlib as _hashlib  # noqa: E402
+import hmac as _hmac  # noqa: E402
+secret = "pdl_ntfset_test"
+pconf = {"paddle_webhook_secret": secret, "paddle_prices": {"pri_month": 31, "pri_year": 366}}
+
+
+def paddle_sig(raw, ts=None):
+    ts = str(int(ts if ts is not None else now))
+    return f"ts={ts};h1=" + _hmac.new(secret.encode(), ts.encode() + b":" + raw, _hashlib.sha256).hexdigest()
+
+
+def paddle_event(eid, etype, data):
+    return json.dumps({"event_id": eid, "event_type": etype, "occurred_at": "2026-09-15T00:00:00Z", "data": data}).encode()
+
+
+buyer = "u_buyer000000000000000"
+month = int(now) + 31 * 86400
+raw = paddle_event("evt_1", "transaction.completed", {
+    "id": "txn_1", "status": "completed", "subscription_id": "sub_1", "origin": "web",
+    "custom_data": {"uid": buyer}, "items": [{"price": {"id": "pri_month"}, "quantity": 1}]})
+check("a webhook without Paddle's signature is refused", accounts.paddle_webhook("ts=1;h1=00", raw, now=now, config=pconf)[0] == 401)
+check("a stale signature is refused", accounts.paddle_webhook(paddle_sig(raw, ts=now - 3600), raw, now=now, config=pconf)[0] == 401)
+check("a signature over a different body is refused",
+      accounts.paddle_webhook(paddle_sig(raw + b" "), raw, now=now, config=pconf)[0] == 401)
+check("with no secret configured, everything is refused", accounts.paddle_webhook(paddle_sig(raw), raw, now=now, config={})[0] == 401)
+check("a signature during a secret rotation (two h1) is accepted",
+      accounts.paddle_signature_ok(paddle_sig(raw) + ";h1=deadbeef", raw, secret, now=now))
+st_, out = accounts.paddle_webhook(paddle_sig(raw), raw, now=now, config=pconf)
+check("a completed monthly payment grants 31 days",
+      st_ == 200 and out.get("granted") == 31 and accounts.plus_until(buyer, now=now) == month)
+st_, out = accounts.paddle_webhook(paddle_sig(raw), raw, now=now, config=pconf)
+check("the same event delivered twice grants once", out.get("duplicate") and accounts.plus_until(buyer, now=now) == month)
+renewal = paddle_event("evt_2", "transaction.completed", {
+    "id": "txn_2", "status": "completed", "subscription_id": "sub_1", "origin": "subscription_recurring",
+    "custom_data": None, "items": [{"price": {"id": "pri_month"}}]})
+st_, out = accounts.paddle_webhook(paddle_sig(renewal), renewal, now=now, config=pconf)
+check("a renewal without custom data still reaches its player",
+      out.get("granted") == 31 and accounts.plus_until(buyer, now=now) == month + 31 * 86400)
+other = paddle_event("evt_3", "transaction.completed", {
+    "id": "txn_3", "custom_data": {"uid": buyer}, "items": [{"price": {"id": "pri_not_plus"}}]})
+check("a price that is not Plus grants nothing",
+      accounts.paddle_webhook(paddle_sig(other), other, now=now, config=pconf)[1].get("ignored"))
+nobody = paddle_event("evt_4", "transaction.completed", {
+    "id": "txn_4", "custom_data": {"uid": "../etc"}, "items": [{"price": {"id": "pri_year"}}]})
+check("a transaction for no valid player grants nothing",
+      accounts.paddle_webhook(paddle_sig(nobody), nobody, now=now, config=pconf)[1].get("ignored"))
+pending = paddle_event("evt_5", "adjustment.created", {
+    "action": "refund", "status": "pending_approval", "type": "full", "transaction_id": "txn_2"})
+accounts.paddle_webhook(paddle_sig(pending), pending, now=now, config=pconf)
+check("a refund still pending takes nothing back", accounts.plus_until(buyer, now=now) == month + 31 * 86400)
+approved = paddle_event("evt_6", "adjustment.updated", {
+    "action": "refund", "status": "approved", "type": "full", "transaction_id": "txn_2"})
+st_, out = accounts.paddle_webhook(paddle_sig(approved), approved, now=now, config=pconf)
+check("an approved full refund takes back that payment's days",
+      out.get("revoked") == 31 and accounts.plus_until(buyer, now=now) == month)
+again = paddle_event("evt_7", "adjustment.updated", {
+    "action": "refund", "status": "approved", "type": "full", "transaction_id": "txn_2"})
+check("a refund is never taken back twice",
+      accounts.paddle_webhook(paddle_sig(again), again, now=now, config=pconf)[1].get("ignored")
+      and accounts.plus_until(buyer, now=now) == month)
+partial = paddle_event("evt_8", "adjustment.updated", {
+    "action": "refund", "status": "approved", "type": "partial", "transaction_id": "txn_1"})
+check("a partial refund keeps Plus",
+      accounts.paddle_webhook(paddle_sig(partial), partial, now=now, config=pconf)[1].get("ignored")
+      and accounts.plus_until(buyer, now=now) == month)
+
 if "--fixture" in sys.argv:
     fixture = {
         "jwk": accounts.public_jwk(key),
         "pass": accounts.mint_pass("u_fixture0000000000000", "Fixture", key=key, now=now, cnf=point),
         "point": dict(zip("xy", point.split("."))),
+        "plusPass": accounts.mint_pass("u_fixture0000000000000", "Fixture", key=key, now=now, cnf=point,
+                                       plus=int(now) + 30 * 86400),
+        "plusUntil": int(now) + 30 * 86400,
         "otherJwk": accounts.public_jwk(other),
         "mintedAt": int(now),
     }

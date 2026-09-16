@@ -1,3 +1,5 @@
+import type { BoardTheme, SkinId } from '../game/types';
+
 /* Player accounts, in English - and the shape the other languages fill in. */
 
 export const accountEn = {
@@ -41,6 +43,60 @@ export const accountEn = {
 
   log: {
     seatTaken: (name: string, bot: string) => `${name} took over ${bot}'s seat.`,
+  },
+
+  /* ------------------------- Party Hall Plus ------------------------ */
+  plus: {
+    badge: 'Plus',
+    get: 'Get Plus',
+    title: 'Party Hall Plus',
+    lead: 'One Plus player unlocks the extras for everyone at their table.',
+    perks: [
+      ['Board themes', 'Play Bazaar Barons on a Tashkent or a Europe board.'],
+      ['Piece & dice finishes', 'Mirror, glass, neon or gilded - the whole table sees them.'],
+      ['Game history & stats', 'Every game you finish, your wins and your records.'],
+      ['Saved games for 90 days', 'Instead of 14, with room for 100 tables.'],
+    ] as [string, string][],
+    activeUntil: (date: string) => `Plus is active until ${date}.`,
+    checkoutSoon: 'Checkout is on its way. To get Plus now, send us your player id.',
+    yourId: 'Your player id',
+    copy: 'Copy',
+    copied: 'Copied',
+    refresh: 'Already bought Plus? Check again',
+    checking: 'Checking…',
+    signInFirst: 'Sign in with Google to get Plus.',
+    close: 'Close',
+    tableUnlocked: 'Plus table: the extras are unlocked for everyone.',
+    themeLabel: 'Board',
+    themeNames: { silk: 'Silk Road', tashkent: 'Tashkent', europe: 'Europe' } as Record<BoardTheme, string>,
+    themeHint: 'Everyone at the table plays on the board you pick. The rules stay the same.',
+    themeLocked: 'The Tashkent and Europe boards unlock when a Plus player sits at the table.',
+    finishLabel: 'Finish',
+    plans: { monthly: 'Monthly', yearly: 'Yearly' } as Record<'monthly' | 'yearly', string>,
+    per: { monthly: '/month', yearly: '/year' } as Record<'monthly' | 'yearly', string>,
+    save: (percent: number) => `Save ${percent}%`,
+    opening: 'Opening checkout…',
+    checkoutNote: 'Secure checkout by Paddle. Cancel anytime - Plus lasts to the end of what you paid for.',
+    checkoutFailed: 'The checkout could not open. Check your connection and try again.',
+    thanks: 'Thank you! Your Plus is being switched on - it takes a few seconds.',
+    manage: 'To cancel or change your plan, use the link in your Paddle receipt email.',
+    legal: { aria: 'Pricing and policies', pricing: 'Pricing', terms: 'Terms', privacy: 'Privacy', refunds: 'Refunds' },
+    stats: 'Stats',
+    statsTitle: 'Your games',
+    loading: 'Loading…',
+    statsUnavailable: 'Your stats could not be loaded right now.',
+    played: 'Played',
+    wins: 'Wins',
+    winRate: 'Win rate',
+    kindLine: (played: number, wins: number) => `${played} played · ${wins} won`,
+    best: (x: string) => `Best: ${x}`,
+    recent: 'Recent games',
+    historyLocked: 'Your game-by-game history is a Plus perk. Every game you finish is already being kept, so it is all there when you upgrade.',
+    noGames: 'Finish a game while signed in and it shows up here.',
+    won: 'Won',
+    place: (n: number) => `#${n}`,
+    rounds: (n: number) => `${n} round${n === 1 ? '' : 's'}`,
+    finishNames: { classic: 'Classic', mirror: 'Mirror', glass: 'Glass', neon: 'Neon', gilded: 'Gilded' } as Record<SkinId, string>,
   },
 };
 

@@ -2,12 +2,15 @@ import { useEffect, useId, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import '../styles/entry.css';
 import { TOKENS } from '../game/settings';
+import { cleanSkin, SKINS } from '../net/plus';
 import type { TokenId } from '../game/types';
 import { useT } from '../i18n';
-import { signIn, signOut, useAccount } from '../net/account';
+import { hasPlus, signIn, signOut, useAccount } from '../net/account';
 import { normaliseCode, type GameKind } from '../net/protocol';
 import { useStore } from '../store/store';
 import { Avatar } from './bits';
+import { PlusBadge, PlusSheet } from './Plus';
+import { StatsSheet } from './Stats';
 import { PublicRooms } from './PublicRooms';
 import { forgetTable, listTables, type SavedTable } from '../net/saves';
 
@@ -42,6 +45,8 @@ export function EntryCard({ pick, urlCode }: { pick: GameKind; urlCode: string }
   const E = t.entry;
   const me = useStore((s) => s.me);
   const setProfile = useStore((s) => s.setProfile);
+  const setSkin = useStore((s) => s.setSkin);
+  const mySkin = useStore((s) => s.me.skin);
   const hostRoom = useStore((s) => s.hostRoom);
   const joinRoom = useStore((s) => s.joinRoom);
   const playSolo = useStore((s) => s.playSolo);
@@ -53,6 +58,11 @@ export function EntryCard({ pick, urlCode }: { pick: GameKind; urlCode: string }
   const [mode, setMode] = useState<Mode>(urlCode ? 'join' : 'host');
   const [visibility, setVisibility] = useState<'private' | 'public'>('private');
   const [code, setCode] = useState(urlCode);
+  const [plusOpen, setPlusOpen] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
+  const plus = hasPlus(account);
+  // Without Plus every piece is classic, whatever was picked before.
+  const myFinish = plus ? cleanSkin(mySkin) : 'classic';
 
   // An invite link opens straight onto Join, with the code already in.
   useEffect(() => { if (urlCode) { setCode(urlCode); setMode('join'); } }, [urlCode]);
@@ -96,6 +106,18 @@ export function EntryCard({ pick, urlCode }: { pick: GameKind; urlCode: string }
               <span className="whoami__name truncate">{account.profile?.name || account.name}</span>
               {account.profile?.email && <span className="whoami__email truncate">{account.profile.email}</span>}
             </span>
+            {hasPlus(account) ? (
+              <button type="button" className="whoami__plus" onClick={() => setPlusOpen(true)} aria-label={t.account.plus.title}>
+                <PlusBadge />
+              </button>
+            ) : (
+              <button type="button" className="btn btn--primary btn--sm" onClick={() => setPlusOpen(true)}>
+                {t.account.plus.get}
+              </button>
+            )}
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => setStatsOpen(true)}>
+              {t.account.plus.stats}
+            </button>
             <button type="button" className="btn btn--ghost btn--sm" onClick={signOut}>{t.account.signOut}</button>
           </div>
         ) : (
@@ -135,7 +157,32 @@ export function EntryCard({ pick, urlCode }: { pick: GameKind; urlCode: string }
                   data-on={token === tk.id || undefined}
                   onClick={() => { setToken(tk.id); setProfile(name, tk.id); }}
                 >
-                  <Avatar color="#e8b448" token={tk.id} size={26} />
+                  <Avatar color="#e8b448" token={tk.id} size={26} finish={myFinish} />
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="labelled">
+            <span className="switch__label finishRow__label">
+              {t.account.plus.finishLabel}
+              <span className="entry__pieceName"> · {t.account.plus.finishNames[myFinish]}</span>
+              {!plus && <PlusBadge small />}
+            </span>
+            <div className="finishRow" role="radiogroup" aria-label={t.account.plus.finishLabel}>
+              {SKINS.map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  role="radio"
+                  aria-checked={myFinish === f}
+                  aria-label={t.account.plus.finishNames[f]}
+                  title={t.account.plus.finishNames[f]}
+                  className="pieceRow__item finishRow__item"
+                  data-on={myFinish === f || undefined}
+                  disabled={f !== 'classic' && !plus}
+                  onClick={() => setSkin(f)}
+                >
+                  <Avatar color="#e8b448" token={token} size={26} finish={f} />
                 </button>
               ))}
             </div>
@@ -261,6 +308,12 @@ export function EntryCard({ pick, urlCode }: { pick: GameKind; urlCode: string }
           )}
         </motion.section>
       </AnimatePresence>
+      <PlusSheet open={plusOpen} onClose={() => setPlusOpen(false)} />
+      <StatsSheet
+        open={statsOpen}
+        onClose={() => setStatsOpen(false)}
+        onGetPlus={() => { setStatsOpen(false); setPlusOpen(true); }}
+      />
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { SkinId } from '../game/types';
 import { useT } from '../i18n';
 
 /* CSS 3D dice. The result is decided by the engine before the animation
@@ -51,7 +52,10 @@ function Die({ value, spinKey, extraSpin }: { value: number; spinKey: number; ex
   );
 }
 
-export function Dice({ dice, rolling }: { dice: [number, number] | null; rolling: boolean }) {
+/** `finish` and `color` are the roller's: a Plus player's dice are theirs. */
+export function Dice({
+  dice, rolling, finish = 'classic', color,
+}: { dice: [number, number] | null; rolling: boolean; finish?: SkinId; color?: string }) {
   const t = useT();
   const [spin, setSpin] = useState(0);
   const last = useRef<string>('');
@@ -70,10 +74,11 @@ export function Dice({ dice, rolling }: { dice: [number, number] | null; rolling
     <div
       className="diceTray"
       data-rolling={rolling || undefined}
+      data-finish={finish !== 'classic' ? finish : undefined}
       role="status"
       aria-live="polite"
       aria-label={dice ? t.board.rolled(a, b) : t.board.diceReady}
-      style={{ opacity: dice ? 1 : 0.35 }}
+      style={{ opacity: dice ? 1 : 0.35, ...(color ? { ['--tc' as string]: color } : {}) } as React.CSSProperties}
     >
       <Die value={a} spinKey={spin} extraSpin={0} />
       <Die value={b} spinKey={spin} extraSpin={1} />
