@@ -9,7 +9,7 @@ export type PlanId = 'monthly' | 'yearly';
 
 export const PLANS: Record<PlanId, { usd: number; priceId: string | undefined }> = {
   monthly: { usd: 2.99, priceId: import.meta.env.VITE_PADDLE_PRICE_MONTHLY || undefined },
-  yearly: { usd: 19.72, priceId: import.meta.env.VITE_PADDLE_PRICE_YEARLY || undefined },
+  yearly: { usd: 19.99, priceId: import.meta.env.VITE_PADDLE_PRICE_YEARLY || undefined },
 };
 
 /** How much cheaper a year is than twelve months, in whole percent. */

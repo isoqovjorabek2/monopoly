@@ -170,13 +170,13 @@ Paddle is the merchant of record: it runs the checkout, takes the money,
 handles tax and refunds, and tells this service by webhook. Plus is granted
 only by that webhook, never by the browser.
 
-**Prices.** $2.99 a month and $19.72 a year (`src/net/pricing.ts`, and the
+**Prices.** $2.99 a month and $19.99 a year (`src/net/pricing.ts`, and the
 static `public/legal/pricing.html`). Change both together.
 
 **One-time setup in Paddle** (do it in Sandbox first, then again in Live):
 
 1. Catalog → Products: a product "Party Hall Plus" with two recurring prices,
-   $2.99 monthly and $19.72 yearly. Note both `pri_...` ids.
+   $2.99 monthly and $19.99 yearly. Note both `pri_...` ids.
 2. Developer tools → Authentication: a client-side token (`test_...` in
    sandbox, `live_...` in live).
 3. Developer tools → Notifications: a destination
