@@ -14,18 +14,27 @@ export function StatsSheet({
   open, onClose, onGetPlus,
 }: { open: boolean; onClose: () => void; onGetPlus: () => void }) {
   const t = useT();
+  return (
+    <Modal open={open} onClose={onClose} title={t.account.plus.statsTitle} wide>
+      {open && <StatsPanel onGetPlus={onGetPlus} />}
+    </Modal>
+  );
+}
+
+/** The same totals and games, as a section of the account screen. */
+export function StatsPanel({ onGetPlus }: { onGetPlus?: () => void }) {
+  const t = useT();
   const P = t.account.plus;
   const lang = useLang();
   const uid = useAccount((s) => s.account?.uid);
   const [data, setData] = useState<History | 'loading' | 'failed'>('loading');
 
   useEffect(() => {
-    if (!open) return undefined;
     let live = true;
     setData('loading');
     void fetchHistory().then((h) => { if (live) setData(h ?? 'failed'); });
     return () => { live = false; };
-  }, [open, uid]);
+  }, [uid]);
 
   const gameName = (k: 'monopoly' | 'cashflow') => (k === 'cashflow' ? t.cf.name : 'Bazaar Barons');
   const day = (at: number) => {
@@ -37,7 +46,7 @@ export function StatsSheet({
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={P.statsTitle} wide>
+    <>
       {data === 'loading' ? (
         <p className="muted">{P.loading}</p>
       ) : data === 'failed' ? (
@@ -74,7 +83,7 @@ export function StatsSheet({
           {!data.plus ? (
             <div className="stats__locked">
               <p className="muted small">{P.historyLocked}</p>
-              <button type="button" className="btn btn--primary btn--sm" onClick={onGetPlus}>{P.get}</button>
+              {onGetPlus && <button type="button" className="btn btn--primary btn--sm" onClick={onGetPlus}>{P.get}</button>}
             </div>
           ) : data.games.length === 0 ? (
             <p className="muted small">{P.noGames}</p>
@@ -98,7 +107,7 @@ export function StatsSheet({
           )}
         </div>
       )}
-    </Modal>
+    </>
   );
 }
 

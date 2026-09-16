@@ -33,7 +33,7 @@ import {
 } from '../net/protocol';
 import type { TakeoverPolicy } from '../game/types';
 
-export type Screen = 'home' | 'lobby' | 'game';
+export type Screen = 'home' | 'account' | 'lobby' | 'game';
 export type Role = 'host' | 'guest' | 'local';
 export type AnyAction = GameAction | CFAction;
 
@@ -87,6 +87,9 @@ interface Store {
   soundOn: boolean;
 
   setPick: (kind: GameKind) => void;
+  /** Open the account screen, and go back to where it was opened from. */
+  openAccount: () => void;
+  closeAccount: () => void;
   setProfile: (name: string, token: TokenId) => void;
   /** Show this tab's own seat with the Plus its pass now carries. Host or
    *  solo only: a guest's seat is set by the host from the pass it shows. */
@@ -1266,6 +1269,15 @@ export const useStore = create<Store>((set, get) => {
     setPick: (kind) => {
       try { localStorage.setItem('mply.game', kind); } catch { /* private mode */ }
       set({ pick: kind });
+    },
+
+    openAccount: () => {
+      // Only from the front door: a table is never left behind by it.
+      if (get().screen === 'home') set({ screen: 'account' });
+    },
+
+    closeAccount: () => {
+      if (get().screen === 'account') set({ screen: 'home' });
     },
 
     setProfile: (name, token) => {

@@ -1,0 +1,83 @@
+/* ====================================================================== *
+   The account screen: who you are, your language, Plus, your games.
+   A page rather than a modal - it is where a player goes looking for all
+   of it, and the subscription gets room to explain itself.
+   ====================================================================== */
+
+.accountPage {
+  min-height: 100dvh;
+  padding:
+    max(var(--s-4), env(safe-area-inset-top, 0px))
+    max(var(--s-4), env(safe-area-inset-right, 0px))
+    max(var(--s-6), env(safe-area-inset-bottom, 0px))
+    max(var(--s-4), env(safe-area-inset-left, 0px));
+  background:
+    radial-gradient(ellipse at 50% -10%, rgb(23 64 44 / 0.55), transparent 60%),
+    var(--bg-app, #07120d);
+}
+
+.accountPage__head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  max-width: 980px;
+  margin: 0 auto var(--s-4);
+  padding-bottom: var(--s-3);
+  border-bottom: 1px solid var(--border-brass);
+}
+.accountPage__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-lg, 1.4rem);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--brass-100);
+}
+
+.accountPage__body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--s-4);
+  align-items: start;
+  max-width: 980px;
+  margin: 0 auto;
+}
+.accountCard--wide, .accountPage__legal { grid-column: 1 / -1; }
+.accountPage__legal { margin-top: var(--s-2); }
+
+.accountCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4);
+  border: 1px solid var(--border-brass);
+  border-radius: var(--r-lg, 14px);
+  background: rgb(0 0 0 / 0.28);
+}
+.accountCard__title {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-md);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--brass-300);
+}
+.accountCard__signin { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-2); }
+.whoami--plain { border: 0; padding: 0; background: none; }
+
+/* The offer: the plans lead, the perks explain, nothing shouts. */
+.plusCard { border-color: var(--brass-500); background: linear-gradient(180deg, rgb(232 180 72 / 0.07), rgb(0 0 0 / 0.3)); }
+.plusCard--active { border-color: var(--border-brass); background: rgb(0 0 0 / 0.28); }
+.plusCard__lead { margin: 0; color: var(--brass-100); }
+.plusCard__plans { margin-top: var(--s-1, 4px); }
+.plusCard__perks { margin: 0; }
+.plan__billed { font-size: var(--t-xs); color: var(--text-muted); }
+
+@media (max-width: 720px) {
+  .accountPage__body { grid-template-columns: 1fr; }
+  .accountPage__head { flex-wrap: wrap; }
+  .accountPage__title { order: 3; width: 100%; }
+}

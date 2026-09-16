@@ -49,6 +49,19 @@ export const accountRu: AccountDict = {
     seatTaken: (name, bot) => `${name} занимает место игрока ${bot}.`,
   },
 
+  page: {
+    title: 'Аккаунт',
+    back: 'Назад',
+    youTitle: 'Вы за столом',
+    signedOutNote: 'Войдите, чтобы место, сохранённые игры и история были с вами на любом устройстве.',
+    gamesTitle: 'Ваши игры',
+    savedTitle: 'Сохранённые столы',
+    savedEmpty: 'Столы, за которыми вы играете, войдя в аккаунт, сохраняются здесь — и к ним можно вернуться.',
+    savedSignedOut: 'Войдите — и столы, за которыми вы играете, будут сохраняться здесь.',
+    billedYearly: (total) => `Оплата ${total} в год`,
+    billedMonthly: 'Оплата ежемесячно',
+  },
+
   plus: {
     badge: 'Plus',
     get: 'Получить Plus',

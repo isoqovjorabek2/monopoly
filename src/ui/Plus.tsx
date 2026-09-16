@@ -120,7 +120,7 @@ export function PlusSheet({ open, onClose }: { open: boolean; onClose: () => voi
                     disabled={opening !== null}
                   >
                     <span className="plan__name">{P.plans[plan]}</span>
-                    <span className="plan__price num">
+                    <span className="plan__price">
                       {usd(PLANS[plan].usd)}
                       <span className="plan__per">{P.per[plan]}</span>
                     </span>

@@ -11,7 +11,7 @@ import { roomLink, type RoomSnapshot } from '../net/protocol';
 import { CF_MAX_SEATS, seatLimit, useStore } from '../store/store';
 import { Avatar, Panel, Segmented, Slider, Toggle, fmt } from './bits';
 import { LangSwitch } from './LangSwitch';
-import { PlusBadge } from './Plus';
+import { PlusBadge, PlusSheet } from './Plus';
 
 type Tab = 'seats' | 'rules' | 'economy' | 'pace';
 
@@ -383,6 +383,9 @@ function ThemePicker({ room, set }: { room: RoomSnapshot; set: (patch: Partial<G
   const P = t.account.plus;
   const unlocked = tablePlus(room);
   const current = unlocked ? room.settings.boardTheme ?? 'silk' : 'silk';
+  // A locked board is the best moment to explain Plus, so it opens the offer
+  // rather than sitting there dead.
+  const [offer, setOffer] = useState(false);
   return (
     <div className="labelled themePicker">
       <span className="switch__label themePicker__label">
@@ -393,11 +396,12 @@ function ThemePicker({ room, set }: { room: RoomSnapshot; set: (patch: Partial<G
         label={P.themeLabel}
         value={current}
         onChange={(v) => set({ boardTheme: v })}
-        options={BOARD_THEMES.map((id) => ({
-          value: id, label: P.themeNames[id], disabled: id !== 'silk' && !unlocked,
-        }))}
+        options={BOARD_THEMES.map((id) => ({ value: id, label: P.themeNames[id] }))}
+        onDisabled={() => setOffer(true)}
+        disabledValues={unlocked ? [] : BOARD_THEMES.filter((id) => id !== 'silk')}
       />
       <p className="muted small">{unlocked ? P.themeHint : P.themeLocked}</p>
+      <PlusSheet open={offer} onClose={() => setOffer(false)} />
     </div>
   );
 }

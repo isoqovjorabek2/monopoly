@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useStore } from './store/store';
 import { Home } from './ui/Home';
+import { AccountPage } from './ui/AccountPage';
 import { Lobby } from './ui/Lobby';
 import { Game } from './ui/Game';
 import { RotatePrompt } from './ui/RotatePrompt';
@@ -24,7 +25,9 @@ export default function App() {
   // Keep the address bar in step so a refresh, a back button, or a copied
   // URL all land somewhere sensible.
   useEffect(() => {
-    const want = screen === 'home' ? '' : code ? `#/join/${code}` : '#/play';
+    const want = screen === 'home' ? ''
+      : screen === 'account' ? '#/account'
+        : code ? `#/join/${code}` : '#/play';
     if (window.location.hash !== want) {
       window.history.replaceState(null, '', want || window.location.pathname);
     }
@@ -52,6 +55,7 @@ export default function App() {
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
     >
       {screen === 'home' && <Home />}
+      {screen === 'account' && <AccountPage />}
       {screen === 'lobby' && <Lobby />}
       {screen === 'game' && kind === 'monopoly' && <Game />}
       {screen === 'game' && kind === 'cashflow' && (

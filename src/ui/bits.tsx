@@ -233,8 +233,16 @@ export function Slider({
 }
 
 export function Segmented<T extends string>({
-  value, onChange, options, label,
-}: { value: T; onChange: (v: T) => void; options: { value: T; label: string; disabled?: boolean }[]; label: string }) {
+  value, onChange, options, label, disabledValues, onDisabled,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: string; disabled?: boolean }[];
+  label: string;
+  /** Options that are shown but not choosable; clicking one calls onDisabled. */
+  disabledValues?: T[];
+  onDisabled?: (v: T) => void;
+}) {
   return (
     <div className="segmented" role="radiogroup" aria-label={label}>
       {options.map((o) => (
@@ -246,7 +254,8 @@ export function Segmented<T extends string>({
           className="segmented__item"
           data-on={value === o.value || undefined}
           disabled={o.disabled}
-          onClick={() => onChange(o.value)}
+          data-locked={disabledValues?.includes(o.value) || undefined}
+          onClick={() => (disabledValues?.includes(o.value) ? onDisabled?.(o.value) : onChange(o.value))}
         >
           {o.label}
         </button>

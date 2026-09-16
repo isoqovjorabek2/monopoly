@@ -40,6 +40,19 @@ export const accountUz: AccountDict = {
     seatTaken: (name, bot) => `${name} ${bot}ning o‘rnini egalladi.`,
   },
 
+  page: {
+    title: 'Hisob',
+    back: 'Orqaga',
+    youTitle: 'Stoldagi siz',
+    signedOutNote: 'Hisobingizga kiring — o‘rningiz, saqlangan o‘yinlaringiz va tarixingiz istalgan qurilmada siz bilan bo‘ladi.',
+    gamesTitle: 'O‘yinlaringiz',
+    savedTitle: 'Saqlangan stollar',
+    savedEmpty: 'Hisobingizga kirib o‘ynagan stollaringiz shu yerda saqlanadi — keyin davom ettirasiz.',
+    savedSignedOut: 'Hisobingizga kiring — o‘ynagan stollaringiz shu yerda saqlanadi.',
+    billedYearly: (total) => `Yiliga ${total} to‘lanadi`,
+    billedMonthly: 'Har oy to‘lanadi',
+  },
+
   plus: {
     badge: 'Plus',
     get: 'Plus olish',

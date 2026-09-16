@@ -45,6 +45,20 @@ export const accountEn = {
     seatTaken: (name: string, bot: string) => `${name} took over ${bot}'s seat.`,
   },
 
+  /* --------------------------- the account -------------------------- */
+  page: {
+    title: 'Account',
+    back: 'Back',
+    youTitle: 'You at the table',
+    signedOutNote: 'Sign in to keep your seat, your saved games and your history across devices.',
+    gamesTitle: 'Your games',
+    savedTitle: 'Saved tables',
+    savedEmpty: 'Tables you play while signed in are kept here so you can pick them up again.',
+    savedSignedOut: 'Sign in and the tables you play are kept here to resume.',
+    billedYearly: (total: string) => `Billed ${total} a year`,
+    billedMonthly: 'Billed monthly',
+  },
+
   /* ------------------------- Party Hall Plus ------------------------ */
   plus: {
     badge: 'Plus',
