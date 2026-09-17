@@ -719,8 +719,14 @@ checks.
 
 Two places where this differs from the printed rules, on purpose:
 
-1. **Bankruptcy to the bank** returns the deeds to the bank unimproved and
-   unmortgaged; the standard rules auction each one immediately.
+1. **Declaring bankruptcy is a surrender to the bank**, not a settlement with
+   whoever is owed: the whole estate - cash, deeds, buildings, contracts -
+   goes back to the bank, which auctions the deeds on, and no creditor is
+   paid from it. Only a charge that busts a player outright (a card you
+   cannot cover) still hands the estate to the creditor. A player who could
+   not cover their debt even by liquidating everything cannot offer trades
+   while they raise - that would just be dumping the estate before the bank
+   takes it.
 2. **"Chairman of the Board"** liquidates the payer's assets up front rather than
    pausing the game for them to choose what to sell, so the other players are
    never left half-paid.

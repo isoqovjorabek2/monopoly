@@ -289,20 +289,24 @@ describe('loans', () => {
     expect(s.players.p1.cash).toBe(lender + 600);
   });
 
-  it('hands a folding borrower’s estate to the lender', () => {
+  it('surrenders a folding borrower’s estate to the bank', () => {
     let s = game();
     s = sign(s, offer('p0', 'p1', { terms: [loan(400, 1200, 1)] }));
+    const lenderCash = s.players.p1.cash;
     s.players.p0.cash = 50;
     s.properties[1].owner = 'p0';
     for (let i = 0; i < 3; i++) s = endTurn({ ...s, phase: 'turn_end' });
     expect(s.phase).toBe('must_raise');
     s = apply(s, { type: 'DECLARE_BANKRUPTCY', playerId: 'p0' });
     expect(s.players.p0.bankrupt).toBe(true);
-    expect(s.properties[1].owner).toBe('p1');
+    // A declared bankruptcy pays nobody: the bank takes the deed and auctions
+    // it on, the lender gets nothing from the estate, the loan dies with it.
+    expect(s.properties[1].owner).toBeNull();
+    expect(s.players.p1.cash).toBe(lenderCash);
     expect(s.contracts).toHaveLength(0);
   });
 
-  it('passes a bankrupt lender’s loan to their creditor', () => {
+  it('voids the loan when a lender declares bankruptcy', () => {
     let s = game();
     s = sign(s, offer('p0', 'p1', { terms: [loan(300, 360, 5)] }));
     s = hotelRow({ ...s });
@@ -316,11 +320,29 @@ describe('loans', () => {
     s = landOn(s, 39);
     expect(s.phase).toBe('must_raise');
     s = apply(s, { type: 'DECLARE_BANKRUPTCY', playerId: 'p1' });
+    expect(s.contracts.find((x) => x.kind === 'loan')).toBeUndefined();
+  });
+
+  it('passes a lender’s loan to the creditor whose charge busts them outright', () => {
+    let s = game();
+    s = sign(s, offer('p0', 'p1', { terms: [loan(300, 360, 5)] })); // p1 lends to p0
+    s.properties[1].owner = 'p1';
+    s.properties[1].mortgaged = true; // nothing left to raise against it
+    s.players.p1.cash = 0;
+    s.chestOrder = ['cc09', ...s.chestOrder.filter((id) => id !== 'cc09')];
+    s.chestCursor = 0;
+    s.seatIndex = 2;
+    s.phase = 'preroll';
+    // p2 draws the birthday card: every other player is charged $10, and p1
+    // cannot cover it. No declaration - the charge itself busts p1, so p2
+    // inherits the estate, including the claim on p0's loan.
+    s = landOn(s, 33);
+    expect(s.players.p1.bankrupt).toBe(true);
     const c = s.contracts.find((x) => x.kind === 'loan');
     expect(c && c.kind === 'loan' && c.lender).toBe('p2');
   });
 
-  it('passes a bankrupt grantor’s share to their creditor', () => {
+  it('voids the share when a grantor declares bankruptcy', () => {
     let s = game();
     s.properties[3].owner = 'p1';
     const share: DealTerm = { kind: 'share', grantor: 'to', spaces: [3], pct: 30, rounds: 10 };
@@ -334,12 +356,8 @@ describe('loans', () => {
     s = landOn(s, 39);
     expect(s.phase).toBe('must_raise');
     s = apply(s, { type: 'DECLARE_BANKRUPTCY', playerId: 'p1' });
-    const c = s.contracts.find((x) => x.kind === 'share');
-    expect(c && c.kind === 'share' && c.grantor).toBe('p2');
-    for (const x of s.contracts) {
-      const parties = x.kind === 'loan' ? [x.lender, x.borrower] : [x.grantor, x.holder];
-      expect(parties).not.toContain('p1');
-    }
+    // No heir on a declaration: every contract the bankrupt touched dies.
+    expect(s.contracts).toHaveLength(0);
   });
 
   it('voids a bankrupt grantor’s share when the estate goes to the bank', () => {

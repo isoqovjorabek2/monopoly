@@ -279,18 +279,23 @@ describe('debt and bankruptcy', () => {
     if (s.phase === 'must_raise') expect(s.debt?.amount).toBeGreaterThan(5);
   });
 
-  it('hands the whole estate to the creditor', () => {
+  it('surrenders a declared bankruptcy to the bank, never the creditor', () => {
     let s = game();
     s.properties[1].owner = 'p0';
     s.properties[3].owner = 'p0';
     s.players.p0.cash = 10;
+    const creditorCash = s.players.p1.cash;
     s.debt = { from: 'p0', to: 'p1', amount: 900, reason: 'rent' };
     s.phase = 'must_raise';
     s = apply(s, { type: 'DECLARE_BANKRUPTCY', playerId: 'p0' });
     expect(s.players.p0.bankrupt).toBe(true);
-    expect(s.properties[1].owner).toBe('p1');
-    expect(s.properties[3].owner).toBe('p1');
     expect(ownedBy(s, 'p0')).toHaveLength(0);
+    // A declaration pays nobody: not the cash, not the deeds. The bank takes
+    // the deeds back unimproved and auctions them on.
+    expect(s.players.p1.cash).toBe(creditorCash);
+    expect(s.properties[1].owner).toBeNull();
+    expect(s.properties[3].owner).toBeNull();
+    expect(s.auction?.origin).toBe('bankruptcy');
   });
 
   it('returns the estate to the bank when the debt was to the bank', () => {
@@ -305,6 +310,34 @@ describe('debt and bankruptcy', () => {
     expect(s.properties[1].owner).toBeNull();
     expect(s.properties[1].houses).toBe(0);
     expect(s.housesRemaining).toBe(housesBefore + 3);
+  });
+
+  it('refuses trade offers from a player who cannot cover their debt', () => {
+    let s = game();
+    s.properties[1].owner = 'p0';
+    s.players.p0.cash = 0;
+    s.debt = { from: 'p0', to: 'p1', amount: 900, reason: 'rent' };
+    s.phase = 'must_raise';
+    const propose = (from: string, to: string): GameAction => ({
+      type: 'PROPOSE_TRADE',
+      playerId: from,
+      offer: from === 'p0'
+        ? {
+          from, to,
+          giveCash: 0, giveProperties: [1], giveJailCards: 0,
+          wantCash: 100, wantProperties: [], wantJailCards: 0,
+        }
+        : {
+          from, to,
+          giveCash: 100, giveProperties: [], giveJailCards: 0,
+          wantCash: 0, wantProperties: [1], wantJailCards: 0,
+        },
+    });
+    // p0 is bust in all but name (mortgaging everything raises $30): no
+    // offering the deed around before the bank takes the estate.
+    expect(apply(s, propose('p0', 'p2')).trades).toHaveLength(0);
+    // Anyone solvent offers as normal (p2 buys the deed p0 owns).
+    expect(apply(s, propose('p2', 'p0')).trades).toHaveLength(1);
   });
 
   it('advances the turn instead of stalling on a bankrupt player', () => {
@@ -439,7 +472,7 @@ describe('rules that used to go wrong', () => {
     expect(s.players.p0.cash).toBe(110);
   });
 
-  it('shares out what is left between them if that bankrupts the payer', () => {
+  it('pays nobody when the payer declares, even on a split debt', () => {
     let s = game();
     s.players.p0.cash = 60;
     s.chanceOrder = onTop(s.chanceOrder, 'ch14');
@@ -448,7 +481,27 @@ describe('rules that used to go wrong', () => {
     s = apply(s, { type: 'ROLL', playerId: 'p0' });
     s = apply(s, { type: 'DECLARE_BANKRUPTCY', playerId: 'p0' });
     expect(s.players.p0.bankrupt).toBe(true);
-    for (const id of ['p1', 'p2', 'p3']) expect(s.players[id].cash).toBe(1520);
+    for (const id of ['p1', 'p2', 'p3']) expect(s.players[id].cash).toBe(1500);
+  });
+
+  it('pays the creditor from the estate when a charge busts a player outright', () => {
+    let s = game();
+    s.properties[1].owner = 'p1';
+    s.properties[1].mortgaged = true; // nothing left to raise against it
+    s.players.p1.cash = 5;
+    s.chestOrder = onTop(s.chestOrder, 'cc09');
+    s.chestCursor = 0;
+    s.players.p0.position = 27;
+    s.phase = 'preroll';
+    s.rngCursor = noDouble(s.settings.seed, 6); // 27 -> Bazaar at 33
+    s = apply(s, { type: 'ROLL', playerId: 'p0' });
+    // The birthday card charges every other player $10; p1 cannot cover it.
+    // No declaration here - the charge itself busts p1, so the estate goes
+    // to the creditor, mortgages and all.
+    expect(s.players.p1.bankrupt).toBe(true);
+    expect(s.properties[1].owner).toBe('p0');
+    expect(s.properties[1].mortgaged).toBe(true);
+    expect(s.players.p0.cash).toBe(1500 + 10 + 10 + 5 - 3); // gifts, p1's cash, transfer interest
   });
 
   it('puts the card away when a deed it moved you to goes to auction', () => {

@@ -386,7 +386,13 @@ export function isLegal(s: GameState, action: GameAction): boolean {
   // player. Without this last check a guest could send an offer that gives
   // away another player's cash and deeds, then accept it themselves.
   if (action.type === 'PROPOSE_TRADE') {
+    // A player who cannot cover what they owe even by liquidating everything
+    // is bust in all but name; letting them offer their deeds around first
+    // is just dumping the estate before the bank takes it.
+    const cornered = s.phase === 'must_raise' && s.debt?.from === action.playerId
+      && maxRaisable(s, action.playerId) < s.debt.amount;
     return s.settings.allowTrades
+      && !cornered
       && !s.players[action.playerId]?.bankrupt
       && action.offer?.from === action.playerId
       && action.offer.to !== action.playerId;

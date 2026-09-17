@@ -686,22 +686,12 @@ function settleDebt(s: GameState, events: GameEvent[]): void {
 }
 
 function declareBankruptcy(s: GameState, events: GameEvent[], pid: string): void {
-  const d = s.debt;
-  if (d?.split) {
-    // Owed to several players at once: what cash there is goes to them in
-    // equal shares, and the deeds go to the bank to be auctioned.
-    const me = s.players[pid];
-    const share = Math.floor(me.cash / d.split.length);
-    if (share > 0) {
-      for (const id of d.split) {
-        me.cash -= share;
-        credit(s, events, id, share, `from ${me.name}'s estate`);
-      }
-    }
-    doBankrupt(s, events, pid, null);
-    return;
-  }
-  doBankrupt(s, events, pid, d?.to ?? null);
+  /* Declaring bankruptcy is a surrender to the bank, not a settlement with
+   * whoever is owed: the whole estate - cash, deeds, buildings, contracts -
+   * goes back to the bank, which auctions the deeds on, and no creditor is
+   * paid from it. Only a charge that busts a player outright still pays the
+   * creditor (see chargePlayer). */
+  doBankrupt(s, events, pid, null);
 }
 
 /**
