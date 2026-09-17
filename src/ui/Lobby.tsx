@@ -3,11 +3,11 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { CLASSIC, PRESETS, TOKENS } from '../game/settings';
 import type { BotLevel, GameSettings, TakeoverPolicy } from '../game/types';
 import type { CFRules } from '../cashflow/types';
-import { useT } from '../i18n';
+import { useT, useBoardTheme } from '../i18n';
 import { hasDirectory } from '../net/directory';
 import { roomTheme, tablePlus } from '../net/plus';
 import { BOARD_THEMES } from '../i18n/themes';
-import { themedMedal } from '../art/art';
+import { themedFelt, themedMedal } from '../art/art';
 import { roomLink, type RoomSnapshot } from '../net/protocol';
 import { CF_MAX_SEATS, seatLimit, useStore } from '../store/store';
 import { Avatar, Panel, Segmented, Slider, Toggle, fmt } from './bits';
@@ -59,6 +59,8 @@ export function Lobby() {
   const canEdit = isHost || isLocal;
   const enoughPlayers = room.seats.length >= 2 || s.fillWithBots;
   const gameName = cashflow ? t.cf.name : 'Bazaar Barons';
+  /* The room before the game, dressed in the cloth the board will wear. */
+  const theme = useBoardTheme();
 
   const copy = async (what: 'code' | 'link') => {
     const text = what === 'code' ? room.roomId : roomLink(room.roomId);
@@ -83,7 +85,16 @@ export function Lobby() {
   };
 
   return (
-    <div className="lobby">
+    <div
+      className="lobby"
+      /* Felt and medallion are handed to CSS as variables: their paths carry
+         the deploy base, which only exists at runtime (same reason the board
+         does this). */
+      style={{
+        ['--lobby-felt' as string]: `url("${themedFelt(theme)}")`,
+        ['--lobby-medal' as string]: `url("${themedMedal(theme)}")`,
+      } as React.CSSProperties}
+    >
       <header className="lobby__head">
         <button type="button" className="btn btn--ghost btn--sm" onClick={leave}>{t.common.leave}</button>
         <span className="chip">{gameName}</span>

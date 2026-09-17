@@ -80,6 +80,7 @@ export const uz: Dict = {
     codeAria: 'Xona kodi',
     followedInvite: ['Siz ', ' xonasiga taklif orqali keldingiz.'],
     solo: 'Yoki botlarga qarshi o‘ynab, maydonni o‘rganing',
+    boardsTitle: 'O‘yin maydonlari',
     resume: 'Davom ettirish',
     resumeNote: (code) => `${code} stolingiz hali shu brauzerda ochiq.`,
     forget: 'Unutish',

@@ -136,7 +136,7 @@
   min-height: 100dvh;
   display: grid;
   place-items: center;
-  padding: clamp(var(--s-4), 4vw, var(--s-8)) var(--s-4);
+  padding: clamp(var(--s-3), 3vw, var(--s-6)) var(--s-4);
 
   /* --hero-img is set in Home.tsx: the deploy base and the selected
      version are both only known at runtime. Unset, this is a plain dark
@@ -206,15 +206,15 @@
     'masthead join'
     'deed     join';
   align-items: start;
-  gap: clamp(var(--s-4), 3.4vw, var(--s-7)) clamp(var(--s-5), 5vw, var(--s-8));
+  gap: clamp(var(--s-3), 2vw, var(--s-4)) clamp(var(--s-5), 5vw, var(--s-8));
 }
-.masthead { grid-area: masthead; max-width: 46ch; }
-.deedWrap { grid-area: deed; padding-top: var(--s-5); }
+.masthead { max-width: 46ch; }
+.deedWrap { padding-top: var(--s-5); }
 .joinCard { grid-area: join; }
 
 /* --- masthead ------------------------------------------------------- */
 
-.masthead__title { margin: 0 0 var(--s-4); line-height: 0.86; }
+.masthead__title { margin: 0 0 var(--s-2); line-height: 0.86; }
 /* Ink pressed into stock, not a gradient.
  *
  * A vertical gradient clipped to display type is the single most recognisable
@@ -229,7 +229,7 @@
   display: block;
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: clamp(3.2rem, 9vw, 6.4rem);
+  font-size: clamp(2.8rem, 7vw, 4.6rem);
   letter-spacing: -0.005em;
   text-transform: uppercase;
   color: var(--brass-300);
@@ -263,7 +263,7 @@
 .masthead__lead {
   margin: 0 0 var(--s-3);
   font-size: clamp(1rem, 1.35vw, 1.15rem);
-  line-height: 1.62;
+  line-height: 1.5;
   /* Body copy at --text-muted on this ground is the "medium grey on dark"
      contrast failure; the lead carries the argument and gets full ink. */
   color: var(--ivory-100);
@@ -271,8 +271,8 @@
 .masthead__note {
   margin: 0;
   max-width: 44ch;
-  font-size: var(--t-sm);
-  line-height: 1.62;
+  font-size: var(--t-xs);
+  line-height: 1.55;
   color: var(--text-muted);
 }
 
@@ -280,15 +280,15 @@
 
 /* The fan. Absolutely placed so the three cards can overlap the way things
    overlap when they are put down, rather than sitting in a row. */
-.deedWrap { perspective: 1100px; position: relative; min-height: 19rem; }
+.deedWrap { perspective: 1100px; position: relative; min-height: 14.5rem; }
 /* Pivoted about a common point below the pile, the way a hand of cards
    fans - so each card's coloured head stays visible instead of the top one
    burying the rest. Stacking them by offset instead just made a heap. */
 .deedFan {
   position: absolute;
   top: 0;
-  left: 8%;
-  width: min(14.25rem, 58%);
+  left: 16%;
+  width: min(11.5rem, 60%);
   transform-origin: 50% 128%;
 }
 .deedFan__back  { z-index: 1; }
@@ -539,7 +539,7 @@
 @media (max-width: 900px) {
   .home__spread {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: 'masthead' 'join' 'deed';
+    grid-template-areas: 'main' 'join' 'boards';
   }
   .joinCard { position: static; }
   /* On a phone the deed is a flourish at the end rather than a column, and
@@ -579,6 +579,56 @@
   width: 100%;
 }
 .lobby--waiting { display: grid; place-items: center; }
+
+/* The room before the game, dressed in the cloth the board will wear:
+   the chosen board's felt, faint, behind everything; its medallion
+   watermarked into the seats panel. Both arrive as CSS variables from
+   Lobby.tsx - the paths carry the deploy base, known only at runtime. */
+.lobby::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: var(--lobby-felt, none);
+  background-size: 460px;
+  opacity: 0.16;
+}
+.lobby__seats { position: relative; }
+.lobby__seats::after {
+  content: '';
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: min(58%, 220px);
+  aspect-ratio: 1;
+  pointer-events: none;
+  background: var(--lobby-medal, none) center / contain no-repeat;
+  mix-blend-mode: screen;
+  opacity: 0.1;
+}
+
+/* A seat still waiting for its player gets a slow beacon, not a flat row. */
+.seat--empty .seat__slot { animation: seatWait 2.6s var(--ease-out) infinite; }
+@keyframes seatWait {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(200 145 47 / 0.22); }
+  50% { box-shadow: 0 0 0 6px transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .seat--empty .seat__slot { animation: none; }
+}
+
+/* The invite reads as a stamped ticket: display face for the code, a
+   perforated rule above the actions. */
+.invite__code {
+  font-family: var(--font-display);
+  font-size: clamp(1.25rem, 2.4vw, 1.75rem);
+  letter-spacing: 0.12em;
+}
+.invite__actions {
+  padding-top: var(--s-2);
+  border-top: 1px dashed var(--border-strong);
+}
 .connecting {
   padding: var(--s-7);
   display: flex;

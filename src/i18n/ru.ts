@@ -81,6 +81,7 @@ export const ru: Dict = {
     codeAria: 'Код комнаты',
     followedInvite: ['Вы пришли по приглашению в ', '.'],
     solo: 'Или освойте поле в игре против ботов',
+    boardsTitle: 'Игровые поля',
     resume: 'Продолжить',
     resumeNote: (code) => `Ваш стол ${code} всё ещё открыт в этом браузере.`,
     forget: 'Забыть',

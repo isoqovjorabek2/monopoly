@@ -82,6 +82,8 @@ export const en = {
     /** Text either side of the invite code, which is set in bold. */
     followedInvite: ['You followed an invite to ', '.'] as [string, string],
     solo: 'Or learn the board against bots',
+    /** Overline above the three board medallions on the front door. */
+    boardsTitle: 'The boards',
     resume: 'Resume',
     resumeNote: (code: string) => `Your table ${code} is still open in this browser.`,
     forget: 'Forget it',

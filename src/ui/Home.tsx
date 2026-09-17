@@ -1,17 +1,18 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { motion } from 'framer-motion';
 import '../styles/picker.css';
-import { ART, GAME_COVER, cfJobArt } from '../art/art';
+import { ART, GAME_COVER, cfJobArt, themedMedal } from '../art/art';
 import { professionById } from '../cashflow/data';
 import { BOARD, GROUP_COLOR } from '../game/board';
 import { spaceName, useT } from '../i18n';
+import { BOARD_THEMES } from '../i18n/themes';
 import { forgetSave, readSave, useStore } from '../store/store';
 import { normaliseCode, type GameKind } from '../net/protocol';
 import { fmt } from './bits';
 import { LangSwitch } from './LangSwitch';
 import { EntryCard } from './Entry';
 import { InstallRow } from './Pwa';
-import { LegalLinks } from './Plus';
+import { LegalLinks, PlusBadge } from './Plus';
 
 /** Reads a #/join/CODE deep link once on mount. */
 function useJoinCodeFromUrl(): string {
@@ -59,42 +60,79 @@ export function Home() {
         <div className="home__spread home__spread--pick">
           <GamePicker pick={pick} onPick={setPick} />
 
-          <motion.header
-            key={pick}
-            className="masthead"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-          >
-            {/* The names are brands, so they stay as they are in every language. */}
-            <h1 className="masthead__title">
-              <span className="masthead__word">{cashflow ? P.cashflow.name : P.monopoly.name}</span>
-              <span className="masthead__sub">{cashflow ? P.cashflow.sub : P.monopoly.sub}</span>
-            </h1>
+          <div className="home__main">
+            <motion.header
+              key={pick}
+              className="masthead"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+            >
+              {/* The names are brands, so they stay as they are in every language. */}
+              <h1 className="masthead__title">
+                <span className="masthead__word">{cashflow ? P.cashflow.name : P.monopoly.name}</span>
+                <span className="masthead__sub">{cashflow ? P.cashflow.sub : P.monopoly.sub}</span>
+              </h1>
 
-            <p className="masthead__lead">{cashflow ? P.lead : t.home.lead}</p>
-            <p className="masthead__note">{cashflow ? P.note : t.home.note}</p>
-          </motion.header>
+              <p className="masthead__lead">{cashflow ? P.lead : t.home.lead}</p>
+              <p className="masthead__note">{cashflow ? P.note : t.home.note}</p>
+            </motion.header>
 
-          {/* The artefact for whichever game is picked: three title deeds for
-              Monopoly, three dealt professions for Cashflow - each built from
-              the same data the game is played with. */}
-          <div className="deedWrap" key={`fan-${pick}`}>
-            {(cashflow
-              ? [{ id: 'janitor', cls: 'deedFan__back' }, { id: 'teacher', cls: 'deedFan__mid' }, { id: 'doctor', cls: 'deedFan__front' }]
-              : [{ id: '5', cls: 'deedFan__back' }, { id: '24', cls: 'deedFan__mid' }, { id: '39', cls: 'deedFan__front' }]
-            ).map((d, i) => (
-              <motion.div
-                key={d.id}
-                className={`deedFan ${d.cls}`}
-                initial={{ opacity: 0, y: 30 - i * 4, rotate: -4 + i * 3 }}
-                animate={{ opacity: 1, y: 0, rotate: [-20, -1, 18][i] }}
-                transition={{ duration: 0.72, delay: 0.1 + i * 0.07, ease: [0.22, 1, 0.36, 1] }}
-              >
-                {cashflow ? <JobCard id={d.id} /> : <TitleDeed id={Number(d.id)} />}
-              </motion.div>
-            ))}
+            {/* The artefact for whichever game is picked: three title deeds for
+                Monopoly, three dealt professions for Cashflow - each built from
+                the same data the game is played with. Beside the pitch, not
+                below it, so it shows above the fold. */}
+            <div className="deedWrap" key={`fan-${pick}`}>
+              {(cashflow
+                ? [{ id: 'janitor', cls: 'deedFan__back' }, { id: 'teacher', cls: 'deedFan__mid' }, { id: 'doctor', cls: 'deedFan__front' }]
+                : [{ id: '5', cls: 'deedFan__back' }, { id: '24', cls: 'deedFan__mid' }, { id: '39', cls: 'deedFan__front' }]
+              ).map((d, i) => (
+                <motion.div
+                  key={d.id}
+                  className={`deedFan ${d.cls}`}
+                  initial={{ opacity: 0, y: 30 - i * 4, rotate: -4 + i * 3 }}
+                  animate={{ opacity: 1, y: 0, rotate: [-20, -1, 18][i] }}
+                  transition={{ duration: 0.72, delay: 0.1 + i * 0.07, ease: [0.22, 1, 0.36, 1] }}
+                >
+                  {cashflow ? <JobCard id={d.id} /> : <TitleDeed id={Number(d.id)} />}
+                </motion.div>
+              ))}
+            </div>
           </div>
+
+          {/* The boards the game is played on, medallion and name. The two
+              beyond the Silk Road carry the Plus badge right on the front
+              door: the subscription is easiest to want when you can see it. */}
+          {!cashflow && (
+            <motion.section
+              className="boardStrip"
+              aria-label={t.home.boardsTitle}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <p className="overline boardStrip__title">{t.home.boardsTitle}</p>
+              <div className="boardStrip__row">
+                {BOARD_THEMES.map((id) => (
+                  <span key={id} className="boardStrip__board">
+                    <img
+                      className="boardStrip__medal"
+                      src={themedMedal(id)}
+                      alt=""
+                      width={52}
+                      height={52}
+                      loading="lazy"
+                      decoding="async"
+                    />
+                    <span className="boardStrip__name">
+                      {t.account.plus.themeNames[id]}
+                      {id !== 'silk' && <PlusBadge small />}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            </motion.section>
+          )}
 
           <motion.section
             className="joinCard"
