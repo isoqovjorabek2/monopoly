@@ -56,6 +56,28 @@
 
 /* ------------------------------ tiles ------------------------------ */
 
+/* Themed boards (Party Hall Plus): the same plaque system re-clothed. Only
+   the felt ramp moves, and only inside the board - the group bands stay,
+   because they are the game, and the rest of the screen keeps the house
+   style. The felt texture above carries the same tones, so a missing image
+   costs the weave and never the colour. */
+.board[data-theme='tashkent'] {
+  --felt-900: #041014;
+  --felt-800: #071a21;
+  --felt-700: #0a242e;
+  --felt-600: #0e2f3b;
+  --felt-500: #123a48;
+  --felt-400: #1a4c5e;
+}
+.board[data-theme='europe'] {
+  --felt-900: #120409;
+  --felt-800: #1c0710;
+  --felt-700: #260b16;
+  --felt-600: #331020;
+  --felt-500: #401528;
+  --felt-400: #551d36;
+}
+
 .tile {
   position: relative;
   display: flex;

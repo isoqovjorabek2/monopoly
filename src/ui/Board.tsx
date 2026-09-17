@@ -1,11 +1,13 @@
 import { memo, useCallback, useRef, useState } from 'react';
-import { ART, CORNER_EMBLEM, cornerArt, groupArt, type GroupMotif } from '../art/art';
+import {
+  CORNER_EMBLEM, themedCorner, themedFelt, themedGroup, themedMedal, type GroupMotif,
+} from '../art/art';
 import { BOARD, GROUP_COLOR, edgeOf, isCorner } from '../game/board';
-import type { GameState, Space } from '../game/types';
+import type { BoardTheme, GameState, Space } from '../game/types';
 import { BoardIcon, House, Hotel, Piece, type SpaceIcon } from './Pieces';
 import { Dice } from './Dice';
 import { fmt } from './bits';
-import { spaceName, spaceShort, useT, type Dict } from '../i18n';
+import { spaceName, spaceShort, useBoardTheme, useT, type Dict } from '../i18n';
 import { useSkins } from './finish';
 import { LABEL_TIERS, abbreviate, labelAdvance, longestWord } from './boardLabel';
 
@@ -73,6 +75,8 @@ interface TileProps {
   /** The dictionary itself: it only changes identity on a language switch,
    *  which is exactly when every tile should redraw. */
   t: Dict;
+  /** Which board dressing the ornament comes from (Party Hall Plus). */
+  theme: BoardTheme;
   ownerColor: string | null;
   houses: number;
   mortgaged: boolean;
@@ -85,7 +89,7 @@ interface TileProps {
 }
 
 const Tile = memo(function Tile({
-  space, t, ownerColor, houses, mortgaged, highlight, focusable, onInspect, onPeek, register,
+  space, t, theme, ownerColor, houses, mortgaged, highlight, focusable, onInspect, onPeek, register,
 }: TileProps) {
   const short = spaceShort(t, space.id);
   const edge = edgeOf(space.id);
@@ -152,14 +156,14 @@ const Tile = memo(function Tile({
       {motif && (
         <span
           className="tile__motif"
-          style={{ backgroundImage: `url("${groupArt(motif)}")` }}
+          style={{ backgroundImage: `url("${themedGroup(theme, motif)}")` }}
           aria-hidden
         />
       )}
       {emblem && (
         <span
           className="tile__emblem"
-          style={{ backgroundImage: `url("${cornerArt(emblem)}")` }}
+          style={{ backgroundImage: `url("${themedCorner(theme, emblem)}")` }}
           aria-hidden
         />
       )}
@@ -210,6 +214,7 @@ export function Board({
   highlight: number | null;
 }) {
   const t = useT();
+  const theme = useBoardTheme();
   const current = state.seats[state.seatIndex];
   const skins = useSkins();
 
@@ -258,13 +263,14 @@ export function Board({
       className="board"
       role="group"
       aria-label={t.board.aria}
+      data-theme={theme}
       onKeyDown={onKeyDown}
       /* The generated surfaces are handed to CSS rather than imported by
          it, because their paths carry the base path and the ?art= variant
          override, both of which only exist at runtime. */
       style={{
-        ['--felt-img' as string]: `url("${ART.felt}")`,
-        ['--medal-img' as string]: `url("${ART.medal}")`,
+        ['--felt-img' as string]: `url("${themedFelt(theme)}")`,
+        ['--medal-img' as string]: `url("${themedMedal(theme)}")`,
       } as React.CSSProperties}
     >
       {BOARD.map((space) => {
@@ -275,6 +281,7 @@ export function Board({
             key={space.id}
             space={space}
             t={t}
+            theme={theme}
             ownerColor={owner ? owner.color : null}
             houses={st?.houses ?? 0}
             mortgaged={st?.mortgaged ?? false}

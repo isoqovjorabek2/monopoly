@@ -7,13 +7,13 @@ import { flipOffer, loanDebt, sharedPct } from '../game/deals';
 import type { DealTerm, GameAction, GameState, Player, TradeBody, TradeOffer } from '../game/types';
 import { ContractGlyph, OfferTerms, TermsComposer, pruneTerms } from './Deals';
 import { describe, type LogLine } from '../game/describe';
-import { spaceName, spaceShort, useT } from '../i18n';
+import { spaceName, spaceShort, useBoardTheme, useT } from '../i18n';
 import type { ChatMessage, SeatInfo } from '../net/protocol';
 import { Avatar, Empty, Modal, Money, fmt, useCountdown } from './bits';
 import { SkinnedAvatar } from './finish';
 import type { CashFloat } from '../store/store';
 import {
-  STICKERS, groupArt, parseSticker, stickerToken, stickerUrl, type GroupMotif,
+  STICKERS, parseSticker, stickerToken, stickerUrl, themedGroup, type GroupMotif,
 } from '../art/art';
 
 /* ============================ player rail ============================ */
@@ -586,6 +586,7 @@ function DeedChip({
   state, id, badge,
 }: { state: GameState; id: number; badge?: string }) {
   const t = useT();
+  const theme = useBoardTheme();
   const space = BOARD[id];
   const motif = motifOf(id);
   const st = state.properties[id];
@@ -597,7 +598,7 @@ function DeedChip({
       {motif && (
         <span
           className="deedChip__art"
-          style={{ backgroundImage: `url("${groupArt(motif)}")` }}
+          style={{ backgroundImage: `url("${themedGroup(theme, motif)}")` }}
           aria-hidden
         />
       )}

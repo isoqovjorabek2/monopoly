@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
 import '../styles/plus.css';
 import { useLang, useT } from '../i18n';
+import { BOARD_THEMES } from '../i18n/themes';
+import { themedMedal } from '../art/art';
 import { hasPlus, refreshPass, useAccount } from '../net/account';
 import { checkoutReady, onPurchase, openCheckout } from '../net/checkout';
+import { SKINS } from '../net/plus';
 import { PLANS, YEARLY_SAVING, usd, type PlanId } from '../net/pricing';
-import { Modal } from './bits';
+import { Avatar, Modal } from './bits';
 
 /* ------------------------------------------------------------------ *
  * Party Hall Plus: what it gives, whether this player has it, and how to
@@ -86,12 +89,42 @@ export function PlusSheet({ open, onClose }: { open: boolean; onClose: () => voi
       <div className="plusSheet">
         <p className="plusSheet__lead">{P.lead}</p>
         <ul className="plusSheet__perks">
-          {P.perks.map(([name, hint]) => (
-            <li key={name} className="plusSheet__perk">
-              <span className="plusSheet__tick" aria-hidden>✦</span>
-              <span>
+          {P.perks.map(([name, hint], i) => (
+            <li key={name} className={`plusSheet__perk${i < 2 ? ' plusSheet__perk--visual' : ''}`}>
+              {i >= 2 && <span className="plusSheet__tick" aria-hidden>✦</span>}
+              <span className="plusSheet__perkBody">
                 <span className="plusSheet__perkName">{name}</span>
                 <span className="plusSheet__perkHint">{hint}</span>
+                {/* The two perks you can see, shown rather than promised:
+                    the boards' medallions and the finishes themselves. */}
+                {i === 0 && (
+                  <span className="perkShowcase">
+                    {BOARD_THEMES.map((id) => (
+                      <span key={id} className="perkShowcase__item">
+                        <img
+                          className="perkShowcase__medal"
+                          src={themedMedal(id)}
+                          alt=""
+                          width={46}
+                          height={46}
+                          loading="lazy"
+                          decoding="async"
+                        />
+                        <span className="perkShowcase__name">{P.themeNames[id]}</span>
+                      </span>
+                    ))}
+                  </span>
+                )}
+                {i === 1 && (
+                  <span className="perkShowcase">
+                    {SKINS.map((s) => (
+                      <span key={s} className="perkShowcase__item">
+                        <Avatar color="#c8912f" token="camel" size={26} finish={s} />
+                        <span className="perkShowcase__name">{P.finishNames[s]}</span>
+                      </span>
+                    ))}
+                  </span>
+                )}
               </span>
             </li>
           ))}

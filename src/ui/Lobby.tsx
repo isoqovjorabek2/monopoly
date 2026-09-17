@@ -5,8 +5,9 @@ import type { BotLevel, GameSettings, TakeoverPolicy } from '../game/types';
 import type { CFRules } from '../cashflow/types';
 import { useT } from '../i18n';
 import { hasDirectory } from '../net/directory';
-import { tablePlus } from '../net/plus';
+import { roomTheme, tablePlus } from '../net/plus';
 import { BOARD_THEMES } from '../i18n/themes';
+import { themedMedal } from '../art/art';
 import { roomLink, type RoomSnapshot } from '../net/protocol';
 import { CF_MAX_SEATS, seatLimit, useStore } from '../store/store';
 import { Avatar, Panel, Segmented, Slider, Toggle, fmt } from './bits';
@@ -252,9 +253,17 @@ function MonopolySettings({
   const [tab, setTab] = useState<Tab>('seats');
   const deviations = useMemo(() => countDeviations(s), [s]);
   const rule = (key: string) => L.rules[key] ?? ['', ''];
+  const theme = roomTheme(room);
 
   return (
-    <section className="card lobby__rules">
+    <section
+      className="card lobby__rules"
+      /* A Plus table dresses its lobby: a brass frame, and the chosen
+         board's medallion watermarked behind the settings. */
+      data-plus={tablePlus(room) || undefined}
+      data-theme={theme !== 'silk' ? theme : undefined}
+      style={{ ['--theme-medal-img' as string]: `url("${themedMedal(theme)}")` } as React.CSSProperties}
+    >
       <header className="tabs" role="tablist" aria-label={L.settingsAria}>
         {(['seats', 'rules', 'economy', 'pace'] as Tab[]).map((tb) => (
           <button
@@ -387,19 +396,31 @@ function ThemePicker({ room, set }: { room: RoomSnapshot; set: (patch: Partial<G
   // rather than sitting there dead.
   const [offer, setOffer] = useState(false);
   return (
-    <div className="labelled themePicker">
+    <div className="labelled themePicker" data-on={current !== 'silk' || undefined}>
       <span className="switch__label themePicker__label">
         {P.themeLabel}
         {!unlocked && <PlusBadge small />}
       </span>
-      <Segmented
-        label={P.themeLabel}
-        value={current}
-        onChange={(v) => set({ boardTheme: v })}
-        options={BOARD_THEMES.map((id) => ({ value: id, label: P.themeNames[id] }))}
-        onDisabled={() => setOffer(true)}
-        disabledValues={unlocked ? [] : BOARD_THEMES.filter((id) => id !== 'silk')}
-      />
+      <div className="themePicker__row">
+        {/* The board's own medallion, so the choice is seen and not just
+            named. Its engraving is gold on black and needs no backdrop. */}
+        <img
+          className="themePicker__preview"
+          src={themedMedal(current)}
+          alt={P.themeNames[current]}
+          width={56}
+          height={56}
+          loading="lazy"
+        />
+        <Segmented
+          label={P.themeLabel}
+          value={current}
+          onChange={(v) => set({ boardTheme: v })}
+          options={BOARD_THEMES.map((id) => ({ value: id, label: P.themeNames[id] }))}
+          onDisabled={() => setOffer(true)}
+          disabledValues={unlocked ? [] : BOARD_THEMES.filter((id) => id !== 'silk')}
+        />
+      </div>
       <p className="muted small">{unlocked ? P.themeHint : P.themeLocked}</p>
       <PlusSheet open={offer} onClose={() => setOffer(false)} />
     </div>

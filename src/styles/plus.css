@@ -33,6 +33,34 @@
 .plusSheet__lead { margin: 0; color: var(--brass-100); }
 .plusSheet__perks { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-3); }
 .plusSheet__perk { display: flex; gap: var(--s-3); align-items: flex-start; }
+
+/* The two perks you can see get a framed card instead of a tick. */
+.plusSheet__perk--visual {
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  border: 1px solid var(--border-brass);
+  border-radius: var(--r-md);
+  background: rgb(0 0 0 / 0.25);
+}
+.plusSheet__perkBody { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+/* The preview row inside a visual perk: the boards' medallions, and the
+   finishes worn by a sample piece. */
+.perkShowcase { display: flex; gap: var(--s-3); margin-top: var(--s-2); flex-wrap: wrap; }
+.perkShowcase__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 52px;
+}
+.perkShowcase__medal {
+  border-radius: 50%;
+  background: #000;
+  box-shadow: 0 0 0 1px var(--border-brass);
+}
+.perkShowcase__name { font-size: 10px; color: var(--text-muted); letter-spacing: 0.02em; }
 .plusSheet__tick { color: var(--brass-300); line-height: 1.45; }
 .plusSheet__perkName { display: block; font-weight: 600; color: var(--brass-100); }
 .plusSheet__perkHint { display: block; font-size: var(--t-xs); color: var(--text-muted); }
@@ -54,7 +82,42 @@
 /* The board picker sits above the presets, spanning their grid. */
 .themePicker { grid-column: 1 / -1; }
 .themePicker__label { display: inline-flex; align-items: center; gap: var(--s-2); }
+.themePicker__row { display: flex; align-items: center; gap: var(--s-3); }
+.themePicker__row .segmented { flex: 1; }
+
+/* The chosen board's medallion: gold on black, so it asks for no backdrop -
+   only a ring, which turns brass once a themed board is actually on. */
+.themePicker__preview {
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #000;
+  box-shadow: 0 0 0 1px var(--border-brass);
+}
+.themePicker[data-on] .themePicker__preview {
+  box-shadow: 0 0 0 1.5px var(--brass-400), 0 0 12px -2px var(--brass-500);
+}
 .segmented__item:disabled { opacity: 0.42; cursor: not-allowed; }
+
+/* A Plus table dresses its lobby: the rules card takes a brass frame, and
+   once a themed board is chosen its medallion sits watermarked behind the
+   settings - the perk you can see before the game starts. */
+.lobby__rules[data-plus] {
+  border-color: color-mix(in oklab, var(--brass-500) 65%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--brass-700) 60%, transparent),
+    0 0 18px -6px color-mix(in oklab, var(--brass-500) 45%, transparent);
+}
+.lobby__rules[data-theme]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: var(--theme-medal-img, none) right -8% bottom -14% / min(46%, 260px) no-repeat;
+  mix-blend-mode: screen;
+  opacity: 0.14;
+}
+.lobby__rules { position: relative; }
+.lobby__rules > * { position: relative; z-index: 1; }
 
 /* Locked by Plus rather than unavailable: it dims like a disabled option but
    stays clickable, because clicking it is how the subscription explains

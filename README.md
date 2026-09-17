@@ -151,6 +151,20 @@ generated with FLUX.2 and MiniMax H3 and addressed through `src/art/art.ts`.
 | `stickers/*` | 12 | the chat composer | nothing - chat was text only |
 | `fx/*` | 3 | table effects on cash, a win, a bankruptcy | nothing |
 | `paper`, `table`, `og` | 3 | card stock, the 3D tabletop, the link preview | flat cream, empty fog, no preview |
+| `themes/*` | 36 | the Tashkent and Europe board dressings (Party Hall Plus) | a theme used to be words only |
+
+**Themed boards** change what the board *wears*, not just what it says. Each
+Plus board has its own felt cloth, centre medallion, four corner emblems, ten
+group motifs and two card backs under `art/themes/<theme>/`, in its own dialect
+of the same engraving contract - Tashkent is girih star geometry on deep
+ceramic teal, Europe is art nouveau on oxblood. The colour-group bands never
+move, because they are the game. The flat board re-clothes its plaques through
+a felt-ramp override scoped to `.board[data-theme]`; the 3D board redraws its
+canvas faces with the theme's felt gradient and ornament. The resolvers in
+`src/art/art.ts` hand back the base set for the Silk Road, so a caller never
+branches, and `?board=tashkent` on the URL dresses any board for a preview.
+`scripts/gen_theme_art.py` is the generator: one prompt per asset, FLUX.2
+[klein] on fal.ai, supersampled 2x, downscaled, black-graded.
 
 **Corner emblems** are the flat board's share of this. Start, the Zindan, the Caravanserai
 and Off to the Zindan were four SVG icons at a size where they read as clip art; they

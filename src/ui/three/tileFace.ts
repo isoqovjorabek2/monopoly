@@ -1,7 +1,7 @@
 import { CanvasTexture, LinearFilter, LinearMipmapLinearFilter, SRGBColorSpace } from 'three';
 import { GROUP_COLOR } from '../../game/board';
-import { CORNER_EMBLEM, cornerArt, groupArt, type GroupMotif } from '../../art/art';
-import type { Space } from '../../game/types';
+import { CORNER_EMBLEM, themedCorner, themedGroup, type GroupMotif } from '../../art/art';
+import type { BoardTheme, Space } from '../../game/types';
 import { LABEL_TIERS, abbreviate } from '../boardLabel';
 import type { Edge } from './layout';
 
@@ -46,10 +46,18 @@ let labelCap: number = LABEL_TIERS.mid;
 export function setFaceLabels(compact: boolean): void {
   labelCap = compact ? LABEL_TIERS.tiny : LABEL_TIERS.mid;
 }
-const FELT_TOP = '#17402c';
-const FELT_BOTTOM = '#0e2a1c';
 const INK = '#f2ede0';
 const GOLD = '#e0be76';
+
+/* The tile felt follows the board's theme: the two flat colours the
+ * gradient always was, in the cloth the theme dresses the board in. The
+ * generated felt texture is graded to average out to these, so a missing
+ * file changes the weave and never how dark the board reads. */
+const FELT_BY_THEME: Record<BoardTheme, [top: string, bottom: string]> = {
+  silk: ['#17402c', '#0e2a1c'],
+  tashkent: ['#14384a', '#0a2029'],
+  europe: ['#3a1626', '#1f0b13'],
+};
 
 /* ------------------------- generated art ---------------------------- *
  * The set motifs and corner emblems are raster, and a face is drawn into
@@ -305,7 +313,7 @@ function fitText(c: CanvasRenderingContext2D, text: string, max: number, start: 
  */
 export function makeTileFace(
   space: Space, sx: number, sz: number, edge: Edge,
-  text: { name: string; tax: string | null },
+  text: { name: string; tax: string | null; theme: BoardTheme },
 ): CanvasTexture {
   const dpr = Math.min(faceDprCap, typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1);
   const canvas = document.createElement('canvas');
@@ -329,9 +337,10 @@ export function makeTileFace(
   c.translate(-w / 2, -h / 2);
 
   // Felt
+  const [feltTop, feltBottom] = FELT_BY_THEME[text.theme];
   const g = c.createLinearGradient(0, 0, 0, h);
-  g.addColorStop(0, FELT_TOP);
-  g.addColorStop(1, FELT_BOTTOM);
+  g.addColorStop(0, feltTop);
+  g.addColorStop(1, feltBottom);
   c.fillStyle = g;
   c.fillRect(0, 0, w, h);
 
@@ -369,11 +378,11 @@ export function makeTileFace(
    * protecting and the whole square to give it. */
   const emblem = CORNER_EMBLEM[space.id];
   if (emblem) {
-    const img = art(cornerArt(emblem));
+    const img = art(themedCorner(text.theme, emblem));
     if (img) engrave(c, img, w / 2, bodyH * 0.44, Math.min(w, bodyH) * 0.92, 0.85);
   } else {
     const motif = motifFor(space);
-    const img = motif && art(groupArt(motif));
+    const img = motif && art(themedGroup(text.theme, motif));
     // 0.22, down from 0.4: this sits directly behind the name, and the name
     // is the one thing on the face that has to survive being minified.
     if (img) engrave(c, img, w / 2, bodyH * 0.52, Math.min(w * 1.25, bodyH * 0.95), 0.22);

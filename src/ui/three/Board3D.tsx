@@ -4,11 +4,13 @@ import {
   AdditiveBlending, CanvasTexture, DoubleSide, MathUtils, NeutralToneMapping,
   PMREMGenerator, SRGBColorSpace, ShaderChunk, Vector3, type Mesh,
 } from 'three';
-import { ART, TABLE } from '../../art/art';
+import { themedFelt, themedMedal, themedTable } from '../../art/art';
 import { useArtTexture } from './artTexture';
 import { BOARD } from '../../game/board';
-import type { GameState, Space } from '../../game/types';
-import { spaceShort, useT } from '../../i18n';
+import type { BoardTheme, GameState, Space } from '../../game/types';
+import { spaceShort, useBoardTheme, useT } from '../../i18n';
+import { tablePlus } from '../../net/plus';
+import { useStore } from '../../store/store';
 import {
   BASE_H, HALF, TILE_H, TOTAL,
   buildingPositions, tileLayout, tokenPosition,
@@ -44,11 +46,13 @@ function sharpenFace(shader: { fragmentShader: string }): void {
 }
 const sharpenFaceKey = (): string => 'tile-face-lod-bias';
 
-function Tile({ space, name, tax, ownerColor, mortgaged, highlight, artRev, onSelect, onHover }: {
+function Tile({ space, name, tax, theme, ownerColor, mortgaged, highlight, artRev, onSelect, onHover }: {
   space: Space;
   /** Printed on the face, in the reader's language. */
   name: string;
   tax: string | null;
+  /** Which board dressing the face's felt and ornament come from. */
+  theme: BoardTheme;
   ownerColor: string | null;
   mortgaged: boolean;
   highlight: boolean;
@@ -61,9 +65,9 @@ function Tile({ space, name, tax, ownerColor, mortgaged, highlight, artRev, onSe
 }) {
   const { x, z, sx, sz, edge } = useMemo(() => tileLayout(space.id), [space.id]);
   const face = useMemo(
-    () => makeTileFace(space, sx, sz, edge, { name, tax }),
+    () => makeTileFace(space, sx, sz, edge, { name, tax, theme }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [space, sx, sz, edge, artRev, name, tax],
+    [space, sx, sz, edge, artRev, name, tax, theme],
   );
   useEffect(() => () => face.dispose(), [face]);
 
@@ -153,7 +157,9 @@ function mapKey(texture: unknown): string {
  * never ends in a visible horizon line.
  */
 function Table() {
-  const wood = useArtTexture(TABLE, { repeat: 4 });
+  const theme = useBoardTheme();
+  const plus = useStore((s) => tablePlus(s.room));
+  const wood = useArtTexture(themedTable(theme, plus), { repeat: 4 });
   if (!wood) return null;
   return (
     <mesh position={[0, -BASE_H / 2 - 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
@@ -163,11 +169,22 @@ function Table() {
   );
 }
 
+/* The flat colours a block falls back to while its felt texture loads (or
+ * if it never does), one pair per board theme, graded to match the cloth
+ * the theme's felt.jpg averages out to. */
+const FELT_FALLBACK: Record<BoardTheme, { block: string; inner: string }> = {
+  silk: { block: '#0c2419', inner: '#0e2c1e' },
+  tashkent: { block: '#0a2029', inner: '#0d2833' },
+  europe: { block: '#1f0b13', inner: '#260e17' },
+};
+
 function Felt() {
+  const theme = useBoardTheme();
   // Repeated rather than stretched: one 512px image across a 12-unit block
   // smears the weave into mush at the camera's usual distance.
-  const weave = useArtTexture(ART.felt, { repeat: 3 });
-  const inner = useArtTexture(ART.felt, { repeat: 2 });
+  const weave = useArtTexture(themedFelt(theme), { repeat: 3 });
+  const inner = useArtTexture(themedFelt(theme), { repeat: 2 });
+  const fallback = FELT_FALLBACK[theme];
 
   return (
     <group>
@@ -179,7 +196,7 @@ function Felt() {
         <meshStandardMaterial
           key={mapKey(weave)}
           map={weave ?? undefined}
-          color={weave ? '#ffffff' : '#0c2419'}
+          color={weave ? '#ffffff' : fallback.block}
           roughness={0.95}
           metalness={0}
         />
@@ -198,7 +215,7 @@ function Felt() {
         <meshStandardMaterial
           key={mapKey(inner)}
           map={inner ?? undefined}
-          color={inner ? '#ffffff' : '#0e2c1e'}
+          color={inner ? '#ffffff' : fallback.inner}
           roughness={0.98}
         />
       </mesh>
@@ -255,7 +272,7 @@ const MEDALLION_SPAN = 8.6;
  *  reads from its own edge, which is where authenticity actually matters. */
 function Medallion({ yaw }: { yaw: number }) {
   const rays = useMemo(() => Array.from({ length: 48 }, (_, i) => (i * Math.PI * 2) / 48), []);
-  const plate = useArtTexture(ART.medal);
+  const plate = useArtTexture(themedMedal(useBoardTheme()));
   const wordmark = useWordmark();
   useEffect(() => () => wordmark.dispose(), [wordmark]);
 
@@ -550,6 +567,7 @@ export default function Board3D({
   const [compact] = useState(() => Math.min(window.innerWidth, window.innerHeight) < 520);
   setFaceLabels(compact);
   const t = useT();
+  const theme = useBoardTheme();
   const current = state.seats[state.seatIndex];
   const skins = useSkins();
 
@@ -679,6 +697,7 @@ export default function Board3D({
               space={space}
               name={spaceShort(t, space.id)}
               tax={space.taxAmount != null ? t.board.payTile(space.taxAmount) : null}
+              theme={theme}
               ownerColor={owner ? owner.color : null}
               mortgaged={st?.mortgaged ?? false}
               highlight={highlight === space.id}

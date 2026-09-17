@@ -5,7 +5,7 @@ import { CHANCE, CHEST } from '../game/cards';
 import { en, type Dict } from './en';
 import { ru } from './ru';
 import { uz } from './uz';
-import { themeCards, themeSpaces } from './themes';
+import { themeCards, themeSpaces, BOARD_THEMES } from './themes';
 
 /* ------------------------------------------------------------------ *
  * Which language this player reads the game in.
@@ -69,12 +69,33 @@ export const useSetLang = (): ((lang: Lang) => void) => useLangStore((s) => s.se
  * already reads a name through the dictionary - tiles, deeds, the log, the
  * cards, the reasons - follows the table's board without knowing boards
  * exist. The store sets it from the room (see net/plus.ts, roomTheme). */
-const useThemeStore = create<{ theme: BoardTheme }>(() => ({ theme: 'silk' }));
+
+/** Preview override: ?board=tashkent dresses the board in a theme without a
+ *  Plus seat at the table. Read once, from query or hash, the way the art
+ *  variants are in art/art.ts. */
+function readThemeOverride(): BoardTheme | null {
+  try {
+    const hashQuery = window.location.hash.split('?')[1] ?? '';
+    for (const p of [new URLSearchParams(window.location.search), new URLSearchParams(hashQuery)]) {
+      const v = p.get('board');
+      if (v && (BOARD_THEMES as readonly string[]).includes(v)) return v as BoardTheme;
+    }
+  } catch { /* no window, or an exotic URL */ }
+  return null;
+}
+
+const THEME_OVERRIDE = readThemeOverride();
+
+const useThemeStore = create<{ theme: BoardTheme }>(() => ({ theme: THEME_OVERRIDE ?? 'silk' }));
 
 export const setBoardTheme = (theme: BoardTheme): void => {
-  if (useThemeStore.getState().theme !== theme) useThemeStore.setState({ theme });
+  const next = THEME_OVERRIDE ?? theme;
+  if (useThemeStore.getState().theme !== next) useThemeStore.setState({ theme: next });
 };
 export const useBoardTheme = (): BoardTheme => useThemeStore((s) => s.theme);
+
+/** The same, outside React: canvas tile faces, which never see a hook. */
+export const boardTheme = (): BoardTheme => useThemeStore.getState().theme;
 
 const themed = new Map<string, Dict>();
 

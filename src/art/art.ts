@@ -11,6 +11,8 @@
  * board. See useArtTexture and the .home rule in app.css.
  * ------------------------------------------------------------------ */
 
+import type { BoardTheme } from '../game/types';
+
 export type ArtSlot = 'felt' | 'medal' | 'hero';
 export type ArtVariant = 1 | 2 | 3 | 4;
 
@@ -164,6 +166,49 @@ export const cardArt = (cardId: string): string => base(`cards/${cardId}.jpg`);
 /** The two deck backs, shown on the reverse while a card flips over. */
 export const deckBack = (deck: 'chance' | 'chest'): string =>
   base(`cards/back-${deck === 'chance' ? 'chance' : 'chest'}.jpg`);
+
+/* ------------------------------------------------------------------ *
+ * Themed boards (Party Hall Plus).
+ *
+ * A theme changes what the board *says* (i18n/themes.ts) and what it
+ * *wears*: its own felt, medallion, corner emblems, group motifs and card
+ * backs, under art/themes/<theme>/ with the same names the base set uses.
+ * Same contract throughout - the engravings are linework on pure black,
+ * composited with `screen`, so they sit on any felt with no alpha channel.
+ *
+ * The Silk Road is the base set itself, so these resolvers take the theme
+ * and hand back the base path for it: a caller never branches on 'silk'.
+ * A themed file that fails to load costs the ornament, never the board -
+ * the same degradation every other generated surface already has.
+ * ------------------------------------------------------------------ */
+
+/** The cloth under everything: flat board's CSS, the 3D board's blocks. */
+export const themedFelt = (theme: BoardTheme): string =>
+  theme === 'silk' ? ART.felt : base(`themes/${theme}/felt.jpg`);
+
+/** The centre emblem under the wordmark. */
+export const themedMedal = (theme: BoardTheme): string =>
+  theme === 'silk' ? ART.medal : base(`themes/${theme}/medal.jpg`);
+
+export const themedCorner = (theme: BoardTheme, name: CornerEmblem): string =>
+  theme === 'silk' ? cornerArt(name) : base(`themes/${theme}/corners/${name}.jpg`);
+
+export const themedGroup = (theme: BoardTheme, name: GroupMotif): string =>
+  theme === 'silk' ? groupArt(name) : base(`themes/${theme}/groups/${name}.jpg`);
+
+export const themedDeckBack = (theme: BoardTheme, deck: 'chance' | 'chest'): string =>
+  theme === 'silk' ? deckBack(deck) : base(`themes/${theme}/cards/back-${deck}.jpg`);
+
+/** Polished ebony, for a Plus table playing the Silk Road. */
+export const PLUS_TABLE = base('table-plus.jpg');
+
+/**
+ * The wood the 3D board stands on. A themed board brings its own table; a
+ * Plus table on the Silk Road upgrades to ebony; anything else keeps the
+ * house walnut.
+ */
+export const themedTable = (theme: BoardTheme, plus: boolean): string =>
+  theme !== 'silk' ? base(`themes/${theme}/table.jpg`) : plus ? PLUS_TABLE : TABLE;
 
 /* ------------------------------ stickers ------------------------------ */
 

@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { BOARD } from '../game/board';
 import { clockKey, clockSeconds, maxRaisable } from '../game/rules';
 import type { GameAction, GameState } from '../game/types';
-import { cap, spaceName, trReason, useT } from '../i18n';
+import { cap, spaceName, trReason, useBoardTheme, useT } from '../i18n';
 import { useStore } from '../store/store';
 import { BoardStage, readRenderMode, writeRenderMode, type RenderMode } from './BoardStage';
 import { BoardTools, readBoardZoom, useFocusMode, writeBoardZoom, ZOOM_STEPS } from './BoardTools';
@@ -15,7 +15,7 @@ import {
 import { Modal, fmt, useCountdown } from './bits';
 import { BoardIcon } from './Pieces';
 import { FxLayer, useFx } from './Fx';
-import { cardArt, deckBack } from '../art/art';
+import { cardArt, themedDeckBack } from '../art/art';
 import { HelpModal, useGameKeys } from './Help';
 import { ContractGlyph, ContractsModal, myContractCount } from './Deals';
 import { SeatRequestsDock, CoownerDock, TakeSeatPanel } from './Account';
@@ -600,6 +600,7 @@ function CardModal({
   state, myId, isMyTurn, dispatch,
 }: { state: GameState; myId: string; isMyTurn: boolean; dispatch: (a: GameAction) => void }) {
   const t = useT();
+  const theme = useBoardTheme();
   const card = state.activeCard;
   const drawer = state.players[state.seats[state.seatIndex]];
 
@@ -642,7 +643,7 @@ function CardModal({
           >
             <div
               className="cardFlip__back"
-              style={{ backgroundImage: `url("${deckBack(card.deck)}")` }}
+              style={{ backgroundImage: `url("${themedDeckBack(theme, card.deck)}")` }}
               aria-hidden="true"
             />
             <div className={`drawnCard drawnCard--${card.deck} cardFlip__front`}>
