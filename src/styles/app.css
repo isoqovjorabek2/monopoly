@@ -1437,6 +1437,12 @@
 /* ----------------------------- auction ----------------------------- */
 
 .auction { display: flex; flex-direction: column; gap: var(--s-4); }
+.auction .deedChip {
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: rgb(255 255 255 / 0.03);
+}
 .auction__bid {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   padding: var(--s-4);

@@ -472,6 +472,8 @@ export function AuctionPanel({
           {introBefore}<strong className="num">{fmt(space.price ?? 0)}</strong>{introAfter}
         </p>
 
+        <DeedChip state={state} id={a.spaceId} />
+
         <div className="auction__bid">
           <span className="overline">{t.auction.currentBid}</span>
           <span className="auction__amount num">{a.currentBid > 0 ? fmt(a.currentBid) : t.auction.noBids}</span>
