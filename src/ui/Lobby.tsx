@@ -33,6 +33,8 @@ export function Lobby() {
   const setListed = useStore((s) => s.setListed);
 
   const [copied, setCopied] = useState<'code' | 'link' | null>(null);
+  /* The room before the game, dressed in the cloth the board will wear. */
+  const theme = useBoardTheme();
 
   const isHost = room ? room.hostId === me.playerId : false;
   const isLocal = role === 'local';
@@ -59,8 +61,6 @@ export function Lobby() {
   const canEdit = isHost || isLocal;
   const enoughPlayers = room.seats.length >= 2 || s.fillWithBots;
   const gameName = cashflow ? t.cf.name : 'Bazaar Barons';
-  /* The room before the game, dressed in the cloth the board will wear. */
-  const theme = useBoardTheme();
 
   const copy = async (what: 'code' | 'link') => {
     const text = what === 'code' ? room.roomId : roomLink(room.roomId);
