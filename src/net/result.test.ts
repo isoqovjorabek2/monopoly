@@ -21,7 +21,7 @@ function finished(winner: string | null, extra: Partial<RoomSnapshot> = {}): Roo
   game.round = 12;
   return {
     roomId: 'GOLD-FALCON-42', hostId: 'u_asil', kind: 'monopoly', seats: [],
-    settings: { ...CLASSIC, seed: 7 }, cfRules: {} as RoomSnapshot['cfRules'],
+    settings: { ...CLASSIC, seed: 7 }, cfRules: {} as RoomSnapshot['cfRules'], mafRules: {} as RoomSnapshot['mafRules'], mf: null,
     game, cf: null, epoch: 0, rev: 0, ...extra,
   };
 }

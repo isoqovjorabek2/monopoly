@@ -71,6 +71,8 @@ jobs:
           VITE_PADDLE_ENV: ${{ vars.PADDLE_ENV }}
           VITE_PADDLE_PRICE_MONTHLY: ${{ vars.PADDLE_PRICE_MONTHLY }}
           VITE_PADDLE_PRICE_YEARLY: ${{ vars.PADDLE_PRICE_YEARLY }}
+          VITE_ADINPLAY_PUB: ${{ vars.ADINPLAY_PUB }}
+          VITE_ADINPLAY_SITE: ${{ vars.ADINPLAY_SITE }}
         run: |
           npm run build
           # SPA fallback: the app uses hash routing, but this keeps a stray
@@ -90,6 +92,8 @@ jobs:
           VITE_PADDLE_ENV: ${{ vars.PADDLE_ENV }}
           VITE_PADDLE_PRICE_MONTHLY: ${{ vars.PADDLE_PRICE_MONTHLY }}
           VITE_PADDLE_PRICE_YEARLY: ${{ vars.PADDLE_PRICE_YEARLY }}
+          VITE_ADINPLAY_PUB: ${{ vars.ADINPLAY_PUB }}
+          VITE_ADINPLAY_SITE: ${{ vars.ADINPLAY_SITE }}
         run: |
           npm run build
           mv dist dist-aytingchi

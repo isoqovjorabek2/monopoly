@@ -27,7 +27,7 @@ const room = (over: Partial<RoomSnapshot> = {}): RoomSnapshot => ({
   kind: 'monopoly',
   seats: [seat('p0', { isHost: true }), seat('p1'), seat('p2'), seat('bot_1', { isBot: true })],
   settings: {} as RoomSnapshot['settings'],
-  cfRules: {} as RoomSnapshot['cfRules'],
+  cfRules: {} as RoomSnapshot['cfRules'], mafRules: {} as RoomSnapshot['mafRules'], mf: null,
   game: null,
   cf: null,
   epoch: 0,

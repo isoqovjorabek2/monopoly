@@ -13,16 +13,21 @@ import type { RoomSnapshot } from './protocol';
 export const tablePlus = (room: RoomSnapshot | null | undefined): boolean =>
   Boolean(room?.seats.some((s) => s.plus && !s.isBot));
 
+/** Whether this table may pick a Plus board: a Plus player at it, or the
+ *  host watched a video for this one game. */
+export const boardsOpen = (room: RoomSnapshot | null | undefined): boolean =>
+  tablePlus(room) || Boolean(room?.themeTrial);
+
 /**
  * The board this table shows. In the lobby a theme needs a Plus player at
- * the table, so one who leaves takes it with them; once the game starts the
+ * the table (or a watched video, see boardsOpen), so one who leaves takes it with them; once the game starts the
  * board is fixed for that game, whoever comes and goes.
  */
 export function roomTheme(room: RoomSnapshot | null | undefined): BoardTheme {
   if (!room || room.kind !== 'monopoly') return 'silk';
   const chosen = room.settings.boardTheme ?? 'silk';
   if (room.game) return chosen;
-  return tablePlus(room) ? chosen : 'silk';
+  return boardsOpen(room) ? chosen : 'silk';
 }
 
 /** The finishes a Plus player can give their piece and dice. */

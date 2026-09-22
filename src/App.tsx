@@ -11,6 +11,8 @@ import { UpdateToast } from './ui/Pwa';
 /* The Cashflow table is its own chunk: a Monopoly player never downloads
  * it, and the front door does not wait on it either. */
 const CashflowGame = lazy(() => import('./ui/cashflow/CashflowGame'));
+/* Omertà likewise: its screens and its art load only at an Omertà table. */
+const MafiaGame = lazy(() => import('./ui/mafia/MafiaGame'));
 
 export default function App() {
   const screen = useStore((s) => s.screen);
@@ -62,6 +64,11 @@ export default function App() {
       {screen === 'game' && kind === 'cashflow' && (
         <Suspense fallback={<div className="cfLoading"><div className="spinner" aria-hidden /></div>}>
           <CashflowGame />
+        </Suspense>
+      )}
+      {screen === 'game' && kind === 'mafia' && (
+        <Suspense fallback={<div className="cfLoading"><div className="spinner" aria-hidden /></div>}>
+          <MafiaGame />
         </Suspense>
       )}
       {/* Only at the table: the front door and the lobby read fine upright. */}

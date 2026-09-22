@@ -25,6 +25,12 @@ export const cfEn = {
       pitch: 'Build passive income bigger than your bills, escape the Grind, then buy your dream.',
       meta: '2–6 players · 1–2 hours',
     },
+    mafia: {
+      name: 'Omertà',
+      sub: 'A Game of Deduction',
+      pitch: 'A family hides among the town. Root them out by day - or pick the town off by night.',
+      meta: '5–12 players · 20–40 min',
+    },
     lead: 'Everyone is dealt a job, a pay cheque and a pile of bills. Buy what pays you every month - shares, rentals, a laundromat - until you no longer need the job. Then the Free Lane: bigger deals, and the dream you picked at the start.',
     note: 'Same table as Bazaar Barons: one of you hosts, the rest connect straight to that tab. No signup, no install.',
   },

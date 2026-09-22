@@ -16,6 +16,7 @@ import { CFBoard } from './CFBoard';
 import { CFGameOver, CFHelp, DreamPicker, PlayerStatementModal } from './CFModals';
 import { CFRail } from './CFRail';
 import { CFStatement } from './CFStatement';
+import { useBreakBefore } from '../Ads';
 
 /**
  * The Cashflow table. Same shell as the Monopoly one - rail of players on
@@ -40,6 +41,7 @@ export default function CashflowGame() {
   const toggleSound = useStore((s) => s.toggleSound);
   const toggleHaptics = useStore((s) => s.toggleHaptics);
   const leave = useStore((s) => s.leave);
+  const leaveAfterBreak = useBreakBefore(leave);
   const sendChat = useStore((s) => s.sendChat);
 
   // As on the other table: the screen stays lit while the game is on it.
@@ -184,7 +186,7 @@ export default function CashflowGame() {
         <CFGameOver
           s={s}
           myId={myId}
-          onLeave={leave}
+          onLeave={leaveAfterBreak}
           onRematch={role !== 'guest' ? useStore.getState().rematch : undefined}
         />
       )}

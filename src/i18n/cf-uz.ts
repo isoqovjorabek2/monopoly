@@ -29,6 +29,12 @@ export const cfUz: CFDict = {
       pitch: 'Xarajatlardan katta passiv daromad yarating, olmaxon g‘ildiragidan chiqing va orzuingizni sotib oling.',
       meta: '2–6 o‘yinchi · 1–2 soat',
     },
+    mafia: {
+      name: 'Omertà',
+      sub: 'Deduksiya o‘yini',
+      pitch: 'Shahar ichiga oila yashiringan. Ularni kunduzi fosh qiling — yoki shaharni tun bilan birma-bir qirating.',
+      meta: '5–12 o‘yinchi · 20–40 daq',
+    },
     lead: 'Har kimga kasb, maosh va bir dasta hisob-kitob beriladi. Har oy pul keltiradigan narsalarni sotib oling — aksiyalar, ijaradagi uylar, kir yuvish shoxobchasi — toki ish kerak bo‘lmay qolguncha. Keyin erkin yo‘l: yirik bitimlar va boshida tanlagan orzuingiz.',
     note: 'Bazaar Barons bilan bir xil stol: biringiz mezbon bo‘lasiz, qolganlar to‘g‘ridan-to‘g‘ri o‘sha oynaga ulanadi. Ro‘yxatdan o‘tish ham, o‘rnatish ham yo‘q.',
   },

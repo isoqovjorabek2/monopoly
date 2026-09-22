@@ -1,0 +1,374 @@
+/* ==================================================================
+   Omertà. The same room as the other two tables, with the lamp turned
+   down: 1920s noir, champagne-gold engraving on black, the emblems
+   composited with `screen` so their ground drops out. Night lays the
+   star-chart texture over the table; day lifts it to warm smoke.
+   The family's colour is a single oxblood rule, never a flood.
+   ================================================================== */
+
+:root {
+  --mf-ink: #050505;
+  --mf-panel: rgb(14 12 10 / 0.86);
+  --mf-blood: #8e2424;
+  --mf-blood-soft: color-mix(in oklab, var(--mf-blood) 30%, transparent);
+  --mf-village: var(--brass-300);
+  --mf-jester: #b98ad6;
+}
+
+/* ------------------------------- lobby -------------------------------- */
+
+.mafLobby__cast { margin-bottom: var(--s-4); }
+.mafLobby__cast .overline { margin: 0 0 var(--s-2); color: var(--brass-300); }
+.mafLobby__roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mafLobby__role {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 4px var(--s-3) 4px 4px;
+  border-radius: 999px;
+  background: var(--mf-ink);
+  border: 1px solid var(--border-brass);
+  font-size: var(--t-sm);
+  color: var(--brass-100);
+}
+.mafLobby__role img { width: 32px; height: 32px; border-radius: 50%; mix-blend-mode: screen; }
+.mafLobby__role[data-team='mafia'] { border-color: var(--mf-blood); }
+.mafLobby__role[data-team='jester'] { border-color: var(--mf-jester); }
+
+/* ------------------------------- table -------------------------------- */
+
+.mfGame {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overscroll-behavior: none;
+  color: var(--ivory-100);
+  background:
+    radial-gradient(70% 55% at 50% 25%, rgb(58 44 26 / 0.55), transparent 70%),
+    var(--mf-ink);
+  transition: background-color var(--dur-slow, 600ms) var(--ease-out);
+}
+/* Night: the star chart comes down over the table. */
+.mfGame[data-night] {
+  background:
+    radial-gradient(70% 55% at 50% 20%, rgb(20 26 48 / 0.55), transparent 70%),
+    var(--mf-night) center / 720px repeat,
+    var(--mf-ink);
+}
+
+.mfGame__top {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-4);
+  border-bottom: 1px solid var(--border-brass);
+  background: rgb(5 5 5 / 0.7);
+  backdrop-filter: blur(6px);
+}
+.mfGame__title { color: var(--brass-300); letter-spacing: 0.3em; }
+
+.mfGame__layout {
+  flex: 1;
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  gap: var(--s-5);
+  padding: var(--s-4);
+  align-items: start;
+}
+.mfGame__stage { min-width: 0; display: flex; flex-direction: column; gap: var(--s-4); }
+.mfGame__side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  min-width: 0;
+  position: sticky;
+  top: var(--s-3);
+  max-height: calc(100dvh - 84px);
+  overflow: auto;
+}
+.mfGame__tabbar { display: none; }
+
+/* The phase, set like a title card between reels. */
+.mfPhase {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  border-top: 1px solid var(--border-brass);
+  border-bottom: 1px solid var(--border-brass);
+}
+.mfPhase__emblem { width: 64px; height: 64px; mix-blend-mode: screen; flex: none; }
+.mfPhase__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(1.6rem, 3.2vw, 2.4rem);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--brass-200);
+}
+.mfPhase__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  margin: 2px 0 0;
+  font-size: var(--t-sm);
+  color: var(--text-muted);
+}
+.mfPhase__clock {
+  padding: 0 var(--s-2);
+  border-radius: 999px;
+  border: 1px solid var(--border-brass);
+  color: var(--brass-200);
+}
+.mfPhase__clock[data-low] { border-color: var(--mf-blood); color: #f0b8b8; }
+
+/* -------------------------------- town -------------------------------- */
+
+.mfTown {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--s-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mfTown > li { position: relative; }
+
+.mfSeat {
+  width: 100%;
+  min-height: 112px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: var(--s-3) var(--s-2);
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-strong);
+  background: var(--mf-panel);
+  color: inherit;
+  font: inherit;
+  text-align: center;
+  cursor: default;
+  transition:
+    transform var(--dur-fast, 140ms) var(--ease-out),
+    border-color var(--dur-fast, 140ms) var(--ease-out),
+    box-shadow var(--dur-fast, 140ms) var(--ease-out);
+}
+.mfSeat:disabled { opacity: 1; }
+.mfSeat[data-you] { border-color: var(--border-brass); }
+.mfSeat[data-family] { box-shadow: inset 0 -2px 0 var(--mf-blood); }
+.mfSeat[data-dead] { opacity: 0.5; filter: grayscale(0.7); }
+.mfSeat[data-pickable] { cursor: pointer; border-color: var(--border-brass); }
+.mfSeat[data-pickable]:hover { transform: translateY(-2px); box-shadow: 0 8px 20px -10px rgb(0 0 0 / 0.9); }
+.mfSeat[data-pickable]:focus-visible { outline: none; box-shadow: var(--ring-focus); }
+.mfSeat[data-picked] {
+  border-color: var(--accent);
+  box-shadow: var(--ring-accent), 0 0 24px -6px var(--brass-500);
+}
+/* The family's mark for tonight, as only the family sees it. */
+.mfSeat[data-marked] { border-color: var(--mf-blood); box-shadow: 0 0 0 1px var(--mf-blood), 0 0 22px -8px var(--mf-blood); }
+
+.mfSeat__face { display: grid; place-items: center; height: 40px; }
+.mfSeat__role { width: 40px; height: 40px; mix-blend-mode: screen; }
+.mfSeat__name { max-width: 100%; font-weight: 600; font-size: var(--t-sm); color: var(--ivory-50); }
+.mfSeat__tags { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
+.mfSeat__vote { max-width: 100%; font-size: var(--t-2xs); color: var(--text-muted); }
+.mfSeat__kick { position: absolute; top: 4px; right: 4px; padding: 0 6px; min-height: 24px; font-size: var(--t-2xs); }
+
+.mfTag {
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  font-size: var(--t-2xs);
+  letter-spacing: 0.04em;
+  color: var(--ivory-200);
+}
+.mfTag[data-team='mafia'] { border-color: var(--mf-blood); color: #f0c2c2; }
+.mfTag[data-team='village'] { border-color: var(--border-brass); color: var(--brass-200); }
+.mfTag[data-team='jester'] { border-color: var(--mf-jester); color: #e2cdef; }
+.mfTag--dead { color: var(--text-muted); }
+.mfTag--bad { border-color: var(--mf-blood); color: #f0c2c2; }
+.mfTag--votes { background: var(--brass-500); border-color: transparent; color: var(--text-on-brass); font-weight: 700; }
+
+/* ----------------------------- the action ----------------------------- */
+
+.mfAct {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-2);
+  padding: var(--s-4);
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border-brass);
+  background: var(--mf-panel);
+}
+.mfAct--reveal { align-items: center; text-align: center; }
+.mfAct__lead { margin: 0; color: var(--ivory-200); }
+.mfAct__title { margin: 0; font-weight: 600; color: var(--brass-100); }
+.mfAct__family { margin: 0; padding-left: var(--s-2); border-left: 2px solid var(--mf-blood); color: #f0c2c2; font-size: var(--t-sm); }
+.mfAct__bad { margin: 0; color: #f0b8b8; }
+.mfAct__wait { margin: 0; font-size: var(--t-sm); color: var(--text-muted); }
+.mfAct__row { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+
+.mfNews { display: flex; flex-direction: column; gap: 4px; }
+.mfNews p { margin: 0; }
+.mfNews .overline { color: var(--brass-300); }
+
+/* The dealt card, turned over. */
+.mfRole {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  max-width: 420px;
+  padding: var(--s-4) var(--s-5);
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border-brass);
+  background: radial-gradient(90% 90% at 50% 10%, #1b1712, var(--mf-ink) 75%);
+  transform-style: preserve-3d;
+}
+.mfRole[data-team='mafia'] { box-shadow: inset 0 -3px 0 var(--mf-blood); }
+.mfRole[data-team='jester'] { box-shadow: inset 0 -3px 0 var(--mf-jester); }
+.mfRole__art { width: 150px; height: 150px; mix-blend-mode: screen; }
+.mfRole .overline { margin: 0; color: var(--brass-400); }
+.mfRole__name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 2rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--brass-100);
+}
+.mfRole__brief { margin: 0; color: var(--ivory-200); line-height: 1.5; }
+.mfRole__team { margin-top: var(--s-2); }
+.mfRole__team ul { margin: 4px 0 0; padding: 0; list-style: none; color: #f0c2c2; }
+
+/* Side panel: who you are, what you know. */
+.mfNote {
+  display: flex;
+  gap: var(--s-3);
+  padding: var(--s-3);
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-brass);
+  background: var(--mf-panel);
+}
+.mfNote[data-team='mafia'] { border-color: var(--mf-blood); }
+.mfNote img { width: 56px; height: 56px; mix-blend-mode: screen; flex: none; }
+.mfNote__body { min-width: 0; }
+.mfNote__body p { margin: 0; }
+.mfNote .overline { color: var(--brass-400); }
+.mfNote__name { font-family: var(--font-display); font-size: 1.2rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--brass-100); }
+.mfNote__sub { margin-top: var(--s-2) !important; }
+.mfNote__checks { margin: 4px 0 0; padding: 0; list-style: none; font-size: var(--t-sm); }
+.mfNote__checks li[data-guilty] { color: #f0b8b8; }
+.mfMuted { margin: 0; text-align: center; font-style: italic; }
+
+/* ------------------------------- the end ------------------------------- */
+
+.mfOver { display: flex; flex-direction: column; gap: var(--s-3); }
+.mfOver p { margin: 0; }
+.mfOver__headline {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  letter-spacing: 0.06em;
+  text-align: center;
+  color: var(--brass-200);
+}
+.mfOver__headline[data-winner='mafia'] { color: #f0c2c2; }
+.mfOver__headline[data-winner='jester'] { color: #e2cdef; }
+.mfOver__roles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 40dvh;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mfOver__roles li {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 4px var(--s-2);
+  border-radius: var(--r-sm);
+  background: var(--mf-ink);
+  border-left: 2px solid var(--border-brass);
+}
+.mfOver__roles li[data-team='mafia'] { border-left-color: var(--mf-blood); }
+.mfOver__roles li[data-team='jester'] { border-left-color: var(--mf-jester); }
+.mfOver__roles li[data-dead] { opacity: 0.6; }
+.mfOver__roles img { width: 32px; height: 32px; mix-blend-mode: screen; }
+.mfOver__role { font-size: var(--t-sm); color: var(--brass-200); }
+
+.mfHelp { margin: 0; padding-left: var(--s-4); display: flex; flex-direction: column; gap: var(--s-2); line-height: 1.5; }
+
+/* ------------------------------- phones ------------------------------- */
+
+@media (max-width: 900px) {
+  .mfGame__layout { grid-template-columns: minmax(0, 1fr); padding: var(--s-2) var(--s-2) 72px; }
+  .mfGame__side { display: none; }
+  .mfGame__top { gap: 6px; padding: var(--s-2); overflow-x: auto; scrollbar-width: none; }
+  .mfGame__top::-webkit-scrollbar { display: none; }
+  .mfGame__top > * { flex: none; }
+  .mfGame__top .spacer { flex: 1 1 0; min-width: 0; }
+  .mfGame__title, .mfGame__helpLabel { display: none; }
+
+  .mfGame__side[data-open] {
+    display: flex;
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 56px;
+    z-index: 30;
+    max-height: calc(100dvh - 120px);
+    padding: var(--s-3);
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border-brass);
+  }
+  .mfGame__tabbar {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 31;
+    height: 56px;
+    background: var(--bg-raised);
+    border-top: 1px solid var(--border);
+  }
+  .mfGame__tabbar .tabbar__item {
+    flex: 1;
+    font: inherit;
+    font-size: var(--t-sm);
+    color: var(--text-muted);
+    background: none;
+    border: 0;
+  }
+  .mfGame__tabbar .tabbar__item[data-on] { color: var(--brass-200); box-shadow: inset 0 2px 0 var(--accent); }
+
+  .mfTown { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: var(--s-2); }
+  .mfSeat { min-height: 96px; padding: var(--s-2) 4px; }
+  .mfPhase { gap: var(--s-3); padding: var(--s-2) var(--s-2); }
+  .mfPhase__emblem { width: 48px; height: 48px; }
+  .mfAct { padding: var(--s-3); }
+  .mfRole__art { width: 110px; height: 110px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mfGame, .mfSeat { transition: none; }
+  .mfSeat[data-pickable]:hover { transform: none; }
+}

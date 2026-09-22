@@ -1,6 +1,7 @@
 import Peer, { type DataConnection } from 'peerjs';
 import type { GameEvent } from '../game/types';
 import type { CFEvent } from '../cashflow/types';
+import type { MafiaEvent } from '../mafia/types';
 import {
   type ChatMessage, type Down, type RoomSnapshot, type Up,
   epochCode, localSecret, redactForGuests, toPeerId, unwrap, wrap,
@@ -242,6 +243,13 @@ export class HostNet {
   broadcastCfEvents(rev: number, events: CFEvent[]): void {
     if (events.length === 0) return;
     this.broadcast({ t: 'CF_EVENTS', rev, events });
+  }
+
+  /** Omertà's public events. The store has already dropped anything that
+   *  would say who has night business (see publicMafEvents). */
+  broadcastMafEvents(rev: number, events: MafiaEvent[]): void {
+    if (events.length === 0) return;
+    this.broadcast({ t: 'MF_EVENTS', rev, events });
   }
 
   start(): void {

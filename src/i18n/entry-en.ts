@@ -38,7 +38,7 @@ export const entryEn = {
   },
 
   practice: {
-    body: (game: string) => `Learn ${game} against two bots. Nobody else can join, and nothing is shared.`,
+    body: (game: string, bots = 2) => `Learn ${game} against ${bots === 2 ? 'two' : bots} bots. Nobody else can join, and nothing is shared.`,
     start: (game: string) => `Start practising ${game}`,
   },
 

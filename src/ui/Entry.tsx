@@ -12,6 +12,7 @@ import { Avatar } from './bits';
 import { PlusBadge, PlusSheet } from './Plus';
 import { PublicRooms } from './PublicRooms';
 import { forgetTable, listTables, type SavedTable } from '../net/saves';
+import { MAF_MIN_PLAYERS } from '../mafia/data';
 
 /* ==================================================================== *
  * The front door's card.
@@ -78,10 +79,9 @@ export function EntryCard({ pick, urlCode }: { pick: GameKind; urlCode: string }
   // Signing in names you after your Google account; the field stays yours.
   useEffect(() => { setName(me.name); }, [me.name]);
 
-  const cashflow = pick === 'cashflow';
-  const gameName = cashflow ? t.cf.picker.cashflow.name : t.cf.picker.monopoly.name;
-  const publicOk = !cashflow;
-  // Cashflow tables cannot be listed, so for them the choice is made.
+  const gameName = t.cf.picker[pick].name;
+  const publicOk = pick === 'monopoly';
+  // Only Bazaar Barons tables can be listed, so for the others the choice is made.
   const chosen = publicOk ? visibility : 'private';
   const listed = chosen === 'public';
 
@@ -226,7 +226,7 @@ export function EntryCard({ pick, urlCode }: { pick: GameKind; urlCode: string }
                         <span className="visibility__label">{label}</span>
                         <span className="visibility__dot" aria-hidden />
                       </span>
-                      <span className="visibility__hint">{disabled ? E.host.publicCashflow : hint}</span>
+                      <span className="visibility__hint">{disabled ? (pick === 'mafia' ? t.maf.setup.publicSoon : E.host.publicCashflow) : hint}</span>
                     </button>
                   );
                 })}
@@ -275,7 +275,7 @@ export function EntryCard({ pick, urlCode }: { pick: GameKind; urlCode: string }
 
           {mode === 'practice' && (
             <>
-              <p className="modePanel__body">{E.practice.body(gameName)}</p>
+              <p className="modePanel__body">{E.practice.body(gameName, pick === 'mafia' ? MAF_MIN_PLAYERS + 1 : 2)}</p>
               <button
                 type="button"
                 className="btn btn--primary btn--block btn--lg"

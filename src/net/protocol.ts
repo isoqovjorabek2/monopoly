@@ -3,19 +3,22 @@ import type { CFAction, CFRules, CFState } from '../cashflow/types';
 import { CHANCE, CHEST } from '../game/cards';
 import { shuffle } from '../game/rng';
 import type { BotLevel, GameAction, GameEvent, GameSettings, GameState, TokenId, SkinId } from '../game/types';
+import type { MafiaAction, MafiaPrivate, MafiaRules, MafiaState } from '../mafia/types';
 
 /** 2: a room carries which game it plays. A tab still on 1 cannot read a
  *  Cashflow table, so it is refused at the envelope rather than half-drawn.
  *  3: rounds, time-outs, estate auctions and host hand-over reshaped both
- *  games' state; an older tab would misread it. */
-export const PROTOCOL_VERSION = 3;
+ *  games' state; an older tab would misread it.
+ *  4: Omertà joined the table - a third kind, its own state slot, and
+ *  private host -> guest messages an older tab has no idea what to do with. */
+export const PROTOCOL_VERSION = 4;
 
 /** PeerJS ids are shared across every app on the public broker, so we
  *  namespace ours. Players only ever see the readable half. */
 export const ROOM_PREFIX = 'mply-v1-';
 
-/** The two games this table can play. */
-export type GameKind = 'monopoly' | 'cashflow';
+/** The three games this table can play. */
+export type GameKind = 'monopoly' | 'cashflow' | 'mafia';
 
 export interface SeatInfo {
   playerId: string;
@@ -51,8 +54,11 @@ export interface RoomSnapshot {
   settings: GameSettings;
   /** Cashflow's own rules. */
   cfRules: CFRules;
+  /** Omertà's own rules. */
+  mafRules: MafiaRules;
   game: GameState | null;
   cf: CFState | null;
+  mf: MafiaState | null;
   /** Which host generation is running the table. 0 is the host who opened
    *  it; each hand-over adds one, and moves the peer id with it. */
   epoch: number;
@@ -84,6 +90,10 @@ export interface RoomSnapshot {
   /** When the owner's seat last lost its connection; null while they are
    *  here. In the room so a host hand-over does not restart the clock. */
   ownerAwayAt?: number | null;
+  /** The host watched a rewarded video in the lobby: the Plus boards are
+   *  open for this table's next game, as if a Plus player sat at it. Cleared
+   *  by a rematch, so one video buys one game. */
+  themeTrial?: boolean;
 }
 
 export interface SeatRequest { uid: string; name: string; target: string }
@@ -112,12 +122,12 @@ export type Up =
     verifiedPlus?: number;
   }
   | { t: 'PROFILE'; playerId: string; name: string; token: TokenId; skin?: SkinId }
-  | { t: 'SETTINGS'; playerId: string; settings: GameSettings; cfRules?: CFRules }
+  | { t: 'SETTINGS'; playerId: string; settings: GameSettings; cfRules?: CFRules; mafRules?: MafiaRules }
   | { t: 'ADD_BOT'; playerId: string }
   | { t: 'REMOVE_SEAT'; playerId: string; target: string }
   /** An endorsement for co-owner while the owner is away (net/moderation.ts). */
   | { t: 'ELECT'; playerId: string; candidate: string }
-  | { t: 'INTENT'; playerId: string; action: GameAction | CFAction }
+  | { t: 'INTENT'; playerId: string; action: GameAction | CFAction | MafiaAction }
   | { t: 'CHAT'; playerId: string; text: string }
   | { t: 'PONG'; playerId: string; seq: number }
   /** A signed-in watcher takes over a bot's seat in a game in progress. */
@@ -132,6 +142,10 @@ export type Down =
   | { t: 'ROOM'; snapshot: RoomSnapshot }
   | { t: 'EVENTS'; rev: number; events: GameEvent[] }
   | { t: 'CF_EVENTS'; rev: number; events: import('../cashflow/types').CFEvent[] }
+  | { t: 'MF_EVENTS'; rev: number; events: import('../mafia/types').MafiaEvent[] }
+  /** One player's private slice of an Omertà table - their role, their
+   *  results. Sent to that connection only, never broadcast. */
+  | { t: 'MF_PRIVATE'; private: MafiaPrivate }
   | { t: 'CHAT'; message: ChatMessage }
   | { t: 'REJECT'; reason: string }
   | { t: 'PING'; seq: number }
@@ -242,7 +256,7 @@ export function localSecret(): string {
  * Both games keep their future in the same two places, and lose it the same way.
  */
 export function redactForGuests(snapshot: RoomSnapshot): RoomSnapshot {
-  if (!snapshot.game && !snapshot.cf) return snapshot;
+  if (!snapshot.game && !snapshot.cf && !snapshot.mf) return snapshot;
   return {
     ...snapshot,
     settings: { ...snapshot.settings, seed: 0 },
@@ -257,6 +271,14 @@ export function redactForGuests(snapshot: RoomSnapshot): RoomSnapshot {
       settings: { ...snapshot.cf.settings, seed: 0 },
       decks: { small: [], big: [], market: [], doodad: [] },
     },
+    /* Omertà's future is its night ledger: roles, pending night moves and
+     *  detective results. Guests get none of it in the snapshot - each is
+     *  pushed only their own slice over MF_PRIVATE. */
+    mf: snapshot.mf && {
+      ...snapshot.mf,
+      settings: { ...snapshot.mf.settings, seed: 0 },
+      secret: null,
+    },
   };
 }
 
@@ -269,6 +291,10 @@ export function redactForGuests(snapshot: RoomSnapshot): RoomSnapshot {
  * knowledge any of them had. Cards already drawn stay drawn, because they
  * are in the state; the two Royal Pardon cards are the only ones a
  * player can be holding, so a held one is kept out of the new shuffle.
+ *
+ * Omertà passes through untouched: roles were knowledge the players had,
+ * so they cannot be re-dealt, and the new host's copy has no night ledger
+ * to run the game with. The store closes such a match out honestly.
  */
 export function rehydrateForHost(snapshot: RoomSnapshot, seed: number): RoomSnapshot {
   const held = snapshot.game

@@ -19,6 +19,20 @@ import {
   waitingOn as cfWaitingOn,
 } from '../cashflow/rules';
 import type { CFAction, CFEvent, CFRules, CFSettings, CFState } from '../cashflow/types';
+import { mfBotDecide, mfBotDelay } from '../mafia/ai';
+import { MAF_MAX_SEATS, MAF_MIN_PLAYERS } from '../mafia/data';
+import { mafLogLine, type MFLogLine } from '../mafia/describe';
+import {
+  MAF_DEFAULTS, MAF_RULES_DEFAULT, botifySeat as mfBotifySeat, createMafia,
+  handOverSeat as mfHandOverSeat, reduce as mfReduce,
+} from '../mafia/engine';
+import {
+  clockKey as mfClockKey, clockSeconds as mfClockSeconds,
+  privateFor as mfPrivateFor, waitingOn as mfWaitingOn,
+} from '../mafia/rules';
+import type {
+  MafiaAction, MafiaEvent, MafiaPrivate, MafiaRules, MafiaSettings, MafiaState,
+} from '../mafia/types';
 import { GuestNet, HostNet, type NetStatus } from '../net/net';
 import { currentAccount, isAccountId, signOut, useAccount, hasPlus } from '../net/account';
 import { cleanSkin, roomTheme } from '../net/plus';
@@ -36,7 +50,7 @@ import { buzz, buzzFor, cfBuzzFor, readHaptics } from '../ui/haptics';
 
 export type Screen = 'home' | 'account' | 'lobby' | 'game';
 export type Role = 'host' | 'guest' | 'local';
-export type AnyAction = GameAction | CFAction;
+export type AnyAction = GameAction | CFAction | MafiaAction;
 
 /** A floating +$200 / -$450 over a player's card. */
 export interface CashFloat { id: string; playerId: string; delta: number }
@@ -53,7 +67,9 @@ export const CF_RULES_DEFAULT: CFRules = {
 
 /** Seats a room can hold, which depends on the game it plays. */
 export const seatLimit = (room: RoomSnapshot): number =>
-  (room.kind === 'cashflow' ? Math.min(room.settings.maxPlayers, CF_MAX_SEATS) : room.settings.maxPlayers);
+  (room.kind === 'cashflow' ? Math.min(room.settings.maxPlayers, CF_MAX_SEATS)
+    : room.kind === 'mafia' ? Math.min(room.settings.maxPlayers, MAF_MAX_SEATS)
+      : room.settings.maxPlayers);
 
 interface Store {
   screen: Screen;
@@ -68,6 +84,10 @@ interface Store {
   room: RoomSnapshot | null;
   log: LogLine[];
   cfLog: CFLogLine[];
+  mafLog: MFLogLine[];
+  /** This seat's private slice of an Omertà table, pushed by the host.
+   *  Null for anyone not holding a role. */
+  mafPrivate: MafiaPrivate | null;
   chat: ChatMessage[];
   floats: CashFloat[];
 
@@ -114,6 +134,9 @@ interface Store {
 
   updateSettings: (patch: Partial<GameSettings>) => void;
   updateCfRules: (patch: Partial<CFRules>) => void;
+  updateMafRules: (patch: Partial<MafiaRules>) => void;
+  /** Omertà: the host ends the day's discussion and opens the vote. */
+  mafOpenVote: () => void;
   addBot: () => void;
   removeSeat: (playerId: string) => void;
   /** Endorse a candidate for co-owner while the owner is away
@@ -132,6 +155,8 @@ interface Store {
   resumeTable: (code: string, epoch: number) => void;
   /** After a game ends: the same table, back in its lobby, for another. */
   rematch: () => void;
+  /** The host earned a Plus board for the next game by watching a video. */
+  openBoardsForAGame: () => void;
 
   inspect: (spaceId: number | null) => void;
   openSheet: (sheet: Store['sheet']) => void;
@@ -172,6 +197,40 @@ let lastUpload = 0;
 /** A table being resumed from the server's copy, if nobody answers for it. */
 let pendingServerResume: string | null = null;
 let logSeq = 0;
+/** Each Omertà seat's private slice as last pushed (JSON), so a publish that
+ *  changed nothing for a seat costs no message. Cleared when the room is. */
+const mafPrivateCache = new Map<string, string>();
+
+/**
+ * What of an Omertà reduction may go out to every tab. A night move, or a
+ * night clock running out, says who has night business - and a villager
+ * never does - so those stay on the authority. Everything else is public.
+ */
+const publicMafEvents = (prev: MafiaState | null, events: MafiaEvent[]): MafiaEvent[] =>
+  events.filter((e) => e.type !== 'ACTED' && !(e.type === 'TIMED_OUT' && prev?.phase === 'night'));
+
+/**
+ * A new host that inherited an Omertà match mid-game holds no night ledger:
+ * the roles were only ever in the old host's tab. Nobody can re-deal them,
+ * so the match ends here, said plainly, rather than limping on blind.
+ */
+/** In a running Omertà match the dead watch in silence: a word from them
+ *  would hand the town what only the dead know. */
+export const mutedAtTable = (room: RoomSnapshot | null, playerId: string): boolean => {
+  const mf = room?.mf;
+  if (!mf || mf.phase === 'lobby' || mf.phase === 'game_over') return false;
+  const p = mf.players[playerId];
+  return Boolean(p && !p.alive);
+};
+
+const orphanedMafia = (room: RoomSnapshot): { room: RoomSnapshot; events: MafiaEvent[] } => {
+  const mf = room.mf;
+  if (!mf || mf.secret || mf.phase === 'lobby' || mf.phase === 'game_over') return { room, events: [] };
+  return {
+    room: { ...room, mf: { ...mf, phase: 'game_over', winner: null, winnerId: null } },
+    events: [{ type: 'GAME_OVER', winner: null, winnerId: null }],
+  };
+};
 
 /* ------------------------------------------------------------------ *
  * The saved table.
@@ -233,7 +292,10 @@ const savedSound = (): boolean => {
   try { return localStorage.getItem('mply.sound') !== 'off'; } catch { return true; }
 };
 const savedPick = (): GameKind => {
-  try { return localStorage.getItem('mply.game') === 'cashflow' ? 'cashflow' : 'monopoly'; } catch { return 'monopoly'; }
+  try {
+    const v = localStorage.getItem('mply.game');
+    return v === 'cashflow' || v === 'mafia' ? v : 'monopoly';
+  } catch { return 'monopoly'; }
 };
 
 const emptySeat = (
@@ -250,7 +312,7 @@ const emptySeat = (
   ping: 0,
 });
 
-/** A room with no game in it yet, of either kind. */
+/** A room with no game in it yet, of any kind. */
 const freshRoom = (
   code: string, hostSeat: SeatInfo, kind: GameKind, settings: GameSettings,
 ): RoomSnapshot => ({
@@ -261,8 +323,10 @@ const freshRoom = (
   seats: [hostSeat],
   settings,
   cfRules: { ...CF_RULES_DEFAULT },
+  mafRules: { ...MAF_RULES_DEFAULT },
   game: null,
   cf: null,
+  mf: null,
   epoch: 0,
   rev: 0,
 });
@@ -310,6 +374,21 @@ export const useStore = create<Store>((set, get) => {
       case 'DOWNSIZED':
       case 'REPAIR': return mine ? 'pay' : null;
       case 'BANKRUPT': return mine ? 'error' : null;
+      default: return null;
+    }
+  };
+
+  const mafCueFor = (e: MafiaEvent, myId: string): SfxName | null => {
+    const mine = 'playerId' in e && e.playerId === myId;
+    switch (e.type) {
+      case 'NIGHT_FALLS': return 'card';
+      case 'DAWN': return e.deaths.length > 0 ? 'jail' : null;
+      case 'DAY_STARTED': return 'turn';
+      case 'LYNCHED': return mine ? 'error' : 'jail';
+      case 'SILENCED':
+      case 'TIMED_OUT': return mine ? 'error' : null;
+      case 'SEAT_TAKEN': return 'cash';
+      case 'GAME_OVER': return 'win';
       default: return null;
     }
   };
@@ -378,6 +457,38 @@ export const useStore = create<Store>((set, get) => {
     addFloats(floats);
   };
 
+  /** Omertà's log and sounds. Night business stays off the log by the
+   *  describer's own choice (mafLogLine returns null for ACTED and VOTED). */
+  const pushMafEvents = (events: MafiaEvent[]): void => {
+    if (events.length === 0) return;
+    const lines: MFLogLine[] = [];
+    const { soundOn, me } = get();
+    for (const e of events) {
+      const cue = mafCueFor(e, me.playerId);
+      if (cue) play(cue, soundOn);
+      const l = mafLogLine(e, logSeq++);
+      if (l) lines.push(l);
+    }
+    if (lines.length > 0) set((s) => ({ mafLog: [...s.mafLog, ...lines].slice(-200) }));
+  };
+
+  /** Omertà's hidden ledger, one slice per player, pushed only where it
+   *  belongs: this tab's state for the seat it plays, a direct message for
+   *  every connected guest seat. It never travels inside the snapshot. */
+  const pushMafPrivate = (room: RoomSnapshot): void => {
+    const mf = room.mf;
+    if (!mf) return;
+    const me = get().me.playerId;
+    for (const seat of room.seats) {
+      const priv = mfPrivateFor(mf, seat.playerId);
+      const json = JSON.stringify(priv);
+      if (mafPrivateCache.get(seat.playerId) === json) continue;
+      mafPrivateCache.set(seat.playerId, json);
+      if (seat.playerId === me) set({ mafPrivate: priv });
+      else if (priv && host) host.send(seat.playerId, { t: 'MF_PRIVATE', private: priv });
+    }
+  };
+
   /** Walk a token space by space. Teleports (cards) jump straight there. */
   const queueWalk = (
     playerId: string, from: number, to: number, direct: boolean, state: GameState,
@@ -405,20 +516,30 @@ export const useStore = create<Store>((set, get) => {
 
   const snapshot = (): RoomSnapshot | null => get().room;
 
-  const publish = (next: RoomSnapshot, events: GameEvent[] = [], cfEvents: CFEvent[] = []): void => {
+  const publish = (
+    next: RoomSnapshot,
+    events: GameEvent[] = [],
+    cfEvents: CFEvent[] = [],
+    mfEvents: MafiaEvent[] = [],
+  ): void => {
     const prevCf = get().room?.cf ?? null;
+    const prevMf = get().room?.mf ?? null;
     const withRev = { ...next, rev: next.rev + 1 };
     set({ room: withRev });
     if (withRev.game) pushEvents(withRev.game, events);
     if (withRev.cf) { pushCfEvents(cfEvents); cfFloats(prevCf, withRev.cf); }
+    if (withRev.mf) pushMafEvents(mfEvents);
+    // The private slices go wherever this tab is the authority, solo or host.
+    if (get().role !== 'guest' && withRev.mf) pushMafPrivate(withRev);
     if (get().role === 'host' && host) {
       host.broadcastEvents(withRev.rev, events);
       host.broadcastCfEvents(withRev.rev, cfEvents);
+      host.broadcastMafEvents(withRev.rev, publicMafEvents(prevMf, mfEvents));
       host.broadcastRoom(withRev);
       // Somebody sat down or left. Twenty seconds of a wrong seat count is
       // how a lobby list earns its reputation for lying, and the fix costs
       // one request per actual change rather than per publish.
-      if (get().listed && !withRev.game && !withRev.cf && withRev.seats.length !== listedSeats) beat();
+      if (get().listed && !withRev.game && !withRev.cf && !withRev.mf && withRev.seats.length !== listedSeats) beat();
     }
     scheduleBots();
     scheduleClock();
@@ -434,7 +555,9 @@ export const useStore = create<Store>((set, get) => {
    */
   const keepsTheSave = (room: RoomSnapshot): boolean => {
     const account = currentAccount();
-    if (!account || !(room.game || room.cf)) return false;
+    // An Omertà table is never kept on the server: its copy there would be
+    // the redacted one, with no roles in it, and nobody could run it again.
+    if (!account || room.mf || !(room.game || room.cf)) return false;
     const accountSeat = (seatId: string): boolean =>
       isAccountId(seatId) || Boolean(room.owners?.[seatId]);
     const me = get().me.playerId;
@@ -447,7 +570,7 @@ export const useStore = create<Store>((set, get) => {
   const scheduleUpload = (): void => {
     const room = get().room;
     if (!room || !keepsTheSave(room)) return;
-    const over = (room.game?.phase ?? room.cf?.phase) === 'game_over';
+    const over = (room.game?.phase ?? room.cf?.phase ?? room.mf?.phase) === 'game_over';
     const wait = over ? 0 : Math.max(0, lastUpload + UPLOAD_EVERY_MS - Date.now());
     if (uploadTimer && !over) return;
     if (uploadTimer) window.clearTimeout(uploadTimer);
@@ -463,7 +586,7 @@ export const useStore = create<Store>((set, get) => {
 
   const writeSave = (): void => {
     const { role, room, code, me } = get();
-    const phase = room?.game?.phase ?? room?.cf?.phase;
+    const phase = room?.game?.phase ?? room?.cf?.phase ?? room?.mf?.phase;
     if (phase === 'game_over') { forgetSave(); return; }
     if (!room || !phase || phase === 'lobby') return;
     const save: SavedGame = {
@@ -559,7 +682,7 @@ export const useStore = create<Store>((set, get) => {
       screen: 'game',
       animPos: positions,
       listed: false,
-      log: [], cfLog: [], chat: [], netError: null,
+      log: [], cfLog: [], mafLog: [], mafPrivate: null, chat: [], netError: null,
       netStatus: saved.role === 'host' ? 'starting' : 'idle',
     });
     if (saved.role === 'host') startHost(saved.code, epoch, saved.secrets);
@@ -599,15 +722,16 @@ export const useStore = create<Store>((set, get) => {
         connected: s.isBot || s.playerId === mine.playerId,
       })),
     }, randomSeed());
+    const orphan = orphanedMafia(room);
     const positions: Record<string, number> = {};
     for (const id of room.game?.seats ?? []) positions[id] = room.game!.players[id].position;
     set((s) => ({
-      role: 'host', code, room, screen: 'game', animPos: positions, listed: false,
-      log: [], cfLog: [], chat: [], netError: null, netStatus: 'starting',
+      role: 'host', code, room: orphan.room, screen: 'game', animPos: positions, listed: false,
+      log: [], cfLog: [], mafLog: [], mafPrivate: null, chat: [], netError: null, netStatus: 'starting',
       me: { ...s.me, playerId: mine.playerId },
     }));
     startHost(code, epoch);
-    publish(room);
+    publish(orphan.room, [], [], orphan.events);
   };
 
   /**
@@ -641,9 +765,10 @@ export const useStore = create<Store>((set, get) => {
     // If the table's owner is the host who just vanished, the co-owner clock
     // starts here; this tab becoming host says nothing about where they went.
     if (ownerOf(next) !== me.playerId && next.ownerAwayAt == null) next.ownerAwayAt = Date.now();
-    set({ role: 'host', room: next, netStatus: 'starting', netError: tr().net.migrated });
+    const orphan = orphanedMafia(next);
+    set({ role: 'host', room: orphan.room, netStatus: 'starting', netError: tr().net.migrated });
     startHost(code, epoch);
-    publish(next);
+    publish(orphan.room, [], [], orphan.events);
   };
 
   /** The host has been gone a while. Hand the table on, or say so plainly. */
@@ -672,6 +797,22 @@ export const useStore = create<Store>((set, get) => {
     if (botTimer) { window.clearTimeout(botTimer); botTimer = null; }
     const { role, room } = get();
     if (role === 'guest' || !room) return;
+
+    if (room.mf) {
+      const s = room.mf;
+      if (s.phase === 'game_over' || s.phase === 'lobby') return;
+      for (const seat of room.seats) {
+        if (!seat.isBot) continue;
+        const action = mfBotDecide(s, seat.playerId);
+        if (!action) continue;
+        botTimer = window.setTimeout(() => {
+          botTimer = null;
+          applyIntent(seat.playerId, action);
+        }, mfBotDelay(s, seat.playerId));
+        return;
+      }
+      return;
+    }
 
     if (room.cf) {
       const s = room.cf;
@@ -727,11 +868,12 @@ export const useStore = create<Store>((set, get) => {
     const { role, room } = get();
     const g = room?.game ?? null;
     const c = room?.cf ?? null;
-    const phase = g?.phase ?? c?.phase;
+    const phase = g?.phase ?? c?.phase ?? room?.mf?.phase;
     if (role === 'guest' || !room || !phase || phase === 'game_over' || phase === 'lobby') {
       stopClock();
       return;
     }
+    if (room.mf) { scheduleMafClock(room.mf, room); return; }
     // Both games answer the same three questions; only the rulebook differs.
     const players: Record<string, { isBot: boolean }> = g ? g.players : c!.players;
     const waiting = g ? waitingOn(g) : cfWaitingOn(c!);
@@ -757,6 +899,51 @@ export const useStore = create<Store>((set, get) => {
     }, secs * 1000);
   };
 
+  /**
+   * Omertà's clock. The same backstop as the other games for anyone the
+   * table waits on, plus the one thing they lack: the day's discussion runs
+   * on the clock alone, whoever is or is not at the table - with only bots
+   * left alive there is nobody to listen, so the town goes straight to vote.
+   */
+  const scheduleMafClock = (m: MafiaState, room: RoomSnapshot): void => {
+    const alive = m.seats.filter((id) => m.players[id]?.alive);
+    if (m.phase === 'day') {
+      const humansAlive = alive.some((id) => !m.players[id].isBot);
+      const secs = humansAlive ? mfClockSeconds(m) : 3;
+      const key = `${mfClockKey(m)}|day`;
+      if (key === clockArmed && clockTimer) return;
+      stopClock();
+      if (secs <= 0 || alive.length === 0) return;
+      clockArmed = key;
+      clockTimer = window.setTimeout(() => {
+        clockTimer = null;
+        clockArmed = '';
+        const cur = snapshot()?.mf;
+        const first = cur?.seats.find((id) => cur.players[id]?.alive);
+        if (cur?.phase === 'day' && first) applyIntent(first, { type: 'TIME_OUT', playerId: first });
+      }, secs * 1000);
+      return;
+    }
+    const waiting = mfWaitingOn(m);
+    const humans = waiting.filter((id) => !m.players[id]?.isBot);
+    const away = humans.filter((id) => room.seats.find((x) => x.playerId === id)?.connected === false);
+    const limit = mfClockSeconds(m);
+    let secs = limit > 0 ? limit : Infinity;
+    if (away.length > 0) secs = Math.min(secs, OFFLINE_GRACE_S);
+    if (humans.length === 0 || !Number.isFinite(secs)) { stopClock(); return; }
+    const key = `${mfClockKey(m)}|${humans.join(',')}|${away.join(',')}`;
+    if (key === clockArmed && clockTimer) return;
+    stopClock();
+    clockArmed = key;
+    const due = limit > 0 && secs === limit ? humans : away;
+    clockTimer = window.setTimeout(() => {
+      clockTimer = null;
+      clockArmed = '';
+      for (const id of due) applyIntent(id, { type: 'TIME_OUT', playerId: id });
+      scheduleClock();
+    }, secs * 1000);
+  };
+
   /** The single funnel every action goes through on the authority. The
    *  host's own clicks take this path too, so there is exactly one code
    *  path and no chance of the host diverging from everyone else. */
@@ -764,6 +951,17 @@ export const useStore = create<Store>((set, get) => {
     const room = snapshot();
     if (!room) return;
     if (!action || typeof action !== 'object' || action.playerId !== playerId) return; // spoofed actor
+
+    if (room.kind === 'mafia') {
+      if (!room.mf) return;
+      const { state, events } = mfReduce(room.mf, action as MafiaAction);
+      if (state.version === room.mf.version) return;      // rejected, no-op
+      // The day ends on the table's clock, not on anybody's: the engine
+      // names a seat to close it, and that seat did nothing wrong.
+      const told = room.mf.phase === 'day' ? events.filter((e) => e.type !== 'TIMED_OUT') : events;
+      publish({ ...room, mf: state }, [], [], told);
+      return;
+    }
 
     if (room.kind === 'cashflow') {
       if (!room.cf) return;
@@ -809,9 +1007,12 @@ export const useStore = create<Store>((set, get) => {
           set({ room: next });
           host?.welcome(from, next);
           host?.broadcastRoom(next);
+          // A fresh connection has no role in hand: send it again.
+          mafPrivateCache.delete(from);
+          pushMafPrivate(next);
           return;
         }
-        if (room.game || room.cf) {
+        if (inGame(room)) {
           // A game in progress takes signed-in players only: they come in
           // watching, and may take over a bot. A guest is told how to get in.
           if (!uid || from !== uid) {
@@ -847,7 +1048,7 @@ export const useStore = create<Store>((set, get) => {
       }
 
       case 'PROFILE': {
-        if (room.game || room.cf) return;
+        if (inGame(room)) return;
         const name = cleanText(msg.name, 18) || tr().defaults.player;
         const taken = new Set(room.seats.filter((x) => x.playerId !== from).map((x) => x.token));
         const token = taken.has(msg.token)
@@ -863,7 +1064,12 @@ export const useStore = create<Store>((set, get) => {
 
       case 'SETTINGS':
         if (from !== room.hostId) return;
-        publish({ ...room, settings: msg.settings, cfRules: msg.cfRules ?? room.cfRules });
+        publish({
+          ...room,
+          settings: msg.settings,
+          cfRules: msg.cfRules ?? room.cfRules,
+          mafRules: msg.mafRules ?? room.mafRules,
+        });
         return;
 
       case 'ADD_BOT':
@@ -880,6 +1086,9 @@ export const useStore = create<Store>((set, get) => {
         return;
 
       case 'INTENT':
+        // The clock is the host's alone. A guest sending its own time-out
+        // could, among other things, cut Omertà's day discussion short.
+        if (msg.action?.type === 'TIME_OUT') return;
         applyIntent(from, msg.action);
         return;
 
@@ -889,7 +1098,7 @@ export const useStore = create<Store>((set, get) => {
 
       case 'CHAT': {
         const text = cleanText(msg.text, 220);
-        if (!text) return;
+        if (!text || mutedAtTable(room, seatFor(from))) return;
         const seat = room.seats.find((s) => s.playerId === from);
         const watcher = room.watchers?.find((w) => w.uid === from);
         const message: ChatMessage = {
@@ -940,6 +1149,7 @@ export const useStore = create<Store>((set, get) => {
     const seat = room.seats.find((s) => s.playerId === target);
     if (!seat || !seat.isBot) return false;
     if (room.game) return Boolean(room.game.players[target]) && !room.game.players[target].bankrupt;
+    if (room.mf) return Boolean(room.mf.players[target]?.alive);
     return Boolean(room.cf?.players[target]);
   };
 
@@ -958,6 +1168,7 @@ export const useStore = create<Store>((set, get) => {
     let next: RoomSnapshot;
     let events: GameEvent[] = [];
     let cfEvents: CFEvent[] = [];
+    let mfEvents: MafiaEvent[] = [];
     if (room.game) {
       const r = handOverSeat(room.game, target, name);
       if (r.state === room.game) return;
@@ -968,6 +1179,13 @@ export const useStore = create<Store>((set, get) => {
       if (r.state === room.cf) return;
       next = { ...room, cf: r.state };
       cfEvents = r.events;
+    } else if (room.mf) {
+      const r = mfHandOverSeat(room.mf, target, name);
+      if (r.state === room.mf) return;
+      next = { ...room, mf: r.state };
+      mfEvents = r.events;
+      // The bot's role is the new player's now: it has to reach them.
+      mafPrivateCache.delete(target);
     } else {
       return;
     }
@@ -985,14 +1203,14 @@ export const useStore = create<Store>((set, get) => {
     // The seat stays reserved against guest claims; the pass is the way in.
     host.setOwner(target, uid);
     host.rebind(uid, target);
-    publish(next, events, cfEvents);
+    publish(next, events, cfEvents, mfEvents);
     const published = snapshot();
     if (published) host.welcome(target, published);
   };
 
   /* ------------------------ guest: host output --------------------- */
 
-  const inGame = (snap: RoomSnapshot): boolean => Boolean(snap.game || snap.cf);
+  const inGame = (snap: RoomSnapshot): boolean => Boolean(snap.game || snap.cf || snap.mf);
 
   const handleDown = (msg: Down): void => {
     switch (msg.t) {
@@ -1018,7 +1236,7 @@ export const useStore = create<Store>((set, get) => {
         const wasInGame = Boolean(cur && inGame(cur));
         set({ room: msg.snapshot, screen: inGame(msg.snapshot) ? 'game' : 'lobby' });
         // The host started a rematch: last game's log is not this game's.
-        if (wasInGame && !inGame(msg.snapshot)) set({ log: [], cfLog: [], animPos: {} });
+        if (wasInGame && !inGame(msg.snapshot)) set({ log: [], cfLog: [], mafLog: [], mafPrivate: null, animPos: {} });
         cfFloats(cur?.cf ?? null, msg.snapshot.cf);
         scheduleUpload();
         if (msg.snapshot.game && !wasInGame) {
@@ -1038,6 +1256,14 @@ export const useStore = create<Store>((set, get) => {
 
       case 'CF_EVENTS':
         pushCfEvents(msg.events);
+        return;
+
+      case 'MF_EVENTS':
+        pushMafEvents(msg.events);
+        return;
+
+      case 'MF_PRIVATE':
+        set({ mafPrivate: msg.private });
         return;
 
       case 'CHAT':
@@ -1136,10 +1362,12 @@ export const useStore = create<Store>((set, get) => {
 
     const game = room.game ? botifySeat(room.game, target).state : room.game;
     const cf = room.cf ? cfBotifySeat(room.cf, target).state : room.cf;
+    const mf = room.mf ? mfBotifySeat(room.mf, target).state : room.mf;
     publish({
       ...room,
       game,
       cf,
+      mf,
       seats: room.seats.map((s) => (s.playerId === target
         ? { ...s, isBot: true, connected: false, ping: 0 }
         : s)),
@@ -1172,6 +1400,7 @@ export const useStore = create<Store>((set, get) => {
   };
 
   const teardown = (): void => {
+    mafPrivateCache.clear();
     host?.destroy();
     guest?.destroy();
     host = null;
@@ -1261,6 +1490,8 @@ export const useStore = create<Store>((set, get) => {
     room: null,
     log: [],
     cfLog: [],
+    mafLog: [],
+    mafPrivate: null,
     chat: [],
     floats: [],
 
@@ -1346,11 +1577,15 @@ export const useStore = create<Store>((set, get) => {
           skin: hasPlus(currentAccount()) ? cleanSkin(me.skin) : undefined,
         },
         kind,
-        { ...(settings ?? defaultSettings()), seed: randomSeed() },
+        {
+          ...(settings ?? defaultSettings()),
+          ...(kind === 'mafia' ? { maxPlayers: MAF_DEFAULTS.maxPlayers } : {}),
+          seed: randomSeed(),
+        },
       );
       set({
         role: 'host', code, room, screen: 'lobby',
-        log: [], cfLog: [], chat: [], netError: null,
+        log: [], cfLog: [], mafLog: [], mafPrivate: null, chat: [], netError: null,
         // Private unless the host chose a public table on the way in.
         listed: false,
       });
@@ -1367,7 +1602,7 @@ export const useStore = create<Store>((set, get) => {
       const code = rawCode.trim().toUpperCase();
       set({
         role: 'guest', code, room: null, screen: 'lobby',
-        log: [], cfLog: [], chat: [], netError: null, netStatus: 'connecting',
+        log: [], cfLog: [], mafLog: [], mafPrivate: null, chat: [], netError: null, netStatus: 'connecting',
       });
       guest = new GuestNet(code, { playerId: me.playerId, name: me.name || tr().defaults.player, token: me.token, skin: me.skin }, {
         onDown: handleDown,
@@ -1434,14 +1669,19 @@ export const useStore = create<Store>((set, get) => {
           skin: hasPlus(currentAccount()) ? cleanSkin(me.skin) : undefined,
         },
         kind,
-        { ...defaultSettings(), fillWithBots: true },
+        {
+          ...defaultSettings(),
+          ...(kind === 'mafia' ? { maxPlayers: MAF_DEFAULTS.maxPlayers } : {}),
+          fillWithBots: true,
+        },
       );
       set({
         role: 'local', code: '', room, screen: 'lobby',
-        log: [], cfLog: [], chat: [], netError: null, netStatus: 'idle',
+        log: [], cfLog: [], mafLog: [], mafPrivate: null, chat: [], netError: null, netStatus: 'idle',
       });
-      addBotSeat();
-      addBotSeat();
+      // Omertà needs a town: seven at the table deals every core role.
+      const bots = kind === 'mafia' ? MAF_MIN_PLAYERS + 1 : 2;
+      for (let i = 0; i < bots; i++) addBotSeat();
     },
 
     leave: () => {
@@ -1450,7 +1690,7 @@ export const useStore = create<Store>((set, get) => {
       pendingHostResume = null;
       set((s) => ({
         screen: 'home', role: 'local', room: null, code: '', listed: false,
-        log: [], cfLog: [], chat: [], floats: [], animPos: {},
+        log: [], cfLog: [], mafLog: [], mafPrivate: null, chat: [], floats: [], animPos: {},
         netStatus: 'idle', netError: null, sheet: 'none', inspecting: null, retryCode: null,
         // A bot seat taken over belongs to that table; out here this tab is
         // its account again, or its guest self.
@@ -1484,6 +1724,23 @@ export const useStore = create<Store>((set, get) => {
       else publish({ ...room, cfRules });
     },
 
+    updateMafRules: (patch) => {
+      const { role, room, me } = get();
+      if (!room || inGame(room)) return;
+      const mafRules = { ...room.mafRules, ...patch };
+      if (role === 'guest') guest?.send({ t: 'SETTINGS', playerId: me.playerId, settings: room.settings, mafRules });
+      else publish({ ...room, mafRules });
+    },
+
+    mafOpenVote: () => {
+      const { role, room, me } = get();
+      const m = room?.mf;
+      // The host's call alone, and only while the town is still talking.
+      if (!room || !m || role === 'guest' || m.phase !== 'day' || room.hostId !== me.playerId) return;
+      const first = m.seats.find((id) => m.players[id]?.alive);
+      if (first) applyIntent(first, { type: 'TIME_OUT', playerId: first });
+    },
+
     addBot: () => {
       const { role, me } = get();
       if (role === 'guest') guest?.send({ t: 'ADD_BOT', playerId: me.playerId });
@@ -1509,14 +1766,15 @@ export const useStore = create<Store>((set, get) => {
         guest?.send({ t: 'INTENT', playerId: me.playerId, action: { type: 'START_GAME', playerId: me.playerId } });
         return;
       }
+      const need = room.kind === 'mafia' ? MAF_MIN_PLAYERS : 2;
       let seats = room.seats;
       if (room.settings.fillWithBots) {
-        while (seats.length < 2) {
+        while (seats.length < need && seats.length < seatLimit(room)) {
           addBotSeat();
           seats = snapshot()?.seats ?? seats;
         }
       }
-      if (seats.length < 2) return;
+      if (seats.length < need) return;
 
       // The board is fixed for the game from here on: a Plus player who
       // leaves mid-game does not take the theme with them (see roomTheme).
@@ -1538,6 +1796,23 @@ export const useStore = create<Store>((set, get) => {
         botLevel: s.botLevel,
       }));
       const base = snapshot() ?? room;
+
+      if (room.kind === 'mafia') {
+        const settings: MafiaSettings = {
+          ...MAF_DEFAULTS,
+          ...room.mafRules,
+          seed: room.settings.seed || randomSeed(),
+          maxPlayers: seatLimit(room),
+          botLevel: room.settings.botLevel,
+          fillWithBots: room.settings.fillWithBots,
+          turnTimer: room.settings.turnTimer,
+        };
+        const started = mfReduce(createMafia(settings, specs), { type: 'START_GAME', playerId: me.playerId });
+        mafPrivateCache.clear();
+        set({ screen: 'game', mafLog: [], mafPrivate: null, log: [], cfLog: [] });
+        publish({ ...base, seats, mf: started.state }, [], [], started.events);
+        return;
+      }
 
       if (room.kind === 'cashflow') {
         const settings: CFSettings = {
@@ -1574,6 +1849,7 @@ export const useStore = create<Store>((set, get) => {
       const clean = cleanText(text, 220);
       if (!clean) return;
       const { role, me, room } = get();
+      if (mutedAtTable(room, me.playerId)) return;
       if (role === 'guest') { guest?.send({ t: 'CHAT', playerId: me.playerId, text: clean }); return; }
       const seat = room?.seats.find((s) => s.playerId === me.playerId);
       const message: ChatMessage = {
@@ -1596,7 +1872,7 @@ export const useStore = create<Store>((set, get) => {
     rematch: () => {
       const { role, room } = get();
       if (!room || role === 'guest') return;
-      if ((room.game?.phase ?? room.cf?.phase) !== 'game_over') return;
+      if ((room.game?.phase ?? room.cf?.phase ?? room.mf?.phase) !== 'game_over') return;
       // Everyone stays seated. Signed-in watchers who stayed to the end get a
       // chair for the next one, while there are chairs.
       const seats = [...room.seats];
@@ -1606,7 +1882,8 @@ export const useStore = create<Store>((set, get) => {
         const token = TOKENS.find((tk) => !taken.has(tk.id))?.id ?? 'camel';
         seats.push(emptySeat(w.uid, w.name, token, seats.length, false));
       }
-      set({ screen: 'lobby', log: [], cfLog: [], animPos: {}, inspecting: null });
+      mafPrivateCache.clear();
+      set({ screen: 'lobby', log: [], cfLog: [], mafLog: [], mafPrivate: null, animPos: {}, inspecting: null });
       // The listing ended with the game - and has to end here, before the
       // publish below announces a lobby: rematching inside one heartbeat
       // skips the game-over unlist entirely, and the room would sit on the
@@ -1618,14 +1895,24 @@ export const useStore = create<Store>((set, get) => {
         ...room,
         game: null,
         cf: null,
+        mf: null,
         seats,
         watchers: [],
         seatRequests: [],
         // A new game deals new dice and new decks. The table's moderators
         // carry over; a vote still in progress does not.
         coownerVotes: {},
+        // One watched video, one game: the next board has to be earned again.
+        themeTrial: false,
         settings: { ...room.settings, seed: randomSeed() },
       });
+    },
+
+    openBoardsForAGame: () => {
+      const { role, room } = get();
+      // Only the host runs the table, and only a lobby has a board to pick.
+      if (!room || role === 'guest' || inGame(room) || room.kind !== 'monopoly') return;
+      publish({ ...room, themeTrial: true });
     },
 
     resumeTable: (code, epoch) => {
@@ -1693,6 +1980,8 @@ if (import.meta.env.DEV) {
 export const useGame = (): GameState | null => useStore((s) => s.room?.game ?? null);
 
 export const useCF = (): CFState | null => useStore((s) => s.room?.cf ?? null);
+
+export const useMF = (): MafiaState | null => useStore((s) => s.room?.mf ?? null);
 
 export const useMyId = (): string => useStore((s) => s.me.playerId);
 

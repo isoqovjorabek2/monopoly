@@ -4,7 +4,7 @@ import { CHANCE } from '../game/cards';
 import { CLASSIC } from '../game/settings';
 import { dictFor, setBoardTheme, spaceName, spaceShort, tr, trReason } from '../i18n';
 import { BOARD_THEMES, themeSpaces } from '../i18n/themes';
-import { cleanSkin, roomTheme, SKINS, tablePlus } from './plus';
+import { boardsOpen, cleanSkin, roomTheme, SKINS, tablePlus } from './plus';
 import type { RoomSnapshot, SeatInfo } from './protocol';
 
 /* ------------------------------------------------------------------ *
@@ -19,7 +19,7 @@ const seat = (playerId: string, extra: Partial<SeatInfo> = {}): SeatInfo => ({
 
 const room = (seats: SeatInfo[], extra: Partial<RoomSnapshot> = {}): RoomSnapshot => ({
   roomId: 'ROOM', hostId: seats[0]?.playerId ?? 'h', kind: 'monopoly', seats,
-  settings: { ...CLASSIC, boardTheme: 'tashkent' }, cfRules: {} as RoomSnapshot['cfRules'],
+  settings: { ...CLASSIC, boardTheme: 'tashkent' }, cfRules: {} as RoomSnapshot['cfRules'], mafRules: {} as RoomSnapshot['mafRules'], mf: null,
   game: null, cf: null, epoch: 0, rev: 0, ...extra,
 });
 
@@ -40,6 +40,14 @@ describe('a Plus table', () => {
   it('keeps the board a game started on, whoever leaves', () => {
     const started = room([seat('a')], { game: {} as RoomSnapshot['game'] });
     expect(roomTheme(started)).toBe('tashkent');
+  });
+
+  it('opens the boards for one game when the host watched a video', () => {
+    const trial = room([seat('a')], { themeTrial: true });
+    expect(boardsOpen(trial)).toBe(true);
+    expect(tablePlus(trial)).toBe(false);
+    expect(roomTheme(trial)).toBe('tashkent');
+    expect(roomTheme(room([seat('a')], { themeTrial: false }))).toBe('silk');
   });
 
   it('draws Nest Egg tables and old tables with no theme as they always were', () => {

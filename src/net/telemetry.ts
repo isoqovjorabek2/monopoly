@@ -50,7 +50,7 @@ const soloId = (): string => {
 };
 
 export function buildReport(
-  id: string, room: RoomSnapshot, role: 'host' | 'local', listed: boolean,
+  id: string, room: RoomSnapshot & { kind: 'monopoly' | 'cashflow' }, role: 'host' | 'local', listed: boolean,
 ): TableReport {
   const hostIds = new Set(room.seats.filter((s) => s.isHost).map((s) => s.playerId));
   const base = {
@@ -126,8 +126,10 @@ const signature = (r: TableReport): string => [
 
 const current = (): TableReport | null => {
   const { room, role, listed } = useStore.getState();
-  if (!room || role === 'guest' || !tableId) return null;
-  return buildReport(tableId, room, role, listed);
+  // The lobby server knows the two older games; an Omertà table reports
+  // nothing rather than being rejected on every beat.
+  if (!room || role === 'guest' || !tableId || room.kind === 'mafia') return null;
+  return buildReport(tableId, room as RoomSnapshot & { kind: 'monopoly' | 'cashflow' }, role, listed);
 };
 
 const sendNow = (): void => {

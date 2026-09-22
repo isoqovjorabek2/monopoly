@@ -3,6 +3,7 @@ import { cfRu } from './cf-ru';
 import { dealsRu } from './deals-ru';
 import { accountRu } from './account-ru';
 import { entryRu } from './entry-ru';
+import { mafRu } from './maf-ru';
 import { tableRu } from './table-ru';
 
 /* Russian. Log lines are in the present tense on purpose: the past tense
@@ -743,6 +744,7 @@ export const ru: Dict = {
   },
 
   cf: cfRu,
+  maf: mafRu,
   deals: dealsRu,
   account: accountRu,
   entry: entryRu,

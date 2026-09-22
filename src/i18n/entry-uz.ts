@@ -33,7 +33,7 @@ export const entryUz: EntryDict = {
   },
 
   practice: {
-    body: (game) => `${game}ni ikki botga qarshi o‘rganing. Hech kim qo‘shila olmaydi va hech narsa ulashilmaydi.`,
+    body: (game, bots = 2) => `${game}ni ${bots === 2 ? 'ikki' : bots} ta botga qarshi o‘rganing. Hech kim qo‘shila olmaydi va hech narsa ulashilmaydi.`,
     start: (game) => `Mashqni boshlash · ${game}`,
   },
 

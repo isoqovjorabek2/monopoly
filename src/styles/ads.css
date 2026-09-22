@@ -1,0 +1,82 @@
+/* ==================================================================
+   Advertising. A banner sits in a quiet frame of its own, labelled,
+   with its box held open at the unit's size so the page never jumps
+   when the ad arrives (or doesn't).
+   ================================================================== */
+
+.adBanner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-1);
+  margin-inline: auto;
+  max-width: 100%;
+}
+
+.adBanner__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  width: 100%;
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+}
+
+.adBanner__label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.adBanner__plus {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--accent-strong);
+  cursor: pointer;
+}
+.adBanner__plus:hover,
+.adBanner__plus:focus-visible { text-decoration: underline; }
+
+.adBanner__unit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  /* On the narrowest phones the unit is clipped rather than pushing the
+     page sideways. */
+  max-width: 100%;
+}
+
+/* The front door carries a medium rectangle under the seat card. */
+.adBanner--home { width: 300px; }
+.adBanner--home .adBanner__unit { width: 300px; height: 250px; }
+
+/* The lobby carries a leaderboard across the foot, where it fits. */
+.adBanner--lobby { width: 728px; }
+.adBanner--lobby .adBanner__unit { width: 728px; height: 90px; }
+
+@media (max-width: 760px) {
+  /* Too narrow for a leaderboard: the network fills a mobile banner. */
+  .adBanner--lobby { width: 320px; }
+  .adBanner--lobby .adBanner__unit { width: 320px; height: 100px; }
+}
+
+/* The rewarded offer in the lobby's board picker. */
+.adOffer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+}
+.adOffer__note { flex-basis: 100%; }
+
+/* AdinPlay draws its video into this; it stays out of the way until then. */
+#aip-preroll:empty { display: none; }
+
+.joinCard__ad { margin-top: var(--s-4); }
+.lobby__ad { margin-top: var(--s-3); }

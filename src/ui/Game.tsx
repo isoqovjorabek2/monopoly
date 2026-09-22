@@ -23,6 +23,7 @@ import { tableNeed, useAlertsSwitch, useTableAlert } from './alerts';
 import { useWakeLock } from './wakeLock';
 import { LangSwitch } from './LangSwitch';
 import { canKick } from '../net/moderation';
+import { useBreakBefore } from './Ads';
 
 /* Shared props for the header buttons' icons, which stand in for the labels
    on narrow screens (`.btn__icon` is hidden until a breakpoint asks for it). */
@@ -53,6 +54,7 @@ export function Game() {
   const toggleSound = useStore((s) => s.toggleSound);
   const toggleHaptics = useStore((s) => s.toggleHaptics);
   const leave = useStore((s) => s.leave);
+  const leaveAfterBreak = useBreakBefore(leave);
   const removeSeat = useStore((s) => s.removeSeat);
 
   // The screen stays lit while the table is on it - a turn timer for
@@ -368,7 +370,7 @@ export function Game() {
       {state.phase === 'game_over' && (
         <GameOver
           state={state}
-          onLeave={leave}
+          onLeave={leaveAfterBreak}
           onRematch={role !== 'guest' ? useStore.getState().rematch : undefined}
         />
       )}

@@ -7,6 +7,7 @@ import { cfEn } from './cf-en';
 import { dealsEn } from './deals-en';
 import { accountEn } from './account-en';
 import { entryEn } from './entry-en';
+import { mafEn } from './maf-en';
 import { tableEn } from './table-en';
 
 /* ------------------------------------------------------------------ *
@@ -596,6 +597,9 @@ export const en = {
 
   /** Everything the second game says. Its own file, because it is its own game. */
   cf: cfEn,
+
+  /** Everything the third game says. Its own file, because it is its own game. */
+  maf: mafEn,
 
   /** Deal Maker: contracts that ride along with trades. */
   deals: dealsEn,

@@ -34,6 +34,9 @@ export interface GameResult {
  * account took over counts as theirs through `room.owners`.
  */
 export function buildResult(room: RoomSnapshot, uid: string, myId: string): GameResult | null {
+  // Omertà keeps no history yet: the account server's record has no shape
+  // for a team win, and a lie in someone's stats is worse than a gap.
+  if (room.kind === 'mafia') return null;
   const g = room.game;
   const cf = room.cf;
   const state = g ?? cf;

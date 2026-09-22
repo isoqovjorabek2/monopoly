@@ -3,16 +3,20 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { CLASSIC, PRESETS, TOKENS } from '../game/settings';
 import type { BotLevel, GameSettings, TakeoverPolicy } from '../game/types';
 import type { CFRules } from '../cashflow/types';
+import { MAF_MAX_SEATS, MAF_MIN_PLAYERS, ROLE_TEAM, dealRoles } from '../mafia/data';
+import type { MafiaRole, MafiaRules } from '../mafia/types';
 import { useT, useBoardTheme } from '../i18n';
 import { hasDirectory } from '../net/directory';
-import { roomTheme, tablePlus } from '../net/plus';
+import { boardsOpen, roomTheme, tablePlus } from '../net/plus';
 import { BOARD_THEMES } from '../i18n/themes';
-import { themedFelt, themedMedal } from '../art/art';
+import { mafRoleArt, themedFelt, themedMedal } from '../art/art';
 import { roomLink, type RoomSnapshot } from '../net/protocol';
 import { CF_MAX_SEATS, seatLimit, useStore } from '../store/store';
 import { Avatar, Panel, Segmented, Slider, Toggle, fmt } from './bits';
 import { LangSwitch } from './LangSwitch';
 import { PlusBadge, PlusSheet } from './Plus';
+import { AdBanner, RewardedBoards } from './Ads';
+import '../styles/mafia.css';
 
 type Tab = 'seats' | 'rules' | 'economy' | 'pace';
 
@@ -28,6 +32,7 @@ export function Lobby() {
   const removeSeat = useStore((s) => s.removeSeat);
   const updateSettings = useStore((s) => s.updateSettings);
   const updateCfRules = useStore((s) => s.updateCfRules);
+  const updateMafRules = useStore((s) => s.updateMafRules);
   const startGame = useStore((s) => s.startGame);
   const listed = useStore((s) => s.listed);
   const setListed = useStore((s) => s.setListed);
@@ -57,10 +62,12 @@ export function Lobby() {
 
   const s = room.settings;
   const cashflow = room.kind === 'cashflow';
+  const mafia = room.kind === 'mafia';
   const limit = seatLimit(room);
   const canEdit = isHost || isLocal;
-  const enoughPlayers = room.seats.length >= 2 || s.fillWithBots;
-  const gameName = cashflow ? t.cf.name : 'Bazaar Barons';
+  const minPlayers = mafia ? MAF_MIN_PLAYERS : 2;
+  const enoughPlayers = room.seats.length >= minPlayers || s.fillWithBots;
+  const gameName = mafia ? t.maf.name : cashflow ? t.cf.name : 'Bazaar Barons';
 
   const copy = async (what: 'code' | 'link') => {
     const text = what === 'code' ? room.roomId : roomLink(room.roomId);
@@ -126,7 +133,7 @@ export function Lobby() {
               {roomLink(room.roomId)}
             </div>
 
-            {isHost && hasDirectory && !cashflow && (
+            {isHost && hasDirectory && !cashflow && !mafia && (
               <label className="invite__public">
                 <input
                   type="checkbox"
@@ -140,6 +147,7 @@ export function Lobby() {
               </label>
             )}
             {isHost && cashflow && <p className="muted small">{t.cf.lobby.inviteOnly}</p>}
+            {isHost && mafia && <p className="muted small">{t.maf.setup.publicSoon}</p>}
           </section>
         )}
 
@@ -205,14 +213,21 @@ export function Lobby() {
         </Panel>
 
         {/* -------------------------- settings ------------------------- */}
-        {cashflow
-          ? <CashflowSettings room={room} canEdit={canEdit} set={updateSettings} setRules={updateCfRules} />
-          : <MonopolySettings room={room} canEdit={canEdit} set={updateSettings} />}
+        {mafia
+          ? <MafiaSettingsPanel room={room} canEdit={canEdit} set={updateSettings} setRules={updateMafRules} />
+          : cashflow
+            ? <CashflowSettings room={room} canEdit={canEdit} set={updateSettings} setRules={updateCfRules} />
+            : <MonopolySettings room={room} canEdit={canEdit} set={updateSettings} />}
       </div>
 
       <footer className="lobby__foot">
         <div className="lobby__summary">
-          {cashflow ? (
+          {mafia ? (
+            <>
+              <span className="chip">{t.maf.lobby.discussion}: {t.maf.lobby.seconds(room.mafRules.discussionSeconds)}</span>
+              {room.mafRules.revealRolesOnDeath && <span className="chip">{t.maf.lobby.revealRoles}</span>}
+            </>
+          ) : cashflow ? (
             <>
               <span className="chip num">{t.cf.lobby.chipGoal(fmt(room.cfRules.fastGoal))}</span>
               <span className="chip">{room.cfRules.strictLoans ? t.cf.lobby.strict : t.cf.lobby.open}</span>
@@ -241,7 +256,7 @@ export function Lobby() {
             className="btn btn--primary"
             onClick={startGame}
             disabled={!enoughPlayers}
-            title={enoughPlayers ? undefined : L.needPlayers}
+            title={enoughPlayers ? undefined : mafia ? t.maf.setup.needPlayers(MAF_MIN_PLAYERS) : L.needPlayers}
           >
             {L.start}
           </button>
@@ -249,6 +264,8 @@ export function Lobby() {
           <span className="muted small">{L.waiting}</span>
         )}
       </footer>
+
+      <AdBanner slot="lobby" className="lobby__ad" />
     </div>
   );
 }
@@ -298,7 +315,7 @@ function MonopolySettings({
 
         {tab === 'seats' && (
           <div className="presets">
-            <ThemePicker room={room} set={set} />
+            <ThemePicker room={room} canEdit={canEdit} set={set} />
             {PRESETS.map((p) => {
               const on = matchesPreset(s, p.id);
               const copyOf = t.presets[p.id] ?? p;
@@ -398,10 +415,12 @@ function MonopolySettings({
 
 /** Which board the table plays on. Party Hall Plus: the Silk Road is always
  *  there; the others open once somebody at the table holds Plus. */
-function ThemePicker({ room, set }: { room: RoomSnapshot; set: (patch: Partial<GameSettings>) => void }) {
+function ThemePicker({
+  room, canEdit, set,
+}: { room: RoomSnapshot; canEdit: boolean; set: (patch: Partial<GameSettings>) => void }) {
   const t = useT();
   const P = t.account.plus;
-  const unlocked = tablePlus(room);
+  const unlocked = boardsOpen(room);
   const current = unlocked ? room.settings.boardTheme ?? 'silk' : 'silk';
   // A locked board is the best moment to explain Plus, so it opens the offer
   // rather than sitting there dead.
@@ -433,6 +452,7 @@ function ThemePicker({ room, set }: { room: RoomSnapshot; set: (patch: Partial<G
         />
       </div>
       <p className="muted small">{unlocked ? P.themeHint : P.themeLocked}</p>
+      <RewardedBoards room={room} canEdit={canEdit} />
       <PlusSheet open={offer} onClose={() => setOffer(false)} />
     </div>
   );
@@ -496,6 +516,86 @@ function CashflowSettings({
             onChange={(v) => set({ maxPlayers: v })}
           />
           <BotSettings s={s} set={set} />
+        </div>
+      </fieldset>
+    </section>
+  );
+}
+
+/* ------------------------------ Omertà's ------------------------------ */
+
+const DISCUSSION_STEPS = [30, 60, 90, 120, 180] as const;
+
+function MafiaSettingsPanel({
+  room, canEdit, set, setRules,
+}: {
+  room: RoomSnapshot;
+  canEdit: boolean;
+  set: (patch: Partial<GameSettings>) => void;
+  setRules: (patch: Partial<MafiaRules>) => void;
+}) {
+  const t = useT();
+  const L = t.lobby;
+  const M = t.maf;
+  const s = room.settings;
+  const r = room.mafRules;
+  // The cast is dealt from the table as it will start: bots fill it to
+  // five when asked, so the preview shows what will actually be dealt.
+  const n = Math.max(room.seats.length, s.fillWithBots ? MAF_MIN_PLAYERS : room.seats.length);
+  const cast = n >= MAF_MIN_PLAYERS ? dealRoles(n) : [];
+  const counts = cast.reduce<Record<string, number>>((m, role) => ({ ...m, [role]: (m[role] ?? 0) + 1 }), {});
+
+  return (
+    <section className="card lobby__rules mafLobby">
+      <fieldset className="settings" disabled={!canEdit}>
+        {!canEdit && <p className="muted small settings__lock">{L.hostOnly}</p>}
+        <div className="mafLobby__cast">
+          <p className="overline">{M.lobby.castTitle}</p>
+          {cast.length > 0 ? (
+            <ul className="mafLobby__roles">
+              {Object.entries(counts).map(([role, count]) => (
+                <li key={role} className="mafLobby__role" data-team={ROLE_TEAM[role as MafiaRole]}>
+                  <img src={mafRoleArt(role as MafiaRole)} alt="" width={44} height={44} loading="lazy" decoding="async" />
+                  <span>{M.roles[role as MafiaRole].name}{count > 1 && <span className="num"> ×{count}</span>}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted small">{M.setup.needPlayers(MAF_MIN_PLAYERS)}</p>
+          )}
+        </div>
+        <div className="settings__cols">
+          <div className="labelled">
+            <span className="switch__label">{M.lobby.discussion}</span>
+            <Segmented
+              label={M.lobby.discussion}
+              value={String(r.discussionSeconds)}
+              onChange={(v) => setRules({ discussionSeconds: Number(v) })}
+              options={DISCUSSION_STEPS.map((v) => ({ value: String(v), label: `${v}s` }))}
+            />
+            <p className="muted small">{M.lobby.discussionNote}</p>
+          </div>
+          <Toggle
+            label={M.lobby.revealRoles}
+            hint={M.lobby.revealRolesNote}
+            checked={r.revealRolesOnDeath}
+            onChange={(v) => setRules({ revealRolesOnDeath: v })}
+          />
+          <Slider
+            label={L.turnTimer}
+            min={0} max={120} step={5}
+            value={s.turnTimer}
+            format={(v) => (v === 0 ? t.common.off : t.common.seconds(v))}
+            onChange={(v) => set({ turnTimer: v })}
+          />
+          <Slider
+            label={M.setup.tableSize}
+            min={MAF_MIN_PLAYERS} max={MAF_MAX_SEATS} step={1}
+            value={Math.max(MAF_MIN_PLAYERS, Math.min(s.maxPlayers, MAF_MAX_SEATS))} format={L.players}
+            onChange={(v) => set({ maxPlayers: v })}
+          />
+          <BotSettings s={s} set={set} />
+          {s.fillWithBots && <p className="muted small">{M.setup.fillNote}</p>}
         </div>
       </fieldset>
     </section>

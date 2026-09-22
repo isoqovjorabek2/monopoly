@@ -12,6 +12,7 @@
  * ------------------------------------------------------------------ */
 
 import type { BoardTheme } from '../game/types';
+import type { MafiaRole } from '../mafia/types';
 
 export type ArtSlot = 'felt' | 'medal' | 'hero';
 export type ArtVariant = 1 | 2 | 3 | 4;
@@ -272,7 +273,25 @@ export const fxStrip = (name: FxName): string => base(`fx/${name}.jpg`);
 export const GAME_COVER = {
   monopoly: base('cover-monopoly.jpg'),
   cashflow: base('cashflow/cover.jpg'),
+  mafia: base('mafia/cover.jpg'),
 } as const;
+
+/* ------------------------------- Omertà ------------------------------- */
+
+/**
+ * Omertà's set is 1920s noir: champagne-gold engraving on pure black,
+ * composited with `screen`, the ground dropping out exactly like the
+ * Monopoly corners. The night sky is a full-bleed texture instead.
+ */
+export const MAF_ART = {
+  hero: base('mafia/hero.jpg'),
+  night: base('mafia/night.jpg'),
+  moon: base('mafia/moon.jpg'),
+  sun: base('mafia/sun.jpg'),
+} as const;
+
+/** One engraved emblem per role, for the reveal and the night table. */
+export const mafRoleArt = (role: MafiaRole): string => base(`mafia/roles/${role}.jpg`);
 
 /* ------------------------------ Cashflow ------------------------------ */
 

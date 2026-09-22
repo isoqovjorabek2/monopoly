@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { motion } from 'framer-motion';
 import '../styles/picker.css';
-import { ART, GAME_COVER, cfJobArt, themedMedal } from '../art/art';
+import { ART, GAME_COVER, MAF_ART, cfJobArt, mafRoleArt, themedMedal } from '../art/art';
 import { professionById } from '../cashflow/data';
 import { BOARD, GROUP_COLOR } from '../game/board';
 import { spaceName, useT } from '../i18n';
@@ -9,10 +9,13 @@ import { BOARD_THEMES } from '../i18n/themes';
 import { forgetSave, readSave, useStore } from '../store/store';
 import { normaliseCode, type GameKind } from '../net/protocol';
 import { fmt } from './bits';
+import { ROLE_TEAM } from '../mafia/data';
+import type { MafiaRole } from '../mafia/types';
 import { LangSwitch } from './LangSwitch';
 import { EntryCard } from './Entry';
 import { InstallRow } from './Pwa';
 import { LegalLinks, PlusBadge } from './Plus';
+import { AdBanner } from './Ads';
 
 /** Reads a #/join/CODE deep link once on mount. */
 function useJoinCodeFromUrl(): string {
@@ -41,12 +44,13 @@ export function Home() {
   const urlCode = useJoinCodeFromUrl();
 
   const cashflow = pick === 'cashflow';
+  const mafia = pick === 'mafia';
   const P = t.cf.picker;
 
   /* The backdrop is set as a variable rather than in the stylesheet
    * because its path depends on the deploy base and on which game is
    * picked; CSS owns the scrim that keeps the type readable over it. */
-  const hero = cashflow ? GAME_COVER.cashflow : ART.hero;
+  const hero = mafia ? MAF_ART.hero : cashflow ? GAME_COVER.cashflow : ART.hero;
 
   return (
     <div className="home" data-game={pick} style={{ '--hero-img': `url("${hero}")` } as CSSProperties}>
@@ -70,12 +74,12 @@ export function Home() {
             >
               {/* The names are brands, so they stay as they are in every language. */}
               <h1 className="masthead__title">
-                <span className="masthead__word">{cashflow ? P.cashflow.name : P.monopoly.name}</span>
-                <span className="masthead__sub">{cashflow ? P.cashflow.sub : P.monopoly.sub}</span>
+                <span className="masthead__word">{P[pick].name}</span>
+                <span className="masthead__sub">{P[pick].sub}</span>
               </h1>
 
-              <p className="masthead__lead">{cashflow ? P.lead : t.home.lead}</p>
-              <p className="masthead__note">{cashflow ? P.note : t.home.note}</p>
+              <p className="masthead__lead">{mafia ? t.maf.home.lead : cashflow ? P.lead : t.home.lead}</p>
+              <p className="masthead__note">{mafia ? t.maf.home.note : cashflow ? P.note : t.home.note}</p>
             </motion.header>
 
             {/* The artefact for whichever game is picked: three title deeds for
@@ -83,9 +87,11 @@ export function Home() {
                 the same data the game is played with. Beside the pitch, not
                 below it, so it shows above the fold. */}
             <div className="deedWrap" key={`fan-${pick}`}>
-              {(cashflow
-                ? [{ id: 'janitor', cls: 'deedFan__back' }, { id: 'teacher', cls: 'deedFan__mid' }, { id: 'doctor', cls: 'deedFan__front' }]
-                : [{ id: '5', cls: 'deedFan__back' }, { id: '24', cls: 'deedFan__mid' }, { id: '39', cls: 'deedFan__front' }]
+              {(mafia
+                ? t.maf.home.cast.map((id, i) => ({ id, cls: ['deedFan__back', 'deedFan__mid', 'deedFan__front'][i] }))
+                : cashflow
+                  ? [{ id: 'janitor', cls: 'deedFan__back' }, { id: 'teacher', cls: 'deedFan__mid' }, { id: 'doctor', cls: 'deedFan__front' }]
+                  : [{ id: '5', cls: 'deedFan__back' }, { id: '24', cls: 'deedFan__mid' }, { id: '39', cls: 'deedFan__front' }]
               ).map((d, i) => (
                 <motion.div
                   key={d.id}
@@ -94,7 +100,9 @@ export function Home() {
                   animate={{ opacity: 1, y: 0, rotate: [-20, -1, 18][i] }}
                   transition={{ duration: 0.72, delay: 0.1 + i * 0.07, ease: [0.22, 1, 0.36, 1] }}
                 >
-                  {cashflow ? <JobCard id={d.id} /> : <TitleDeed id={Number(d.id)} />}
+                  {mafia
+                    ? <RoleCard role={d.id as MafiaRole} />
+                    : cashflow ? <JobCard id={d.id} /> : <TitleDeed id={Number(d.id)} />}
                 </motion.div>
               ))}
             </div>
@@ -103,7 +111,7 @@ export function Home() {
           {/* The boards the game is played on, medallion and name. The two
               beyond the Silk Road carry the Plus badge right on the front
               door: the subscription is easiest to want when you can see it. */}
-          {!cashflow && (
+          {pick === 'monopoly' && (
             <motion.section
               className="boardStrip"
               aria-label={t.home.boardsTitle}
@@ -163,6 +171,7 @@ export function Home() {
 
             <EntryCard pick={pick} urlCode={urlCode} />
             <InstallRow />
+            <AdBanner slot="home" className="joinCard__ad" />
             <LegalLinks />
           </motion.section>
         </div>
@@ -182,7 +191,7 @@ function GamePicker({ pick, onPick }: { pick: GameKind; onPick: (k: GameKind) =>
     <section className="picker" aria-label={P.aria}>
       <p className="picker__title overline">{P.title}</p>
       <div className="picker__row" role="radiogroup" aria-label={P.aria}>
-        {(['monopoly', 'cashflow'] as const).map((k) => (
+        {(['monopoly', 'cashflow', 'mafia'] as const).map((k) => (
           <button
             key={k}
             type="button"
@@ -278,6 +287,23 @@ function JobCard({ id }: { id: string }) {
         <div className="deedPlate__row"><dt>{S.payCheck}</dt><dd className="num">{fmt(p.salary - expenses)}</dd></div>
       </dl>
       <p className="deedPlate__foot">{S.escapeGoal}</p>
+    </article>
+  );
+}
+
+/** Omertà's artefact: a dealt role card, face up for once - the emblem the
+ *  reveal shows, and the brief the player reads under it. */
+function RoleCard({ role }: { role: MafiaRole }) {
+  const t = useT();
+  const r = t.maf.roles[role];
+  return (
+    <article className="deedPlate rolePlate" data-team={ROLE_TEAM[role]} aria-label={r.name}>
+      <div className="rolePlate__head">
+        <img className="rolePlate__art" src={mafRoleArt(role)} alt="" width={120} height={120} decoding="async" />
+        <span className="deedPlate__kicker">{t.maf.name}</span>
+        <span className="deedPlate__name">{r.name}</span>
+      </div>
+      <p className="rolePlate__brief">{r.brief}</p>
     </article>
   );
 }

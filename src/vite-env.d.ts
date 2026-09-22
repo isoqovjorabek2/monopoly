@@ -23,6 +23,13 @@ interface ImportMetaEnv {
   /** Paddle price ids for the two Plus plans (net/pricing.ts). */
   readonly VITE_PADDLE_PRICE_MONTHLY?: string;
   readonly VITE_PADDLE_PRICE_YEARLY?: string;
+  /** AdinPlay publisher and site ids (net/ads.ts). Either missing, no ads. */
+  readonly VITE_ADINPLAY_PUB?: string;
+  readonly VITE_ADINPLAY_SITE?: string;
+  /** Banner placement ids, when AdinPlay's differ from `<site>_300x250` /
+   *  `<site>_728x90`. */
+  readonly VITE_ADINPLAY_SLOT_HOME?: string;
+  readonly VITE_ADINPLAY_SLOT_LOBBY?: string;
 }
 
 interface ImportMeta {
