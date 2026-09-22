@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 // GitHub Pages serves this project from https://<user>.github.io/monopoly/
@@ -11,6 +12,10 @@ export default defineConfig({
   base,
   plugins: [
     react(),
+    // Omertà's screens are the Mafia app's own, which are written in
+    // Tailwind. Its utilities carry a tw: prefix, so they can never collide
+    // with the rest of the site's class names.
+    tailwindcss(),
     VitePWA({
       // A new service worker waits for the player to ask for it: the host's
       // tab IS the table, so nothing here may force a reload. The toast in

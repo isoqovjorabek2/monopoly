@@ -1,0 +1,224 @@
+/* ==================================================================
+   Omertà wears the Mafia app's own clothes: its tokens, its type and
+   its component classes, ported as they are. Tailwind is here only for
+   these screens, and every utility carries the tw: prefix. The theme
+   sits in a layer; the utilities do not, so the site's own element
+   resets (a bare <button> has no padding) cannot override them.
+   ================================================================== */
+
+@import url("https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700;800;900&family=Cinzel+Decorative:wght@400;700;900&family=Crimson+Text:ital,wght@0,400;0,600;1,400;1,600&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+@import "tailwindcss/theme.css" layer(theme) prefix(tw);
+@import "tailwindcss/utilities.css" prefix(tw);
+@source "./";
+
+.om {
+  --ink: #07080b;
+  --bone: #f3ead4;
+  --paper: #e6ddc6;
+  --paper-dim: #b8b09c;
+  --ash: #8a8576;
+  --crimson: #c0392b;
+  --gold: #c89b4a;
+  --gold-bright: #e9c97a;
+  --gold-glow: rgba(233, 201, 122, 0.45);
+  --f-display: "Cinzel", "Playfair Display", serif;
+  --f-headline: "Cinzel", serif;
+
+  background-color: #0a0a0f;
+  color: #e8e8f0;
+  font-family: "Crimson Text", Georgia, serif;
+  -webkit-font-smoothing: antialiased;
+}
+.om h1, .om h2, .om h3 { font-family: "Cinzel", serif; letter-spacing: normal; line-height: 1.2; }
+.om ::selection { background: rgba(192, 57, 43, 0.4); color: #ffd700; }
+.om ::-webkit-scrollbar { width: 4px; }
+.om ::-webkit-scrollbar-track { background: #12121a; }
+.om ::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #c0392b, #8e44ad); border-radius: 2px; }
+.om * { scrollbar-color: #c0392b #12121a; }
+/* The site resets buttons to plain boxes; the app's buttons centre their
+   label, as a browser's do. :where() keeps this below any utility. */
+:where(.om) button { cursor: pointer; text-align: center; }
+.om button:disabled { cursor: not-allowed; }
+.om input::placeholder { color: #555; }
+
+/* ── The app's component classes ─────────────────────────────── */
+
+.om .glass {
+  background: rgba(26, 26, 46, 0.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 215, 0, 0.1);
+}
+.om .glass-dark {
+  background: rgba(10, 10, 15, 0.8);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  border: 1px solid rgba(192, 57, 43, 0.15);
+}
+.om .btn-primary {
+  position: relative;
+  overflow: hidden;
+  padding: 0.75rem 2rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-size: 0.875rem;
+  background: linear-gradient(135deg, #c0392b, #8e44ad);
+  border: 1px solid rgba(255, 215, 0, 0.3);
+  transition: all 0.3s ease;
+  color: #fff;
+}
+.om .btn-primary:hover { box-shadow: 0 0 30px rgba(192, 57, 43, 0.5), 0 0 60px rgba(192, 57, 43, 0.2); transform: translateY(-1px); }
+.om .btn-secondary {
+  position: relative;
+  overflow: hidden;
+  padding: 0.75rem 2rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-size: 0.875rem;
+  background: transparent;
+  border: 1px solid rgba(255, 215, 0, 0.4);
+  color: #f1c40f;
+  transition: all 0.3s ease;
+}
+.om .btn-secondary:hover {
+  background: rgba(255, 215, 0, 0.05);
+  border-color: rgba(255, 215, 0, 0.8);
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.2);
+  transform: translateY(-1px);
+}
+.om .phase-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.om .player-dead { opacity: 0.4; filter: grayscale(1) brightness(0.5); }
+.om .gradient-text {
+  background: linear-gradient(135deg, #f1c40f, #c0392b, #8e44ad);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Role card ───────────────────────────────────────────────── */
+.om .rc {
+  --rc-c: var(--gold);
+  --rc-glow: var(--gold-glow);
+  position: relative;
+  width: 100%;
+  aspect-ratio: 283 / 452;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 28%, color-mix(in srgb, var(--rc-c) 14%, transparent), transparent 65%),
+    linear-gradient(180deg, #18120f 0%, #0c0a0d 60%, #050507 100%);
+  border-radius: 8px;
+  overflow: hidden;
+  color: var(--bone);
+  box-shadow: 0 18px 40px -14px rgba(0, 0, 0, 0.85), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  isolation: isolate;
+  user-select: none;
+}
+.om .rc::before {
+  content: ""; position: absolute; inset: 0;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.4' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.6'/></svg>");
+  opacity: 0.12; mix-blend-mode: overlay; pointer-events: none; z-index: 1;
+}
+.om .rc::after {
+  content: ""; position: absolute; inset: 0;
+  background: radial-gradient(ellipse 90% 70% at 50% 50%, transparent 50%, rgba(0, 0, 0, 0.7) 100%);
+  pointer-events: none; z-index: 2;
+}
+.om .rc__frame {
+  position: absolute; inset: 6px;
+  border: 1px solid color-mix(in srgb, var(--rc-c) 50%, transparent);
+  border-radius: 4px; pointer-events: none; z-index: 3;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.5), 0 0 18px color-mix(in srgb, var(--rc-glow) 30%, transparent);
+}
+.om .rc__frame::before, .om .rc__frame::after, .om .rc__corner-tr, .om .rc__corner-bl {
+  content: ""; position: absolute; width: 18px; height: 18px; border: 1.5px solid var(--rc-c);
+}
+.om .rc__frame::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+.om .rc__frame::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+.om .rc__corner-tr { position: absolute; top: 5px; right: 5px; border-left: 0; border-bottom: 0; z-index: 3; }
+.om .rc__corner-bl { position: absolute; bottom: 5px; left: 5px; border-right: 0; border-top: 0; z-index: 3; }
+.om .rc__inner {
+  position: relative; z-index: 4;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  height: 100%;
+  padding: 14px 14px 12px;
+  gap: 5px;
+}
+.om .rc__seal {
+  width: 20px; height: 20px; margin: 0 auto;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, color-mix(in srgb, var(--rc-c) 80%, white 10%), color-mix(in srgb, var(--rc-c) 60%, black 30%) 60%, #1a0503 100%);
+  border: 1px solid color-mix(in srgb, var(--rc-c) 70%, white 15%);
+  box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.5), 0 0 12px color-mix(in srgb, var(--rc-glow) 60%, transparent);
+  position: relative;
+}
+.om .rc__seal::after {
+  content: ""; position: absolute; inset: 4px; border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, color-mix(in srgb, var(--rc-c) 60%, white 10%) 0%, color-mix(in srgb, var(--rc-c) 40%, black 40%) 100%);
+}
+.om .rc__title {
+  text-align: center;
+  font-family: var(--f-display);
+  font-weight: 900; font-size: 18px;
+  letter-spacing: 0.1em; line-height: 1; margin-top: 4px;
+  color: color-mix(in srgb, var(--rc-c) 75%, white 10%);
+  text-indent: 0.1em;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.8), 0 0 18px color-mix(in srgb, var(--rc-glow) 65%, transparent);
+  white-space: nowrap;
+}
+.om .rc__art {
+  position: relative; border-radius: 4px; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 50%, color-mix(in srgb, var(--rc-c) 8%, transparent), transparent 60%),
+    linear-gradient(180deg, #050507, #0a070a 50%, #03020a 100%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rc-c) 18%, transparent);
+}
+.om .rc__art svg { width: 100%; height: 100%; }
+.om .rc__art::after {
+  content: ""; position: absolute; inset: 0;
+  background: radial-gradient(ellipse 60% 40% at 50% 60%, color-mix(in srgb, var(--rc-glow) 12%, transparent), transparent 60%);
+  pointer-events: none; mix-blend-mode: screen; z-index: 1;
+}
+.om .rc__med-row { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 3px; }
+.om .rc__divider { width: 80%; height: 1px; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--rc-c) 60%, transparent), transparent); }
+.om .rc__med {
+  width: 30px; height: 30px; border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, color-mix(in srgb, var(--rc-c) 30%, #1a0d0a), #0a0508 70%);
+  border: 1.2px solid color-mix(in srgb, var(--rc-c) 75%, transparent);
+  box-shadow: inset 0 -3px 6px rgba(0, 0, 0, 0.5), 0 0 18px color-mix(in srgb, var(--rc-glow) 50%, transparent);
+  display: flex; align-items: center; justify-content: center; color: var(--rc-c);
+}
+.om .rc__team {
+  text-align: center; font-family: var(--f-headline); font-size: 8px; letter-spacing: 0.4em;
+  color: color-mix(in srgb, var(--rc-c) 70%, white 5%); text-transform: uppercase; text-indent: 0.4em;
+}
+.om .rc__desc {
+  font-size: 10px; line-height: 1.4; text-align: center;
+  color: var(--paper-dim); font-style: italic; margin: 0 2px; text-wrap: pretty;
+}
+.om .rc__diamond {
+  width: 5px; height: 5px; margin: 3px auto 0;
+  background: var(--rc-c); transform: rotate(45deg);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--rc-glow) 60%, transparent);
+}
+.om .rc__sheen {
+  position: absolute; inset: 0;
+  background: radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgba(255, 255, 255, 0.07), transparent 35%);
+  opacity: 0; transition: opacity 250ms; pointer-events: none; mix-blend-mode: screen; z-index: 5;
+}
+.om .rc:hover .rc__sheen { opacity: 1; }
+.om .rc--cover .rc__title { font-size: 28px; letter-spacing: 0.18em; }
+.om .rc--cover .rc__art { flex: 1; }
+@keyframes rc-glow-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }

@@ -13,6 +13,7 @@ import { UpdateToast } from './ui/Pwa';
 const CashflowGame = lazy(() => import('./ui/cashflow/CashflowGame'));
 /* Omertà likewise: its screens and its art load only at an Omertà table. */
 const MafiaGame = lazy(() => import('./ui/mafia/MafiaGame'));
+const MafiaLobby = lazy(() => import('./ui/mafia/MafiaLobby'));
 
 export default function App() {
   const screen = useStore((s) => s.screen);
@@ -59,7 +60,11 @@ export default function App() {
     >
       {screen === 'home' && <Home />}
       {screen === 'account' && <AccountPage />}
-      {screen === 'lobby' && <Lobby />}
+      {screen === 'lobby' && (kind === 'mafia' ? (
+        <Suspense fallback={<div className="cfLoading"><div className="spinner" aria-hidden /></div>}>
+          <MafiaLobby />
+        </Suspense>
+      ) : <Lobby />)}
       {screen === 'game' && kind === 'monopoly' && <Game />}
       {screen === 'game' && kind === 'cashflow' && (
         <Suspense fallback={<div className="cfLoading"><div className="spinner" aria-hidden /></div>}>

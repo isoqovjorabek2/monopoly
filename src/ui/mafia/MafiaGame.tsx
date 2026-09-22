@@ -1,131 +1,149 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import '../../styles/mafia.css';
-import { MAF_ART, mafRoleCard } from '../../art/art';
+import { Circle, Home, LayoutGrid, MessageCircle, SkipForward, Volume2, VolumeX } from 'lucide-react';
+import './omerta.css';
 import { useT } from '../../i18n';
-import { ROLE_TEAM } from '../../mafia/data';
-import { deathLine, mafDescribe } from '../../mafia/describe';
-import { clockKey, clockSeconds, isFamily, waitingOn } from '../../mafia/rules';
-import type {
-  MafiaAction, MafiaDeath, MafiaPrivate, MafiaState, NightKind,
-} from '../../mafia/types';
-import { canKick } from '../../net/moderation';
+import type { Dict } from '../../i18n/en';
+import type { MFLogLine } from '../../mafia/describe';
+import { clockKey, clockSeconds } from '../../mafia/rules';
+import type { MafiaAction, MafiaDeath, MafiaState, NightKind } from '../../mafia/types';
+import type { ChatMessage } from '../../net/protocol';
 import { useStore } from '../../store/store';
-import { CoownerDock, SeatRequestsDock, TakeSeatPanel } from '../Account';
+import { TakeSeatPanel } from '../Account';
 import { useBreakBefore } from '../Ads';
 import { useAlertsSwitch, useTableAlert } from '../alerts';
 import { useCountdown } from '../bits';
-import { FxLayer, useFx } from '../Fx';
-import { useGameKeys } from '../Help';
-import { LangSwitch } from '../LangSwitch';
-import type { FeedLine } from '../Panels';
 import { useWakeLock } from '../wakeLock';
-import { playSting, playTrack, readMusicOn, saveMusicOn, type MafTrack } from './audio';
-import { MafiaFeed } from './MafiaChat';
-import { ElimScreen, MafiaGameOver, MafiaHelp, RoleReveal, myTeamWon } from './MafiaOverlays';
-import { Town, type TownLayout } from './MafiaTown';
+import { isAudioEnabled, onAudioChange, playAmbient, playSFX, setAudioEnabled, stopAmbient, TRACKS } from './audio';
+import { ChatPanel, type ChatItem } from './ChatPanel';
+import { PhaseTimer, SurvivorCounter } from './Hud';
+import { roleDef, teammateNames, viewPlayers } from './model';
+import { ElimScreen, GameOverScreen, RoleReveal } from './Overlays';
+import { NightPanel, SniperPanel, VotingPanel } from './Panels';
+import { PlayerGrid, RoundTable } from './Seats';
 
 type Dispatch = (a: MafiaAction) => void;
+type Layout = 'grid' | 'round';
 
-/** What a tap on a chair means right now. */
-type Aim = { kind: NightKind } | { kind: 'vote' } | { kind: 'snipe' };
-
-/** Who an aim may land on, mirroring rules.isLegal from what this seat can
- *  see: the family never marks its own, only the doctor may pick themselves,
- *  and not last night's patient. */
-function targetsFor(m: MafiaState, me: string, aim: Aim, priv: MafiaPrivate | null): string[] {
-  const family = new Set((priv?.teammates ?? []).map((x) => x.id));
-  return m.seats.filter((id) => {
-    if (!m.players[id]?.alive) return false;
-    if (aim.kind === 'protect') return id !== priv?.noProtect;
-    if (id === me) return false;
-    if (aim.kind === 'kill') return !family.has(id);
-    return true;
-  });
-}
+const PHASE_BG: Record<string, string> = {
+  night: 'radial-gradient(ellipse at center, rgba(60,20,90,0.25) 0%, rgba(10,10,15,0.97) 60%), radial-gradient(ellipse at bottom, rgba(192,57,43,0.08) 0%, transparent 50%)',
+  day: 'radial-gradient(ellipse at top, rgba(180,100,10,0.15) 0%, rgba(10,10,15,0.97) 60%)',
+  vote: 'radial-gradient(ellipse at center, rgba(192,57,43,0.15) 0%, rgba(10,10,15,0.97) 60%)',
+  game_over: 'radial-gradient(ellipse at center, rgba(192,57,43,0.2) 0%, rgba(0,0,0,0.99) 60%)',
+};
 
 const LAYOUT_KEY = 'mply.mafLayout';
-const readLayout = (): TownLayout => {
+const readLayout = (): Layout => {
   try { return localStorage.getItem(LAYOUT_KEY) === 'round' ? 'round' : 'grid'; } catch { return 'grid'; }
 };
 
+const mono = "'JetBrains Mono', monospace";
+const cinzel = "'Cinzel', serif";
+
+/** The table's news as the app's narrator tells it, one pill per line. */
+function narration(m: MafiaState, line: MFLogLine, t: Dict): { avatar: string; content: string }[] {
+  const M = t.maf;
+  const name = (id: string | null | undefined): string => (id && m.players[id]?.name) || t.defaults.someone;
+  const shown = (role: MafiaDeath['role']) => (role ? ` ${M.dawn.roleWas(M.roles[role].name)}` : '');
+  const e = line.event;
+  switch (e.type) {
+    case 'DAWN': {
+      const out: { avatar: string; content: string }[] = [];
+      for (const d of e.deaths) {
+        if (d.cause === 'bodyguard') out.push({ avatar: '🛡️', content: M.dawn.guarded(name(d.id), name(d.saved)) + shown(d.role) });
+        else if (d.cause === 'detective') out.push({ avatar: '🔍', content: M.dawn.shot(name(d.id)) + shown(d.role) });
+        else out.push({ avatar: '🔪', content: M.dawn.died(name(d.id)) + shown(d.role) });
+      }
+      for (const id of e.saved) out.push({ avatar: '💊', content: M.dawn.saved(name(id)) });
+      for (const id of e.silenced) out.push({ avatar: '🤫', content: M.day.silenced(name(id)) });
+      return out.length > 0 ? out : [{ avatar: '🌙', content: M.dawn.quiet }];
+    }
+    case 'LYNCHED':
+      return [{ avatar: '⚖️', content: M.vote.lynched(name(e.playerId)) + shown(e.role) }];
+    case 'NO_LYNCH':
+      return [{ avatar: '⚖️', content: e.tie ? M.vote.tie : M.vote.noVotes }];
+    case 'SNIPED':
+      return [{ avatar: '🎯', content: `💥 ${M.dawn.sniped(name(e.playerId))}${shown(e.role)}` }];
+    case 'SEAT_TAKEN':
+      return [{ avatar: '🎭', content: t.account.log.seatTaken(e.name, e.previous) }];
+    default:
+      return [];
+  }
+}
+
 /**
- * The Omertà table: the town as a ring of chairs, the night or the day
- * across the middle, the talk and the log to the side. Everything a
- * player may know comes from the public state plus their own private
- * slice; nothing here can see another seat's role.
+ * The Omertà table, as the Mafia app lays it out: the phase and the clock
+ * across the top, the town and what to do in the middle, the chat down
+ * the side (a drawer on a phone). Everything a player may know comes from
+ * the public state plus their own private slice.
  */
 export default function MafiaGame() {
   const t = useT();
-  const M = t.maf;
+  const U = t.maf.ui;
   const room = useStore((s) => s.room);
   const me = useStore((s) => s.me);
   const role = useStore((s) => s.role);
   const priv = useStore((s) => s.mafPrivate);
   const mafLog = useStore((s) => s.mafLog);
   const chat = useStore((s) => s.chat);
-  const sheet = useStore((s) => s.sheet);
-  const soundOn = useStore((s) => s.soundOn);
   const netError = useStore((s) => s.netError);
   const dispatch = useStore((s) => s.dispatch) as Dispatch;
-  const openSheet = useStore((s) => s.openSheet);
-  const toggleSound = useStore((s) => s.toggleSound);
   const sendChat = useStore((s) => s.sendChat);
   const skip = useStore((s) => s.mafSkip);
-  const removeSeat = useStore((s) => s.removeSeat);
   const leave = useStore((s) => s.leave);
   const leaveAfterBreak = useBreakBefore(leave);
 
   useWakeLock(true);
-  const [helpOpen, setHelpOpen] = useState(false);
-  const noFocusMode = useCallback(() => {}, []);
-  useGameKeys(useCallback(() => setHelpOpen((v) => !v), []), noFocusMode);
-
-  const [layout, setLayout] = useState<TownLayout>(readLayout);
-  const changeLayout = (v: TownLayout) => {
-    setLayout(v);
-    try { localStorage.setItem(LAYOUT_KEY, v); } catch { /* private mode */ }
-  };
-  const [musicOn, setMusicOn] = useState(readMusicOn);
 
   const m = room?.mf ?? null;
   const myId = me.playerId;
   const mine = m?.players[myId] ?? null;
   const isHost = Boolean(room && room.hostId === myId);
-  const name = useCallback((id: string | null | undefined): string => (id && m?.players[id]?.name) || M.table.nobody, [m, M]);
+  const phase = m?.phase ?? 'night';
 
-  /* A role with two night moves (the detective, a lone silencer) picks one. */
-  const [mode, setMode] = useState<NightKind | null>(null);
-  /* One choice in hand at a time; a new phase or round starts it afresh. */
-  const [picked, setPicked] = useState<string | null>(null);
+  const [layout, setLayout] = useState<Layout>(readLayout);
+  const toggleLayout = () => setLayout((v: Layout) => {
+    const next: Layout = v === 'grid' ? 'round' : 'grid';
+    try { localStorage.setItem(LAYOUT_KEY, next); } catch { /* private mode */ }
+    return next;
+  });
+  const [audioOn, setAudioOn] = useState(isAudioEnabled);
+  useEffect(() => onAudioChange(setAudioOn), []);
+  const [showMobileChat, setShowMobileChat] = useState(false);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [kind, setKind] = useState<NightKind | null>(null);
   const phaseKey = m ? `${m.phase}:${m.round}` : '';
-  useEffect(() => { setPicked(null); }, [phaseKey, mode]);
+  useEffect(() => { setSelected(null); setKind(null); }, [phaseKey]);
 
   const left = useCountdown(m ? clockSeconds(m) : 0, m ? clockKey(m) : '');
 
-  /* The score follows the phase. */
-  const phase = m?.phase;
-  useEffect(() => {
-    const track: MafTrack | null = !soundOn || !musicOn ? null
-      : phase === 'night' ? 'night' : phase === 'day' ? 'day' : phase === 'vote' ? 'voting' : null;
-    playTrack(track);
-  }, [phase, soundOn, musicOn]);
-  useEffect(() => () => playTrack(null), []);
+  /* Stars for the night sky, placed once. */
+  const [stars] = useState(() => Array.from({ length: 35 }, () => ({
+    left: Math.random() * 100, top: Math.random() * 65, large: Math.random() > 0.8,
+    opacityMax: Math.random() * 0.7 + 0.3, duration: Math.random() * 3 + 1.5, delay: Math.random() * 4,
+  })));
 
-  /* The card is turned over once per game, when the role arrives. */
+  /* The score follows the phase; a chime marks each change. */
+  useEffect(() => {
+    const track = phase === 'night' ? TRACKS.night : phase === 'day' ? TRACKS.day : phase === 'vote' ? TRACKS.voting : null;
+    if (audioOn && track) playAmbient(track); else stopAmbient();
+  }, [phase, audioOn]);
+  const prevPhase = useRef<string | null>(null);
+  useEffect(() => {
+    if (prevPhase.current !== null && prevPhase.current !== phase) playSFX(TRACKS.notif, 0.4);
+    prevPhase.current = phase;
+  }, [phase]);
+  useEffect(() => () => stopAmbient(), []);
+
+  /* The card is dealt once per game, when the role arrives. */
   const [revealing, setRevealing] = useState(false);
   const hadRole = useRef(false);
   useEffect(() => {
-    if (priv && !hadRole.current && m?.round === 1 && m.phase === 'night') {
-      setRevealing(true);
-      if (soundOn) playSting('reveal', 0.5);
-    }
+    if (priv && !hadRole.current && m?.round === 1 && m.phase === 'night') setRevealing(true);
     hadRole.current = Boolean(priv);
-  }, [priv, m?.round, m?.phase, soundOn]);
+  }, [priv, m?.round, m?.phase]);
 
-  /* A death takes the whole screen for a moment, one at a time. The queue
-   * is a plain list; the state only ever holds its head, so nothing with a
-   * side effect runs inside a state update. */
+  /* A death takes the whole screen for a moment, one at a time. */
   const [elims, setElims] = useState<MafiaDeath[]>([]);
   const aliveBefore = useRef<Set<string> | null>(null);
   useEffect(() => {
@@ -135,22 +153,39 @@ export default function MafiaGame() {
     aliveBefore.current = alive;
     if (!before) return;
     const fresh = m.lastDeaths.filter((d) => before.has(d.id) && !alive.has(d.id));
-    if (fresh.length === 0) return;
-    setElims((q) => [...q, ...fresh]);
-    if (soundOn) playSting('elim', 0.6);
-  }, [m, soundOn]);
+    if (fresh.length > 0) setElims((q) => [...q, ...fresh]);
+  }, [m]);
   const elim = elims[0] ?? null;
   const nextElim = useCallback(() => setElims((q) => q.slice(1)), []);
 
-  /* A whisper or the family's word, heard. */
-  const heard = useRef(chat.length);
+  /* This seat's private notes: investigation results, a gag. */
+  const [notes, setNotes] = useState<ChatItem[]>([]);
+  const [nightResult, setNightResult] = useState<string | null>(null);
+  const seenChecks = useRef(0);
+  const checks = priv?.checks;
   useEffect(() => {
-    const fresh = chat.slice(heard.current);
-    heard.current = chat.length;
-    if (soundOn && fresh.some((c) => c.from !== myId && (c.channel === 'whisper' || c.channel === 'family'))) {
-      playSting('notif', 0.4);
+    const list = checks ?? [];
+    if (list.length <= seenChecks.current) { seenChecks.current = list.length; return; }
+    const fresh = list.slice(seenChecks.current);
+    seenChecks.current = list.length;
+    for (const c of fresh) {
+      const who = useStore.getState().room?.mf?.players[c.target]?.name ?? '';
+      const text = U.result.investigated(who, t.maf.roles[c.seen].name, c.guilty ? U.faction.mafia : U.faction.town);
+      setNightResult(text);
+      setNotes((n) => [...n, { id: `chk-${c.round}-${c.target}`, at: Date.now(), type: 'system', isWhisper: true, playerId: '', username: '', avatar: '🔍', content: text }]);
     }
-  }, [chat, myId, soundOn]);
+  }, [checks, t, U]);
+  useEffect(() => {
+    if (!nightResult) return;
+    const id = setTimeout(() => setNightResult(null), 5000);
+    return () => clearTimeout(id);
+  }, [nightResult]);
+  const gagged = Boolean(m && m.phase === 'day' && m.silencedToday.includes(myId));
+  const round = m?.round ?? 0;
+  useEffect(() => {
+    if (!gagged) return;
+    setNotes((n) => [...n, { id: `gag-${round}`, at: Date.now(), type: 'system', isWhisper: true, playerId: '', username: '', avatar: '🤫', content: t.maf.day.silencedYou }]);
+  }, [gagged, round, t]);
 
   /* The tab title flashes when the table is waiting on this player. */
   const alerts = useAlertsSwitch();
@@ -162,381 +197,300 @@ export default function MafiaGame() {
   }, [m, mine, myId, priv, t]);
   useTableAlert(need, alerts.on);
 
-  /* The ending, for this seat. */
-  const [fx, fire] = useFx();
-  const ended = useRef(false);
-  useEffect(() => {
-    if (m?.phase !== 'game_over') { ended.current = false; return; }
-    if (ended.current) return;
-    ended.current = true;
-    const won = myTeamWon(m, myId);
-    if (won) fire('victory');
-    if (soundOn && m.players[myId]) playSting(won ? 'victory' : 'defeat', 0.6);
-  }, [m, myId, fire, soundOn]);
+  const players = useMemo(() => (m && room ? viewPlayers(m, room, myId, priv) : []), [m, room, myId, priv]);
+  const teammates = useMemo(() => (m ? teammateNames(m, priv, myId) : []), [m, priv, myId]);
 
-  const lines: FeedLine[] = useMemo(() => (m
-    ? mafLog.map((l) => ({
-      id: l.id,
-      tone: l.tone,
-      color: l.actor ? m.players[l.actor]?.color : undefined,
-      text: mafDescribe(m, l.event, t),
-    })).filter((l) => l.text)
-    : []), [mafLog, m, t]);
+  const items = useMemo<ChatItem[]>(() => {
+    if (!m) return [];
+    const said: ChatItem[] = chat.map((c: ChatMessage) => ({
+      id: c.id,
+      at: c.at,
+      type: c.channel === 'family' ? 'mafia' : c.channel === 'last' ? 'last_words' : 'player',
+      playerId: c.from,
+      username: c.name,
+      avatar: c.name,
+      content: c.text,
+      isWhisper: c.channel === 'whisper',
+      whisperTargetName: c.toName,
+    }));
+    const news: ChatItem[] = mafLog.flatMap((l) => narration(m, l, t).map((n, i) => ({
+      id: `log-${l.id}-${i}`, at: l.at, type: 'system' as const, playerId: '', username: '', avatar: n.avatar, content: n.content,
+    })));
+    return [...said, ...news, ...notes].sort((a, b) => a.at - b.at);
+  }, [chat, mafLog, notes, m, t]);
 
   if (!room || !m) return null;
 
-  const night = m.phase === 'night';
-  const aliveCount = m.seats.filter((id) => m.players[id].alive).length;
-  const phaseTitle = m.phase === 'night' ? M.night.title(m.round)
-    : m.phase === 'day' ? M.day.title(m.round)
-      : m.phase === 'vote' ? M.vote.title
-        : M.over.title;
+  const isDead = Boolean(mine && !mine.alive);
+  const isFamily = Boolean(priv && priv.teammates.length > 0);
+  const myRole = priv ? roleDef(t, priv.role) : null;
+  const canSkip = isHost && m.phase !== 'game_over';
 
   // What a tap on a chair means right now.
-  let aim: Aim | null = null;
-  if (mine?.alive && priv) {
-    const kinds = priv.kinds;
-    if (m.phase === 'night' && kinds.length > 0 && !priv.move) {
-      aim = { kind: mode && kinds.includes(mode) ? mode : kinds[0] };
-    } else if (m.phase === 'vote') {
-      aim = { kind: 'vote' };
-    } else if (m.phase === 'day' && priv.role === 'sniper' && priv.shotLeft) {
-      aim = { kind: 'snipe' };
-    }
-  }
-  const targets = aim ? targetsFor(m, myId, aim, priv) : [];
-  const mySeatId = room.seats.find((x) => x.playerId === myId || room.owners?.[x.playerId] === myId)?.playerId ?? myId;
-  const toggleMusic = () => { setMusicOn((v) => { saveMusicOn(!v); return !v; }); };
+  const nightKind: NightKind | null = m.phase === 'night' && mine?.alive && priv && priv.kinds.length > 0 && !priv.move
+    ? (kind && priv.kinds.includes(kind) ? kind : priv.kinds[0])
+    : null;
+  const family = new Set((priv?.teammates ?? []).map((x) => x.id));
+  const aliveIds = m.seats.filter((id: string) => m.players[id].alive);
+  let targets: string[] = [];
+  if (nightKind === 'protect') targets = aliveIds.filter((id: string) => id !== priv?.noProtect);
+  else if (nightKind === 'kill') targets = aliveIds.filter((id: string) => id !== myId && !family.has(id));
+  else if (nightKind) targets = aliveIds.filter((id: string) => id !== myId);
+  else if (m.phase === 'vote' && mine?.alive) targets = aliveIds.filter((id: string) => id !== myId);
+  else if (m.phase === 'day' && mine?.alive && priv?.role === 'sniper' && priv.shotLeft) targets = aliveIds.filter((id: string) => id !== myId);
+
+  const vote = (target: string | null) => dispatch({ type: 'VOTE', playerId: myId, target });
+  const onSeat = (id: string) => {
+    if (m.phase === 'vote') { playSFX(TRACKS.click, 0.4); vote(m.votes[myId] === id ? null : id); return; }
+    setSelected((cur) => (cur === id ? null : id));
+  };
+  const bossName = priv?.boss ? m.players[priv.boss]?.name ?? '' : '';
+  const Seats = layout === 'round' ? RoundTable : PlayerGrid;
+  const bannerPhase = m.phase === 'night' || m.phase === 'day' || m.phase === 'vote' ? m.phase : null;
+
+  const chatPanel = (
+    <ChatPanel
+      items={items}
+      players={players}
+      myPlayerId={myId}
+      phase={m.phase}
+      isDead={isDead}
+      lastWordsUsed={m.lastWords.includes(myId)}
+      isSilenced={gagged}
+      isFamily={isFamily}
+      onSend={sendChat}
+    />
+  );
+
+  const iconBtn = 'tw:w-11 tw:h-11 tw:rounded-lg tw:flex tw:items-center tw:justify-center tw:relative';
+  const iconStyle = { background: 'rgba(26,26,46,0.6)', border: '1px solid rgba(255,215,0,0.1)', color: '#e8e8f0' };
+  const layoutLabel = layout === 'grid' ? U.layout.round : U.layout.grid;
 
   return (
-    <div
-      className="mfGame"
-      data-phase={m.phase}
-      style={{ '--mf-night': `url("${MAF_ART.night}")` } as CSSProperties}
-    >
-      <header className="mfGame__top">
-        <button type="button" className="btn btn--ghost btn--sm" onClick={leave}>{t.common.leave}</button>
-        <span className="overline mfGame__title">{M.name}</span>
-        <div className="spacer" />
-        <button type="button" className="btn btn--ghost btn--sm" onClick={toggleMusic} aria-pressed={musicOn} disabled={!soundOn}>
-          {M.table.music}
-        </button>
-        <button type="button" className="btn btn--ghost btn--sm" onClick={toggleSound} aria-pressed={soundOn}>
-          {soundOn ? t.game.soundOn : t.game.soundOff}
-        </button>
-        <button
-          type="button"
-          className="btn btn--ghost btn--sm"
-          onClick={alerts.toggle}
-          aria-pressed={alerts.on}
-          title={alerts.blocked ? t.table.alerts.blocked : t.table.alerts.title}
-        >
-          {alerts.on ? t.table.alerts.on : t.table.alerts.off}
-        </button>
-        <LangSwitch />
-        <button type="button" className="btn btn--ghost btn--sm" onClick={() => setHelpOpen(true)} aria-label={t.game.howToPlay}>
-          <span className="mfGame__helpLabel">{t.game.howToPlay}</span>
-          <kbd className="kbd">?</kbd>
-        </button>
-      </header>
+    <div className="om tw:min-h-screen tw:overflow-hidden">
+      <motion.div key={m.phase} className="tw:fixed tw:inset-0 tw:pointer-events-none" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+        transition={{ duration: 1.5 }} style={{ background: PHASE_BG[m.phase] ?? PHASE_BG.night }} />
+      {m.phase === 'night' && (
+        <div className="tw:fixed tw:inset-0 tw:pointer-events-none tw:overflow-hidden">
+          {stars.map((s, i) => (
+            <motion.div key={i} className="tw:absolute tw:rounded-full"
+              style={{ left: `${s.left}%`, top: `${s.top}%`, width: s.large ? 2 : 1, height: s.large ? 2 : 1, background: '#fff' }}
+              animate={{ opacity: [0.1, s.opacityMax, 0.1] }} transition={{ duration: s.duration, repeat: Infinity, delay: s.delay }} />
+          ))}
+        </div>
+      )}
 
-      {netError && <div className="banner banner--bad" role="alert">{netError}</div>}
+      <div className="tw:relative tw:z-10 tw:flex tw:flex-col" style={{ height: '100dvh' }}>
+        <div className="tw:flex tw:items-center tw:justify-between tw:gap-2 tw:px-4 tw:py-3 tw:border-b tw:flex-shrink-0"
+          style={{ background: 'rgba(10,10,15,0.85)', backdropFilter: 'blur(20px)', borderColor: 'rgba(255,215,0,0.07)' }}>
+          <PhaseTimer phase={m.phase} timeLeft={left} round={m.round} />
+          <SurvivorCounter m={m} />
+          <div className="tw:flex tw:items-center tw:gap-2">
+            {myRole && !isDead && (
+              <div className="tw:hidden tw:sm:flex tw:items-center tw:gap-2 tw:px-3 tw:py-1.5 tw:rounded-lg tw:text-xs"
+                style={{ background: `${myRole.color}15`, border: `1px solid ${myRole.color}33` }}>
+                <span>{myRole.icon}</span>
+                <span style={{ color: myRole.color, fontFamily: cinzel }}>{myRole.name}</span>
+              </div>
+            )}
+            {isDead && (
+              <div className="tw:px-3 tw:py-1.5 tw:rounded-lg tw:text-xs tw:text-[#e74c3c]"
+                style={{ background: 'rgba(192,57,43,0.15)', border: '1px solid rgba(192,57,43,0.3)' }}>💀 {U.dead}</div>
+            )}
+            {!mine && (
+              <div className="tw:px-3 tw:py-1.5 tw:rounded-lg tw:text-xs tw:text-[#8e44ad]"
+                style={{ background: 'rgba(142,68,173,0.15)', border: '1px solid rgba(142,68,173,0.3)' }}>👁️ {U.spectating}</div>
+            )}
+            <motion.button type="button" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => setShowMobileChat((v) => !v)}
+              className={`tw:md:hidden ${iconBtn}`} aria-label={U.chatToggle}
+              style={{ ...iconStyle, background: showMobileChat ? 'rgba(192,57,43,0.3)' : iconStyle.background }}>
+              <MessageCircle size={16} />
+              {items.length > 0 && !showMobileChat && (
+                <span className="tw:absolute tw:-top-1 tw:-right-1 tw:w-4 tw:h-4 tw:rounded-full tw:bg-[#e74c3c] tw:text-white tw:flex tw:items-center tw:justify-center"
+                  style={{ fontSize: 9, fontFamily: mono }}>
+                  {Math.min(items.length, 9)}
+                </span>
+              )}
+            </motion.button>
+            {canSkip && (
+              <motion.button type="button" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={skip}
+                title={U.skip} aria-label={U.skip} className={iconBtn}
+                style={{ background: 'rgba(243,156,18,0.15)', border: '1px solid rgba(243,156,18,0.4)' }}>
+                <SkipForward size={16} className="tw:text-[#f39c12]" />
+              </motion.button>
+            )}
+            <motion.button type="button" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={toggleLayout}
+              title={layoutLabel} aria-label={layoutLabel} className={`tw:hidden tw:sm:flex ${iconBtn}`} style={iconStyle}>
+              {layout === 'grid' ? <Circle size={16} /> : <LayoutGrid size={16} />}
+            </motion.button>
+            <motion.button type="button" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => setAudioEnabled(!audioOn)}
+              aria-label={U.music} aria-pressed={audioOn} className={iconBtn} style={iconStyle}>
+              {audioOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
+            </motion.button>
+            <motion.button type="button" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={leave}
+              aria-label={U.home} title={U.home} className={iconBtn} style={iconStyle}>
+              <Home size={16} />
+            </motion.button>
+          </div>
+        </div>
 
-      <div className="mfGame__layout">
-        <main className="mfGame__stage">
-          <motion.section
-            key={phaseKey}
-            className="mfPhase"
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-          >
-            <img className="mfPhase__emblem" src={night ? MAF_ART.moon : MAF_ART.sun} alt="" width={64} height={64} />
-            <div className="mfPhase__text">
-              <h1 className="mfPhase__title">{phaseTitle}</h1>
-              <p className="mfPhase__meta">
-                <span className="num">{M.table.alive(aliveCount, m.seats.length)}</span>
-                {m.aliveCounts && (
-                  <span className="num">{M.table.counts(m.aliveCounts.village, m.aliveCounts.mafia, m.aliveCounts.jester)}</span>
-                )}
-              </p>
+        <div className="tw:sm:hidden tw:flex tw:items-center tw:justify-between tw:px-4 tw:py-1.5 tw:border-b tw:flex-shrink-0"
+          style={{ background: 'rgba(10,10,15,0.75)', borderColor: 'rgba(255,215,0,0.05)' }}>
+          {myRole && !isDead ? (
+            <div className="tw:flex tw:items-center tw:gap-1.5 tw:px-2 tw:py-1 tw:rounded-lg tw:text-xs"
+              style={{ background: `${myRole.color}15`, border: `1px solid ${myRole.color}33` }}>
+              <span>{myRole.icon}</span>
+              <span style={{ color: myRole.color, fontFamily: cinzel }}>{myRole.name}</span>
             </div>
-            <div className="spacer" />
-            {left != null && m.phase !== 'game_over' && (
-              <span className="mfPhase__clock num" data-low={left <= 10 || undefined}>{t.common.seconds(left)}</span>
-            )}
-            {isHost && m.phase !== 'game_over' && (
-              <button type="button" className="btn btn--ghost btn--sm" onClick={skip}>{M.table.skip}</button>
-            )}
-          </motion.section>
+          ) : <span />}
+          <button type="button" onClick={toggleLayout} className="tw:text-[#8888aa] tw:p-2" aria-label={layoutLabel}>
+            {layout === 'grid' ? <Circle size={14} /> : <LayoutGrid size={14} />}
+          </button>
+          <SurvivorCounter m={m} compact />
+        </div>
 
-          <div className="mfGame__layoutSwitch" role="group" aria-label={M.table.layout.label}>
-            {(['grid', 'round'] as const).map((v) => (
-              <button key={v} type="button" className="chip" data-on={layout === v || undefined}
-                aria-pressed={layout === v} onClick={() => changeLayout(v)}>
-                {M.table.layout[v]}
-              </button>
-            ))}
+        {netError && (
+          <div className="tw:px-4 tw:py-2 tw:text-xs tw:text-center" role="alert"
+            style={{ background: 'rgba(192,57,43,0.2)', color: '#f0b8b8', fontFamily: mono }}>
+            {netError}
+          </div>
+        )}
+
+        <div className="tw:flex tw:flex-1 tw:min-h-0 tw:overflow-hidden">
+          <div className="tw:flex-1 tw:flex tw:flex-col tw:p-4 tw:gap-4 tw:overflow-y-auto tw:overflow-x-hidden tw:min-w-0">
+            <AnimatePresence>
+              {nightResult && (
+                <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
+                  className="tw:p-3 tw:rounded-lg tw:text-sm tw:text-center"
+                  style={{ background: 'rgba(52,152,219,0.15)', border: '1px solid rgba(52,152,219,0.4)', color: '#3498db', fontFamily: mono }}>
+                  🔍 {nightResult}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <AnimatePresence mode="wait">
+              {bannerPhase && (
+                <motion.div key={bannerPhase} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.4 }}
+                  className="tw:text-center tw:py-3">
+                  <motion.div className="tw:text-5xl tw:mb-2"
+                    animate={bannerPhase === 'day' ? { rotate: [-5, 5, -5] } : { scale: bannerPhase === 'vote' ? [1, 1.06, 1] : [1, 1.1, 1] }}
+                    transition={{ duration: bannerPhase === 'vote' ? 1.5 : bannerPhase === 'day' ? 4 : 3, repeat: Infinity }}>
+                    {bannerPhase === 'night' ? '🌙' : bannerPhase === 'day' ? '☀️' : '🗳️'}
+                  </motion.div>
+                  <h2 className="tw:text-xl tw:font-bold"
+                    style={{ fontFamily: cinzel, color: bannerPhase === 'night' ? '#8e44ad' : bannerPhase === 'day' ? '#f39c12' : '#e74c3c' }}>
+                    {U.banner[bannerPhase][0]}
+                  </h2>
+                  <p className="tw:text-sm tw:text-[#8888aa] tw:mt-1" style={{ fontFamily: "'Crimson Text', serif" }}>{U.banner[bannerPhase][1]}</p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <div>
+              {layout === 'grid' && (
+                <p className="tw:text-xs tw:font-bold tw:text-[#8888aa] tw:tracking-widest tw:uppercase tw:mb-3" style={{ fontFamily: mono }}>
+                  {U.players}
+                </p>
+              )}
+              <Seats
+                players={players}
+                phase={m.phase}
+                round={m.round}
+                myPlayerId={myId}
+                teammates={teammates}
+                onSelect={onSeat}
+                selectedId={selected}
+                votes={m.votes}
+                targets={targets}
+              />
+            </div>
+
+            <AnimatePresence mode="wait">
+              {!mine && m.phase !== 'game_over' && (
+                <motion.div key="watch" initial={{ opacity: 0 }} animate={{ opacity: 1 }}><TakeSeatPanel /></motion.div>
+              )}
+              {m.phase === 'night' && mine && !isDead && myRole && priv && (
+                <motion.div key="night" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}>
+                  <NightPanel
+                    role={myRole}
+                    players={players}
+                    myPlayerId={myId}
+                    priv={priv}
+                    kind={nightKind}
+                    setKind={setKind}
+                    onAction={(k, target) => {
+                      dispatch({ type: 'NIGHT_MOVE', playerId: myId, kind: k, target });
+                      if (k === 'shoot') setNightResult(U.result.shot(m.players[target]?.name ?? ''));
+                      setSelected(null);
+                    }}
+                    selectedTarget={selected}
+                    setSelectedTarget={setSelected}
+                    bossName={bossName}
+                  />
+                </motion.div>
+              )}
+              {m.phase === 'day' && mine && !isDead && priv?.role === 'sniper' && (
+                <motion.div key="sniper" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}>
+                  <SniperPanel
+                    players={players}
+                    myPlayerId={myId}
+                    shotLeft={priv.shotLeft}
+                    onSnipe={(target) => {
+                      dispatch({ type: 'SNIPE', playerId: myId, target });
+                      setNightResult(U.result.sniped(m.players[target]?.name ?? ''));
+                      setSelected(null);
+                    }}
+                    selectedTarget={selected}
+                    setSelectedTarget={setSelected}
+                  />
+                </motion.div>
+              )}
+              {m.phase === 'vote' && mine && (
+                <motion.div key="vote" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}>
+                  <VotingPanel players={players} myPlayerId={myId} votes={m.votes} onVote={vote} onCancelVote={() => vote(null)} isDead={isDead} />
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
-          <Town
-            m={m}
-            myId={myId}
-            priv={priv}
-            layout={layout}
-            targets={targets}
-            picked={picked}
-            onPick={aim ? setPicked : undefined}
-            canKickSeat={(id) => canKick(room, mySeatId, room.seats.find((x) => x.playerId === id))}
-            onKick={removeSeat}
-            connected={(id) => room.seats.find((x) => x.playerId === id)?.connected !== false}
-          />
+          <div className="tw:hidden tw:md:flex tw:flex-col tw:w-80 tw:border-l tw:flex-shrink-0"
+            style={{ borderColor: 'rgba(255,215,0,0.06)', background: 'rgba(10,10,15,0.6)', backdropFilter: 'blur(10px)' }}>
+            {chatPanel}
+          </div>
+        </div>
 
-          {!mine ? (
-            <TakeSeatPanel />
-          ) : (
-            <ActionPanel
-              m={m}
-              myId={myId}
-              priv={priv}
-              aim={aim}
-              picked={picked}
-              setPicked={setPicked}
-              setMode={setMode}
-              dispatch={dispatch}
-              name={name}
-            />
+        <AnimatePresence>
+          {showMobileChat && (
+            <motion.div key="mobile-chat" initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', stiffness: 340, damping: 32 }}
+              className="tw:md:hidden tw:fixed tw:inset-x-0 tw:bottom-0 tw:z-40 tw:flex tw:flex-col tw:rounded-t-2xl"
+              style={{ height: 'calc(100dvh * 0.65)', background: 'rgba(10,10,15,0.97)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,215,0,0.12)', borderBottom: 'none' }}>
+              <div className="tw:flex tw:items-center tw:justify-center tw:px-4 tw:pt-3 tw:pb-1 tw:flex-shrink-0">
+                <div className="tw:w-10 tw:h-1 tw:rounded-full tw:bg-[rgba(255,255,255,0.15)]" />
+              </div>
+              <div className="tw:flex-1 tw:min-h-0">{chatPanel}</div>
+            </motion.div>
           )}
-        </main>
-
-        <aside className="mfGame__side" data-open={sheet === 'log' || undefined}>
-          <SeatRequestsDock />
-          <CoownerDock />
-          {priv && mine && <RoleNote m={m} priv={priv} name={name} />}
-          <MafiaFeed m={m} myId={myId} priv={priv} chat={chat} lines={lines} onSend={sendChat} />
-        </aside>
+        </AnimatePresence>
+        {showMobileChat && <div className="tw:md:hidden tw:fixed tw:inset-0 tw:z-30" onClick={() => setShowMobileChat(false)} />}
       </div>
 
-      <nav className="mfGame__tabbar" aria-label={t.game.panelsAria}>
-        <button type="button" className="tabbar__item" data-on={sheet !== 'log' || undefined} onClick={() => openSheet('none')}>
-          {M.table.tabs.stage}
-        </button>
-        <button type="button" className="tabbar__item" data-on={sheet === 'log' || undefined}
-          onClick={() => openSheet(sheet === 'log' ? 'none' : 'log')}>
-          {M.table.tabs.chat}
-        </button>
-      </nav>
-
       <AnimatePresence>
-        {revealing && priv && (
+        {revealing && myRole && priv && (
           <RoleReveal
-            key="reveal"
-            role={priv.role}
-            teammates={priv.teammates.filter((x) => x.id !== myId)}
-            name={(id) => name(id)}
+            key="role"
+            role={myRole}
+            teammates={players.filter((p) => family.has(p.id) && p.id !== myId)}
             onClose={() => setRevealing(false)}
           />
         )}
         {!revealing && elim && <ElimScreen key={`elim-${elim.id}`} m={m} death={elim} onClose={nextElim} />}
+        {m.phase === 'game_over' && !elim && (
+          <GameOverScreen key="over" m={m} myId={myId}
+            onRematch={role !== 'guest' ? useStore.getState().rematch : undefined}
+            onLeave={leaveAfterBreak} />
+        )}
       </AnimatePresence>
-      {m.phase === 'game_over' && !elim && (
-        <MafiaGameOver
-          m={m}
-          myId={myId}
-          onLeave={leaveAfterBreak}
-          onRematch={role !== 'guest' ? useStore.getState().rematch : undefined}
-        />
-      )}
-      <MafiaHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
-      <FxLayer request={fx} />
     </div>
-  );
-}
-
-/* ------------------------------ what to do ------------------------------ */
-
-function ActionPanel({
-  m, myId, priv, aim, picked, setPicked, setMode, dispatch, name,
-}: {
-  m: MafiaState;
-  myId: string;
-  priv: MafiaPrivate | null;
-  aim: Aim | null;
-  picked: string | null;
-  setPicked: (id: string | null) => void;
-  setMode: (v: NightKind) => void;
-  dispatch: Dispatch;
-  name: (id: string | null | undefined) => string;
-}) {
-  const t = useT();
-  const M = t.maf;
-  const me = m.players[myId];
-  const waiting = waitingOn(m).length;
-
-  if (m.phase === 'game_over') return null;
-
-  if (!me.alive) {
-    return (
-      <section className="mfAct">
-        <p className="mfAct__lead">{M.table.deadNote}</p>
-      </section>
-    );
-  }
-
-  if (!priv) return <section className="mfAct"><div className="spinner" aria-hidden /></section>;
-
-  if (m.phase === 'night') {
-    const kinds = priv.kinds;
-    const family = isFamily(priv.role);
-    const crew = priv.teammates.filter((x) => x.id !== myId);
-    const act = () => {
-      if (!aim || aim.kind === 'vote' || aim.kind === 'snipe' || !picked) return;
-      dispatch({ type: 'NIGHT_MOVE', playerId: myId, kind: aim.kind, target: picked });
-      setPicked(null);
-    };
-    return (
-      <section className="mfAct mfAct--night" data-team={ROLE_TEAM[priv.role]}>
-        <div className="mfAct__head">
-          <img src={mafRoleCard(priv.role)} alt="" width={48} height={45} />
-          <div>
-            <p className="mfAct__role">{M.roles[priv.role].name}</p>
-            <p className="mfAct__lead">{kinds.length === 0 ? M.night.asleep : M.night.lead}</p>
-          </div>
-        </div>
-
-        {family && crew.length > 0 && (
-          <p className="mfAct__family">
-            {M.night.crew}: {crew.map((x) => `${name(x.id)} (${M.roles[x.role].name})`).join(', ')}
-          </p>
-        )}
-        {family && kinds.includes('kill') && (
-          <p className="mfAct__family">{priv.boss === myId ? M.night.youAreBoss : M.night.boss(name(priv.boss))}</p>
-        )}
-
-        {aim && aim.kind !== 'vote' && aim.kind !== 'snipe' ? (
-          <>
-            {kinds.length > 1 && (
-              <div className="mfModes" role="group">
-                {kinds.map((k) => (
-                  <button key={k} type="button" className="mfMode" data-kind={k} data-on={aim.kind === k || undefined}
-                    aria-pressed={aim.kind === k} onClick={() => setMode(k)}>
-                    {M.night.modes[k]}
-                  </button>
-                ))}
-              </div>
-            )}
-            {aim.kind === 'investigate' && <p className="muted small">{M.night.investigateNote}</p>}
-            {aim.kind === 'shoot' && <p className="muted small">{M.night.shootNote}</p>}
-            <p className="mfAct__title">{M.night.choose[aim.kind]}</p>
-            <p className="muted small">
-              {picked ? M.table.youChose(name(picked)) : M.table.pick}
-              {priv.noProtect && aim.kind === 'protect' && <> {M.night.noRepeat} ({name(priv.noProtect)})</>}
-            </p>
-            <button type="button" className="btn btn--primary" data-kind={aim.kind} disabled={!picked} onClick={act}>
-              {M.night.confirm[aim.kind]}
-            </button>
-          </>
-        ) : priv.move ? (
-          <>
-            <p className="mfAct__title">{M.night.submitted}</p>
-            <p className="muted small">{M.table.youChose(name(priv.move.target))}</p>
-          </>
-        ) : null}
-      </section>
-    );
-  }
-
-  if (m.phase === 'day') {
-    const snipe = () => {
-      if (!picked) return;
-      dispatch({ type: 'SNIPE', playerId: myId, target: picked });
-      setPicked(null);
-    };
-    return (
-      <section className="mfAct mfAct--day">
-        <div className="mfNews">
-          <p className="overline">{M.dawn.title}</p>
-          {m.lastDeaths.length === 0 && m.lastSaved.length === 0 && <p>{M.dawn.quiet}</p>}
-          {m.lastDeaths.map((d) => <p key={d.id} className="mfNews__death">{deathLine(m, d, t)}</p>)}
-          {m.lastSaved.map((id) => <p key={id} className="mfNews__saved">{M.dawn.saved(name(id))}</p>)}
-          {m.silencedToday.map((id) => <p key={id} className="mfAct__bad">{M.day.silenced(name(id))}</p>)}
-        </div>
-        <p className="mfAct__lead">{M.day.lead}</p>
-        {m.silencedToday.includes(myId) && <p className="mfAct__bad">{M.day.silencedYou}</p>}
-        {priv.role === 'sniper' && (
-          <div className="mfSnipe">
-            <p className="mfAct__title">{M.day.snipe.title}</p>
-            {priv.shotLeft ? (
-              <>
-                <p className="muted small">{picked ? M.table.youChose(name(picked)) : M.day.snipe.note}</p>
-                <button type="button" className="btn btn--primary" data-kind="shoot" disabled={!picked} onClick={snipe}>
-                  {M.day.snipe.confirm}
-                </button>
-              </>
-            ) : (
-              <p className="muted small">{M.day.snipe.spent}</p>
-            )}
-          </div>
-        )}
-      </section>
-    );
-  }
-
-  // The vote.
-  const myVote = m.votes[myId];
-  const vote = (target: string | null) => {
-    dispatch({ type: 'VOTE', playerId: myId, target });
-    setPicked(null);
-  };
-  return (
-    <section className="mfAct mfAct--vote">
-      <p className="mfAct__lead">{M.vote.lead}</p>
-      {myVote && <p className="mfAct__title">{M.vote.youVoted(name(myVote))}</p>}
-      <p className="muted small">{picked ? M.table.youChose(name(picked)) : M.table.pick}</p>
-      <div className="mfAct__row">
-        <button type="button" className="btn btn--primary" disabled={!picked || picked === myVote} onClick={() => vote(picked)}>
-          {myVote ? M.vote.change : M.table.confirm}
-        </button>
-        {myVote && <button type="button" className="btn btn--ghost" onClick={() => vote(null)}>{M.vote.retract}</button>}
-      </div>
-      <p className="mfAct__wait">{M.vote.waiting(waiting)}</p>
-    </section>
-  );
-}
-
-/** The side panel's reminder of who you are, and what you have learned. */
-function RoleNote({ m, priv, name }: { m: MafiaState; priv: MafiaPrivate; name: (id: string) => string }) {
-  const t = useT();
-  const M = t.maf;
-  return (
-    <section className="mfNote" data-team={ROLE_TEAM[priv.role]}>
-      <img src={mafRoleCard(priv.role)} alt="" width={64} height={60} />
-      <div className="mfNote__body">
-        <p className="overline">{M.reveal.yourRole}</p>
-        <p className="mfNote__name">{M.roles[priv.role].name}</p>
-        <p className="muted small">{M.roles[priv.role].brief}</p>
-        {priv.teammates.length > 1 && (
-          <p className="small mfNote__family">
-            {M.reveal.teammatesTitle}: {priv.teammates.map((x) => name(x.id)).join(', ')}
-          </p>
-        )}
-        {priv.role === 'detective' && priv.checks.length > 0 && (
-          <>
-            <p className="overline mfNote__sub">{M.table.checksTitle}</p>
-            <ul className="mfNote__checks">
-              {priv.checks.map((c) => (
-                <li key={`${c.round}:${c.target}`} data-guilty={c.guilty || undefined}>
-                  <span className="num">{M.night.title(c.round)}</span>{' · '}
-                  {M.result.checked(name(c.target), M.roles[c.seen].name, c.guilty ? M.result.guilty : M.result.innocent)}
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-        {m.phase !== 'game_over' && priv.role === 'sniper' && (
-          <p className="muted small">{priv.shotLeft ? M.day.snipe.title : M.day.snipe.spent}</p>
-        )}
-      </div>
-    </section>
   );
 }

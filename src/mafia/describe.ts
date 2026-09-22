@@ -10,11 +10,13 @@ export interface MFLogLine {
   event: MafiaEvent;
   actor: string | null;
   tone: 'info' | 'good' | 'bad' | 'big';
+  /** When it happened here, so the table's talk and its news interleave. */
+  at: number;
 }
 
 export function mafLogLine(e: MafiaEvent, seq: number): MFLogLine | null {
   const line = (actor: string | null, tone: MFLogLine['tone'] = 'info'): MFLogLine =>
-    ({ id: `${seq}`, event: e, actor, tone });
+    ({ id: `${seq}`, event: e, actor, tone, at: Date.now() });
 
   switch (e.type) {
     // Night business stays secret, and the tally is on the table itself.
