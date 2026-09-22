@@ -432,11 +432,11 @@ function MedIcon({ roleId, size = 16 }: { roleId: string; size?: number }) {
 
 /* Natural render width - the .rc CSS was designed at this size */
 const NATURAL_W = 220;
-const SIZE_W: Record<string, number> = { sm: 88, md: 158, lg: 220 };
+const SIZE_W: Record<string, number> = { xs: 60, sm: 88, md: 158, lg: 220 };
 
 interface Props {
   role: RoleDef;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'xs' | 'sm' | 'md' | 'lg';
   glowing?: boolean;
   className?: string;
 }
@@ -498,7 +498,7 @@ export function RoleCard({ role, size = 'md', glowing = false, className = '' }:
               <MedIcon roleId={role.id} size={16} />
             </div>
             <div className="rc__team">{t.maf.ui.team[role.faction]}</div>
-            {size !== 'sm' && <p className="rc__desc">{role.description}</p>}
+            {size !== 'sm' && size !== 'xs' && <p className="rc__desc">{role.description}</p>}
             <div className="rc__diamond" />
           </div>
         </div>
@@ -509,7 +509,7 @@ export function RoleCard({ role, size = 'md', glowing = false, className = '' }:
 }
 
 /** The face-down card, for the shuffle. */
-export function RoleCardBack({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
+export function RoleCardBack({ size = 'md' }: { size?: 'xs' | 'sm' | 'md' | 'lg' }) {
   const cv = ROLE_COLORS.cover;
   const w = SIZE_W[size];
   const scale = w / NATURAL_W;
