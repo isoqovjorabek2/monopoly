@@ -293,6 +293,10 @@ export const MAF_ART = {
 /** One engraved emblem per role, for the reveal and the night table. */
 export const mafRoleArt = (role: MafiaRole): string => base(`mafia/roles/${role}.jpg`);
 
+/** The painted role card - title and portrait - from the Mafia app's deck,
+ *  for the reveal, the seat of the dead and the final roll call. */
+export const mafRoleCard = (role: MafiaRole): string => base(`mafia/cards/${role}.jpg`);
+
 /* ------------------------------ Cashflow ------------------------------ */
 
 /**

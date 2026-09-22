@@ -1,6 +1,6 @@
-import { MAF_MIN_PLAYERS, ROLE_TEAM } from './data';
+import { MAFIA_SIDE, MAF_MIN_PLAYERS, NIGHT_KINDS, ROLE_TEAM } from './data';
 import type {
-  MafiaAction, MafiaPrivate, MafiaRole, MafiaState, NightDuty,
+  MafiaAction, MafiaPrivate, MafiaRole, MafiaState, NightKind,
 } from './types';
 
 /* ------------------------------------------------------------------ *
@@ -9,75 +9,76 @@ import type {
  * is one definition of each.
  * ------------------------------------------------------------------ */
 
-export type { NightDuty } from './types';
+export const isFamily = (role: MafiaRole | undefined): boolean => role != null && MAFIA_SIDE.includes(role);
 
-const DUTY_FOR_ROLE: Partial<Record<MafiaRole, NightDuty>> = {
-  silencer: 'silence',
-  doctor: 'save',
-  detective: 'check',
-  bodyguard: 'guard',
-  sniper: 'shoot',
-};
+/** The moves a role may make at night; empty for those who sleep. */
+export const nightKinds = (role: MafiaRole | undefined): NightKind[] => (role ? NIGHT_KINDS[role] ?? [] : []);
 
-/** What the night still expects from one player, submitted or not. The
- *  sniper's duty lapses once the single bullet is spent. */
-export function nightDuties(s: MafiaState, playerId: string): NightDuty[] {
+/**
+ * The moves one seat may make tonight. A Silencer left as the last of the
+ * family inherits the knife, or the family could never kill again: they
+ * choose between the gag and the kill, one move a night like everyone.
+ */
+export function nightKindsFor(s: MafiaState, playerId: string): NightKind[] {
   const sec = s.secret;
-  if (!sec) return [];
-  const role = sec.roles[playerId];
-  if (!role) return [];
-  const out: NightDuty[] = [];
-  if (ROLE_TEAM[role] === 'mafia') out.push('kill');
-  const duty = DUTY_FOR_ROLE[role];
-  if (duty && !(role === 'sniper' && sec.sniperUsed[playerId])) out.push(duty);
-  return out;
+  const role = sec?.roles[playerId];
+  if (!sec || !role) return [];
+  if (role === 'silencer') {
+    const killers = s.seats.some((id) => s.players[id]?.alive && (sec.roles[id] === 'mafia' || sec.roles[id] === 'godfather'));
+    if (!killers) return ['kill', 'silence'];
+  }
+  return nightKinds(role);
 }
 
-/** True while the night is still waiting on a submission from this seat. */
+/** True while the night still waits on this seat's move. */
 export function nightPendingFor(s: MafiaState, playerId: string): boolean {
   const sec = s.secret;
   if (!sec || s.phase !== 'night') return false;
   const p = s.players[playerId];
-  if (!p || !p.alive) return false;
-  return nightDuties(s, playerId).some((k) => !(k in sec.night));
+  if (!p?.alive) return false;
+  return nightKindsFor(s, playerId).length > 0 && !(playerId in sec.night);
 }
 
-/** Who the table is waiting on right now - the only players a timer or a
- *  dropped connection can hold the game up for. A guest copy holds no
- *  secret, so the night answers empty there. */
+/** Who the table is waiting on right now. The day waits on nobody - it
+ *  runs on the clock. A guest copy holds no secret, so the night answers
+ *  empty there. */
 export function waitingOn(s: MafiaState): string[] {
-  const alive = s.seats.filter((id) => Boolean(s.players[id]) && s.players[id].alive);
+  const alive = s.seats.filter((id) => s.players[id]?.alive);
   switch (s.phase) {
-    case 'reveal':
-      return alive.filter((id) => !s.acks.includes(id));
     case 'night':
       return s.secret ? alive.filter((id) => nightPendingFor(s, id)) : [];
-    case 'day':
-      return alive;
     case 'vote':
-      return alive.filter((id) => !s.silencedToday.includes(id) && !(id in s.votes));
+      return alive.filter((id) => !(id in s.votes));
     default:
       return [];
   }
 }
 
-/** What the clock is timing. The host's timeout and every player's
- *  on-screen countdown restart together whenever this changes. */
-export const clockKey = (s: MafiaState): string =>
-  `${s.phase}:${s.round}:${waitingOn(s).length}`;
+/** What the clock is timing: one clock per phase, never restarted. */
+export const clockKey = (s: MafiaState): string => `${s.phase}:${s.round}`;
 
-/** Seconds on the clock for the decision in front of the table. 0 = none. */
+/** Seconds on the clock for the phase in front of the table. */
 export function clockSeconds(s: MafiaState): number {
   switch (s.phase) {
-    case 'day':
-      return s.settings.discussionSeconds || s.settings.turnTimer;
-    case 'reveal':
-    case 'night':
-    case 'vote':
-      return s.settings.turnTimer;
-    default:
-      return 0;
+    case 'night': return s.settings.nightSeconds;
+    case 'day': return s.settings.daySeconds;
+    case 'vote': return s.settings.voteSeconds;
+    default: return 0;
   }
+}
+
+/**
+ * Who has the family's final say tonight: the Godfather while he lives,
+ * then the Silencer, then the first of the rest at the table.
+ */
+export function actingBoss(s: MafiaState): string | null {
+  const sec = s.secret;
+  if (!sec) return null;
+  const family = s.seats.filter((id) => s.players[id]?.alive && isFamily(sec.roles[id]));
+  return family.find((id) => sec.roles[id] === 'godfather')
+    ?? family.find((id) => sec.roles[id] === 'silencer')
+    ?? family[0]
+    ?? null;
 }
 
 /* ---------------------------- legal actions ---------------------------- *
@@ -90,45 +91,34 @@ export function isLegal(s: MafiaState, a: MafiaAction): boolean {
   if (a.type === 'START_GAME') {
     return s.phase === 'lobby' && s.seats.includes(a.playerId) && s.seats.length >= MAF_MIN_PLAYERS;
   }
+  if (a.type === 'ADVANCE') return s.phase === 'night' || s.phase === 'day' || s.phase === 'vote';
 
   const me = s.players[a.playerId];
   if (!me || !me.alive) return false;
   const sec = s.secret;
   const aliveOther = (t: unknown): t is string =>
-    typeof t === 'string' && t !== a.playerId && Boolean(s.players[t]) && s.players[t].alive;
+    typeof t === 'string' && t !== a.playerId && Boolean(s.players[t]?.alive);
 
   switch (a.type) {
-    case 'ACK_ROLE':
-      return s.phase === 'reveal' && !s.acks.includes(a.playerId);
-
-    case 'NIGHT_KILL': {
-      if (s.phase !== 'night' || !sec) return false;
-      if (ROLE_TEAM[sec.roles[a.playerId]] !== 'mafia') return false;
-      if (a.target === null) return true;
-      return aliveOther(a.target) && ROLE_TEAM[sec.roles[a.target]] !== 'mafia';
+    case 'NIGHT_MOVE': {
+      if (s.phase !== 'night' || !sec || a.playerId in sec.night) return false;
+      if (!nightKindsFor(s, a.playerId).includes(a.kind)) return false;
+      if (a.kind === 'protect') {
+        // The doctor may keep themselves alive, but not the same patient twice running.
+        return typeof a.target === 'string' && Boolean(s.players[a.target]?.alive)
+          && sec.lastProtect[a.playerId] !== a.target;
+      }
+      if (!aliveOther(a.target)) return false;
+      // The family never marks its own.
+      if (a.kind === 'kill') return !isFamily(sec.roles[a.target]);
+      return true;
     }
-    case 'NIGHT_SILENCE':
-      return s.phase === 'night' && !!sec && sec.roles[a.playerId] === 'silencer'
-        && (a.target === null || aliveOther(a.target));
-    case 'NIGHT_SAVE':
-      return s.phase === 'night' && !!sec && sec.roles[a.playerId] === 'doctor'
-        && (a.target === null || (typeof a.target === 'string' && Boolean(s.players[a.target]) && s.players[a.target].alive));
-    case 'NIGHT_CHECK':
-      return s.phase === 'night' && !!sec && sec.roles[a.playerId] === 'detective'
-        && (a.target === null || aliveOther(a.target));
-    case 'NIGHT_GUARD':
-      return s.phase === 'night' && !!sec && sec.roles[a.playerId] === 'bodyguard'
-        && (a.target === null || aliveOther(a.target));
-    case 'NIGHT_SHOOT': {
-      if (s.phase !== 'night' || !sec || sec.roles[a.playerId] !== 'sniper') return false;
-      if (a.target === null) return true;
-      return !sec.sniperUsed[a.playerId] && aliveOther(a.target);
-    }
-
-    case 'VOTE': {
-      if (s.phase !== 'vote' || s.silencedToday.includes(a.playerId)) return false;
-      return a.target === null || aliveOther(a.target);
-    }
+    case 'SNIPE':
+      return s.phase === 'day' && !!sec && sec.roles[a.playerId] === 'sniper'
+        && !sec.sniperUsed.includes(a.playerId) && aliveOther(a.target);
+    case 'VOTE':
+      if (s.phase !== 'vote') return false;
+      return a.target === null ? a.playerId in s.votes : aliveOther(a.target);
     default:
       return false;
   }
@@ -138,37 +128,32 @@ export function isLegal(s: MafiaState, a: MafiaAction): boolean {
 
 /**
  * One player's view of the hidden ledger, pushed over a direct host ->
- * guest message and never inside the broadcast snapshot. The mafia see
- * their team and the night's kill choice; the detective sees every check;
- * the sniper sees whether the bullet is still chambered.
+ * guest message and never inside the broadcast snapshot.
  */
 export function privateFor(s: MafiaState, playerId: string): MafiaPrivate | null {
   const sec = s.secret;
   if (!sec) return null;
   const role = sec.roles[playerId];
   if (!role) return null;
-  const mafiaSide = ROLE_TEAM[role] === 'mafia';
+  const family = isFamily(role);
+  const picks: Record<string, string> = {};
+  if (family && s.phase === 'night') {
+    for (const [id, m] of Object.entries(sec.night)) if (m.kind === 'kill') picks[id] = m.target;
+  }
   return {
     role,
-    teammates: mafiaSide
-      ? s.seats
-        .filter((id) => ROLE_TEAM[sec.roles[id]] === 'mafia')
-        .map((id) => ({ id, role: sec.roles[id] }))
+    teammates: family
+      ? s.seats.filter((id) => isFamily(sec.roles[id])).map((id) => ({ id, role: sec.roles[id] }))
       : [],
-    sniperShotsLeft: sec.sniperUsed[playerId] ? 0 : 1,
+    boss: family ? actingBoss(s) : null,
+    kinds: s.players[playerId]?.alive ? nightKindsFor(s, playerId) : [],
+    move: s.phase === 'night' ? sec.night[playerId] ?? null : null,
+    familyPicks: picks,
+    noProtect: role === 'doctor' ? sec.lastProtect[playerId] ?? null : null,
+    shotLeft: role === 'sniper' && !sec.sniperUsed.includes(playerId),
     checks: sec.checks[playerId] ?? [],
-    nightKill: mafiaSide && s.phase === 'night'
-      ? { by: sec.night.killBy ?? null, target: sec.night.kill ?? null }
-      : null,
-    pending: s.phase === 'night' && s.players[playerId]?.alive
-      ? nightDuties(s, playerId).filter((k) => !(k in sec.night))
-      : [],
-    chosen: s.phase === 'night'
-      ? Object.fromEntries(
-        nightDuties(s, playerId)
-          .filter((k) => k !== 'kill' && k in sec.night)
-          .map((k) => [k, sec.night[k] ?? null]),
-      )
-      : {},
   };
 }
+
+/** The side a role wins with. */
+export const teamOf = (role: MafiaRole): 'mafia' | 'village' | 'jester' => ROLE_TEAM[role];

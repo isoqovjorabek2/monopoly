@@ -3,13 +3,15 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { CLASSIC, PRESETS, TOKENS } from '../game/settings';
 import type { BotLevel, GameSettings, TakeoverPolicy } from '../game/types';
 import type { CFRules } from '../cashflow/types';
-import { MAF_MAX_SEATS, MAF_MIN_PLAYERS, ROLE_TEAM, dealRoles } from '../mafia/data';
+import {
+  ALL_ROLES, MAF_MAX_SEATS, MAF_MIN_PLAYERS, MAF_PRESETS, ROLE_MAX, ROLE_TEAM, autoRoles, castProblem, castSize,
+} from '../mafia/data';
 import type { MafiaRole, MafiaRules } from '../mafia/types';
 import { useT, useBoardTheme } from '../i18n';
 import { hasDirectory } from '../net/directory';
 import { boardsOpen, roomTheme, tablePlus } from '../net/plus';
 import { BOARD_THEMES } from '../i18n/themes';
-import { mafRoleArt, themedFelt, themedMedal } from '../art/art';
+import { mafRoleCard, themedFelt, themedMedal } from '../art/art';
 import { roomLink, type RoomSnapshot } from '../net/protocol';
 import { CF_MAX_SEATS, seatLimit, useStore } from '../store/store';
 import { Avatar, Panel, Segmented, Slider, Toggle, fmt } from './bits';
@@ -147,7 +149,7 @@ export function Lobby() {
               </label>
             )}
             {isHost && cashflow && <p className="muted small">{t.cf.lobby.inviteOnly}</p>}
-            {isHost && mafia && <p className="muted small">{t.maf.setup.publicSoon}</p>}
+            {isHost && mafia && <p className="muted small">{t.maf.lobby.publicSoon}</p>}
           </section>
         )}
 
@@ -224,7 +226,12 @@ export function Lobby() {
         <div className="lobby__summary">
           {mafia ? (
             <>
-              <span className="chip">{t.maf.lobby.discussion}: {t.maf.lobby.seconds(room.mafRules.discussionSeconds)}</span>
+              <span className="chip">{room.mafRules.roles ? t.maf.lobby.custom : t.maf.lobby.auto}</span>
+              <span className="chip num">
+                {t.maf.lobby.night} {t.maf.lobby.seconds(room.mafRules.nightSeconds)}
+                {' · '}{t.maf.lobby.day} {t.maf.lobby.seconds(room.mafRules.daySeconds)}
+                {' · '}{t.maf.lobby.vote} {t.maf.lobby.seconds(room.mafRules.voteSeconds)}
+              </span>
               {room.mafRules.revealRolesOnDeath && <span className="chip">{t.maf.lobby.revealRoles}</span>}
             </>
           ) : cashflow ? (
@@ -256,7 +263,7 @@ export function Lobby() {
             className="btn btn--primary"
             onClick={startGame}
             disabled={!enoughPlayers}
-            title={enoughPlayers ? undefined : mafia ? t.maf.setup.needPlayers(MAF_MIN_PLAYERS) : L.needPlayers}
+            title={enoughPlayers ? undefined : mafia ? t.maf.lobby.needPlayers(MAF_MIN_PLAYERS) : L.needPlayers}
           >
             {L.start}
           </button>
@@ -524,8 +531,6 @@ function CashflowSettings({
 
 /* ------------------------------ Omertà's ------------------------------ */
 
-const DISCUSSION_STEPS = [30, 60, 90, 120, 180] as const;
-
 function MafiaSettingsPanel({
   room, canEdit, set, setRules,
 }: {
@@ -536,66 +541,108 @@ function MafiaSettingsPanel({
 }) {
   const t = useT();
   const L = t.lobby;
-  const M = t.maf;
+  const M = t.maf.lobby;
   const s = room.settings;
   const r = room.mafRules;
-  // The cast is dealt from the table as it will start: bots fill it to
-  // five when asked, so the preview shows what will actually be dealt.
-  const n = Math.max(room.seats.length, s.fillWithBots ? MAF_MIN_PLAYERS : room.seats.length);
-  const cast = n >= MAF_MIN_PLAYERS ? dealRoles(n) : [];
-  const counts = cast.reduce<Record<string, number>>((m, role) => ({ ...m, [role]: (m[role] ?? 0) + 1 }), {});
+  // The cast is for the table as it will start: bots fill it to the
+  // minimum when asked, so that is the number the host is casting for.
+  const n = Math.max(room.seats.length, s.fillWithBots ? MAF_MIN_PLAYERS : 0);
+  const custom = r.roles !== null;
+  const cast = r.roles ?? autoRoles(n);
+  const countOf = (role: MafiaRole): number => cast.find((x) => x.role === role)?.count ?? 0;
+  const problem = custom ? castProblem(cast, n) : null;
+  const setCount = (role: MafiaRole, count: number) => {
+    const next = ALL_ROLES
+      .map((id) => ({ role: id, count: id === role ? count : countOf(id) }))
+      .filter((x) => x.count > 0);
+    setRules({ roles: next });
+  };
 
   return (
     <section className="card lobby__rules mafLobby">
       <fieldset className="settings" disabled={!canEdit}>
         {!canEdit && <p className="muted small settings__lock">{L.hostOnly}</p>}
+
         <div className="mafLobby__cast">
-          <p className="overline">{M.lobby.castTitle}</p>
-          {cast.length > 0 ? (
-            <ul className="mafLobby__roles">
-              {Object.entries(counts).map(([role, count]) => (
-                <li key={role} className="mafLobby__role" data-team={ROLE_TEAM[role as MafiaRole]}>
-                  <img src={mafRoleArt(role as MafiaRole)} alt="" width={44} height={44} loading="lazy" decoding="async" />
-                  <span>{M.roles[role as MafiaRole].name}{count > 1 && <span className="num"> ×{count}</span>}</span>
-                </li>
+          <div className="mafLobby__castHead">
+            <p className="overline">{M.castTitle}</p>
+            <Segmented
+              label={M.castTitle}
+              value={custom ? 'custom' : 'auto'}
+              onChange={(v) => setRules({ roles: v === 'auto' ? null : autoRoles(n) })}
+              options={[{ value: 'auto', label: M.auto }, { value: 'custom', label: M.custom }]}
+            />
+          </div>
+
+          {custom && (
+            <div className="mafLobby__presets" role="group" aria-label={M.castTitle}>
+              {MAF_PRESETS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className="mafPreset"
+                  data-fits={(n >= p.min && n <= p.max) || undefined}
+                  onClick={() => setRules({ roles: p.roles })}
+                  title={M.presets[p.id as keyof typeof M.presets][1]}
+                >
+                  <span className="mafPreset__name">{M.presets[p.id as keyof typeof M.presets][0]}</span>
+                  <span className="mafPreset__note">{M.presets[p.id as keyof typeof M.presets][1]}</span>
+                </button>
               ))}
-            </ul>
-          ) : (
-            <p className="muted small">{M.setup.needPlayers(MAF_MIN_PLAYERS)}</p>
+            </div>
+          )}
+
+          <ul className="mafLobby__roles">
+            {ALL_ROLES.filter((role) => custom || countOf(role) > 0).map((role) => (
+              <li key={role} className="mafRoleRow" data-team={ROLE_TEAM[role]} data-off={countOf(role) === 0 || undefined}>
+                <img src={mafRoleCard(role)} alt="" width={40} height={39} loading="lazy" decoding="async" />
+                <span className="mafRoleRow__name">{t.maf.roles[role].name}</span>
+                {custom ? (
+                  <span className="mafStepper">
+                    <button type="button" aria-label={`- ${t.maf.roles[role].name}`}
+                      onClick={() => setCount(role, countOf(role) - 1)} disabled={countOf(role) === 0}>−</button>
+                    <span className="num">{countOf(role)}</span>
+                    <button type="button" aria-label={`+ ${t.maf.roles[role].name}`}
+                      onClick={() => setCount(role, countOf(role) + 1)} disabled={countOf(role) >= ROLE_MAX[role]}>+</button>
+                  </span>
+                ) : (
+                  <span className="num mafRoleRow__count">×{countOf(role)}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="muted small">
+            {custom ? M.total(castSize(cast), n) : M.autoNote}
+          </p>
+          {problem && (
+            <p className="small mafLobby__problem">{M.problems[problem]} {M.fallback}</p>
           )}
         </div>
+
         <div className="settings__cols">
           <div className="labelled">
-            <span className="switch__label">{M.lobby.discussion}</span>
-            <Segmented
-              label={M.lobby.discussion}
-              value={String(r.discussionSeconds)}
-              onChange={(v) => setRules({ discussionSeconds: Number(v) })}
-              options={DISCUSSION_STEPS.map((v) => ({ value: String(v), label: `${v}s` }))}
-            />
-            <p className="muted small">{M.lobby.discussionNote}</p>
+            <p className="overline">{M.timers}</p>
+            <Slider label={M.night} min={20} max={180} step={5} value={r.nightSeconds} format={M.seconds}
+              onChange={(v) => setRules({ nightSeconds: v })} />
+            <Slider label={M.day} min={30} max={300} step={10} value={r.daySeconds} format={M.seconds}
+              onChange={(v) => setRules({ daySeconds: v })} />
+            <Slider label={M.vote} min={20} max={180} step={5} value={r.voteSeconds} format={M.seconds}
+              onChange={(v) => setRules({ voteSeconds: v })} />
           </div>
           <Toggle
-            label={M.lobby.revealRoles}
-            hint={M.lobby.revealRolesNote}
+            label={M.revealRoles}
+            hint={M.revealRolesNote}
             checked={r.revealRolesOnDeath}
             onChange={(v) => setRules({ revealRolesOnDeath: v })}
           />
           <Slider
-            label={L.turnTimer}
-            min={0} max={120} step={5}
-            value={s.turnTimer}
-            format={(v) => (v === 0 ? t.common.off : t.common.seconds(v))}
-            onChange={(v) => set({ turnTimer: v })}
-          />
-          <Slider
-            label={M.setup.tableSize}
+            label={M.tableSize}
             min={MAF_MIN_PLAYERS} max={MAF_MAX_SEATS} step={1}
             value={Math.max(MAF_MIN_PLAYERS, Math.min(s.maxPlayers, MAF_MAX_SEATS))} format={L.players}
             onChange={(v) => set({ maxPlayers: v })}
           />
           <BotSettings s={s} set={set} />
-          {s.fillWithBots && <p className="muted small">{M.setup.fillNote}</p>}
+          {s.fillWithBots && <p className="muted small">{M.fillNote}</p>}
         </div>
       </fieldset>
     </section>

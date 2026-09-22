@@ -131,7 +131,7 @@ describe('snapshots sent to guests', () => {
     const snapshot: RoomSnapshot = {
       roomId: 'ROOM', hostId: 'p0', kind: 'monopoly', seats: [],
       settings: game.settings, cfRules: { strictLoans: true, turnLimit: 0, fastGoal: 50000 },
-      mafRules: { discussionSeconds: 60, revealRolesOnDeath: true }, mf: null,
+      mafRules: { nightSeconds: 60, daySeconds: 120, voteSeconds: 60, revealRolesOnDeath: true, roles: null }, mf: null,
       game, cf: null, epoch: 0, rev: 3,
     };
 
@@ -152,7 +152,7 @@ describe('snapshots sent to guests', () => {
     const snapshot: RoomSnapshot = {
       roomId: 'ROOM', hostId: 'p0', kind: 'cashflow', seats: [],
       settings: { ...CLASSIC, seed: 515151 }, cfRules: { strictLoans: true, turnLimit: 0, fastGoal: 50000 },
-      mafRules: { discussionSeconds: 60, revealRolesOnDeath: true }, mf: null,
+      mafRules: { nightSeconds: 60, daySeconds: 120, voteSeconds: 60, revealRolesOnDeath: true, roles: null }, mf: null,
       game: null, cf, epoch: 0, rev: 3,
     };
     const redacted = redactForGuests(snapshot);
@@ -179,7 +179,7 @@ describe('handing the table over', () => {
     const snapshot: RoomSnapshot = {
       roomId: 'ROOM', hostId: 'p0', kind: 'monopoly', seats: [],
       settings: game.settings, cfRules: { strictLoans: true, turnLimit: 0, fastGoal: 50000 },
-      mafRules: { discussionSeconds: 60, revealRolesOnDeath: true }, mf: null,
+      mafRules: { nightSeconds: 60, daySeconds: 120, voteSeconds: 60, revealRolesOnDeath: true, roles: null }, mf: null,
       game, cf: null, epoch: 0, rev: 3,
     };
 
@@ -203,7 +203,7 @@ describe('handing the table over', () => {
     const snapshot: RoomSnapshot = {
       roomId: 'ROOM', hostId: 'p0', kind: 'cashflow', seats: [],
       settings: { ...CLASSIC, seed: 515151 }, cfRules: { strictLoans: true, turnLimit: 0, fastGoal: 50000 },
-      mafRules: { discussionSeconds: 60, revealRolesOnDeath: true }, mf: null,
+      mafRules: { nightSeconds: 60, daySeconds: 120, voteSeconds: 60, revealRolesOnDeath: true, roles: null }, mf: null,
       game: null, cf, epoch: 0, rev: 3,
     };
     const taken = rehydrateForHost(redactForGuests(snapshot), 999);

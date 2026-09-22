@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { motion } from 'framer-motion';
 import '../styles/picker.css';
-import { ART, GAME_COVER, MAF_ART, cfJobArt, mafRoleArt, themedMedal } from '../art/art';
+import { ART, GAME_COVER, MAF_ART, cfJobArt, mafRoleCard, themedMedal } from '../art/art';
 import { professionById } from '../cashflow/data';
 import { BOARD, GROUP_COLOR } from '../game/board';
 import { spaceName, useT } from '../i18n';
@@ -299,9 +299,7 @@ function RoleCard({ role }: { role: MafiaRole }) {
   return (
     <article className="deedPlate rolePlate" data-team={ROLE_TEAM[role]} aria-label={r.name}>
       <div className="rolePlate__head">
-        <img className="rolePlate__art" src={mafRoleArt(role)} alt="" width={120} height={120} decoding="async" />
-        <span className="deedPlate__kicker">{t.maf.name}</span>
-        <span className="deedPlate__name">{r.name}</span>
+        <img className="rolePlate__art" src={mafRoleCard(role)} alt={r.name} width={283} height={265} decoding="async" />
       </div>
       <p className="rolePlate__brief">{r.brief}</p>
     </article>

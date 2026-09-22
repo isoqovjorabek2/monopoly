@@ -12,7 +12,7 @@ import { Avatar } from './bits';
 import { PlusBadge, PlusSheet } from './Plus';
 import { PublicRooms } from './PublicRooms';
 import { forgetTable, listTables, type SavedTable } from '../net/saves';
-import { MAF_MIN_PLAYERS } from '../mafia/data';
+import { MAF_PRACTICE_BOTS } from '../mafia/data';
 
 /* ==================================================================== *
  * The front door's card.
@@ -226,7 +226,7 @@ export function EntryCard({ pick, urlCode }: { pick: GameKind; urlCode: string }
                         <span className="visibility__label">{label}</span>
                         <span className="visibility__dot" aria-hidden />
                       </span>
-                      <span className="visibility__hint">{disabled ? (pick === 'mafia' ? t.maf.setup.publicSoon : E.host.publicCashflow) : hint}</span>
+                      <span className="visibility__hint">{disabled ? (pick === 'mafia' ? t.maf.lobby.publicSoon : E.host.publicCashflow) : hint}</span>
                     </button>
                   );
                 })}
@@ -275,7 +275,7 @@ export function EntryCard({ pick, urlCode }: { pick: GameKind; urlCode: string }
 
           {mode === 'practice' && (
             <>
-              <p className="modePanel__body">{E.practice.body(gameName, pick === 'mafia' ? MAF_MIN_PLAYERS + 1 : 2)}</p>
+              <p className="modePanel__body">{E.practice.body(gameName, pick === 'mafia' ? MAF_PRACTICE_BOTS : 2)}</p>
               <button
                 type="button"
                 className="btn btn--primary btn--block btn--lg"

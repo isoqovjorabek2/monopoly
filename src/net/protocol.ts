@@ -10,8 +10,10 @@ import type { MafiaAction, MafiaPrivate, MafiaRules, MafiaState } from '../mafia
  *  3: rounds, time-outs, estate auctions and host hand-over reshaped both
  *  games' state; an older tab would misread it.
  *  4: Omertà joined the table - a third kind, its own state slot, and
- *  private host -> guest messages an older tab has no idea what to do with. */
-export const PROTOCOL_VERSION = 4;
+ *  private host -> guest messages an older tab has no idea what to do with.
+ *  5: Omertà took the Mafia app's rules - timed phases, new night moves,
+ *  chat channels - and a 4 tab would misread every part of it. */
+export const PROTOCOL_VERSION = 5;
 
 /** PeerJS ids are shared across every app on the public broker, so we
  *  namespace ours. Players only ever see the readable half. */
@@ -105,6 +107,12 @@ export interface ChatMessage {
   color: string;
   text: string;
   at: number;
+  /** Omertà's private channels: the family's night talk, a dead player's
+   *  last word, a whisper between two. Absent for the whole table. */
+  channel?: 'family' | 'last' | 'whisper';
+  /** A whisper's other end. */
+  to?: string;
+  toName?: string;
 }
 
 /* ----------------------------- guest -> host ----------------------------- */

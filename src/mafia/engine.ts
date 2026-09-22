@@ -1,29 +1,38 @@
 import { shuffle } from '../game/rng';
 import type { SeatSpec } from '../game/engine';
 import { ROLE_TEAM, dealRoles } from './data';
-import { isLegal, nightDuties, waitingOn } from './rules';
+import { actingBoss, isFamily, isLegal, waitingOn } from './rules';
 import type {
-  MafiaAction, MafiaEvent, MafiaPlayer, MafiaReduction, MafiaRole, MafiaRules,
-  MafiaSettings, MafiaState, MafiaTeam,
+  MafiaAction, MafiaDeath, MafiaEvent, MafiaMvp, MafiaPlayer, MafiaReduction, MafiaRules,
+  MafiaSettings, MafiaState, MafiaTeam, MatchStats,
 } from './types';
 
 /* ------------------------------------------------------------------ *
  * The reducer. Pure: no Date.now(), no Math.random(), no mutation of
  * the argument. reduce(state, action) -> { state, events }.
+ *
+ * Night -> day -> vote -> night. The night ends the moment every night
+ * role has moved (or its clock runs out); the day only ever ends on the
+ * clock or the host's word; the vote ends when all the living have voted.
  * ------------------------------------------------------------------ */
 
 export const MAF_DEFAULTS: Omit<MafiaSettings, 'seed'> = {
-  maxPlayers: 9,
+  maxPlayers: 10,
   botLevel: 'normal',
   fillWithBots: false,
-  turnTimer: 0,
-  discussionSeconds: 60,
+  nightSeconds: 60,
+  daySeconds: 120,
+  voteSeconds: 60,
   revealRolesOnDeath: true,
+  roles: null,
 };
 
 export const MAF_RULES_DEFAULT: MafiaRules = {
-  discussionSeconds: MAF_DEFAULTS.discussionSeconds,
+  nightSeconds: MAF_DEFAULTS.nightSeconds,
+  daySeconds: MAF_DEFAULTS.daySeconds,
+  voteSeconds: MAF_DEFAULTS.voteSeconds,
   revealRolesOnDeath: MAF_DEFAULTS.revealRolesOnDeath,
+  roles: MAF_DEFAULTS.roles,
 };
 
 export function createMafia(settings: MafiaSettings, seats: SeatSpec[]): MafiaState {
@@ -48,27 +57,28 @@ export function createMafia(settings: MafiaSettings, seats: SeatSpec[]): MafiaSt
     players,
     seats: seats.map((s) => s.id),
     round: 0,
-    acks: [],
     votes: {},
     silencedToday: [],
     lastDeaths: [],
+    lastSaved: [],
+    revealed: {},
+    lastWords: [],
+    aliveCounts: null,
     winner: null,
     winnerId: null,
-    revealed: {},
     finalRoles: null,
+    mvp: null,
+    lastVoteMargin: null,
+    finalEliminatedId: null,
     secret: null,
   };
 }
 
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
 
-type NightAction = Extract<MafiaAction, { type:
-  'NIGHT_KILL' | 'NIGHT_SILENCE' | 'NIGHT_SAVE' | 'NIGHT_CHECK' | 'NIGHT_GUARD' | 'NIGHT_SHOOT' }>;
-
 export function reduce(prev: MafiaState, action: MafiaAction): MafiaReduction {
   const events: MafiaEvent[] = [];
   if (prev.phase === 'game_over') return { state: prev, events };
-  if (action?.type === 'TIME_OUT') return timeOut(prev, action.playerId);
   if (!isLegal(prev, action)) return { state: prev, events };
 
   const s = clone(prev);
@@ -76,232 +86,269 @@ export function reduce(prev: MafiaState, action: MafiaAction): MafiaReduction {
 
   switch (action.type) {
     case 'START_GAME': startGame(s, events); break;
-    case 'ACK_ROLE': ackRole(s, events, action.playerId); break;
-    case 'NIGHT_KILL':
-    case 'NIGHT_SILENCE':
-    case 'NIGHT_SAVE':
-    case 'NIGHT_CHECK':
-    case 'NIGHT_GUARD':
-    case 'NIGHT_SHOOT': nightMove(s, events, action); break;
-    case 'VOTE': castVote(s, events, action.playerId, action.target); break;
+    case 'NIGHT_MOVE':
+      s.secret!.night[action.playerId] = { kind: action.kind, target: action.target };
+      if (action.kind === 'investigate') investigate(s, action.playerId, action.target);
+      events.push({ type: 'ACTED', playerId: action.playerId });
+      if (waitingOn(s).length === 0) resolveNight(s, events);
+      break;
+    case 'SNIPE': snipe(s, events, action.playerId, action.target); break;
+    case 'VOTE':
+      if (action.target === null) delete s.votes[action.playerId];
+      else s.votes[action.playerId] = action.target;
+      events.push({ type: 'VOTED', playerId: action.playerId, target: action.target });
+      if (action.target !== null && waitingOn(s).length === 0) resolveVote(s, events);
+      break;
+    case 'ADVANCE':
+      if (s.phase === 'night') resolveNight(s, events);
+      else if (s.phase === 'day') openVote(s, events);
+      else resolveVote(s, events);
+      break;
   }
   return { state: s, events };
 }
 
 /* ------------------------------- flow ------------------------------ */
 
-function startGame(s: MafiaState, events: MafiaEvent[]): void {
-  const roles = shuffle(dealRoles(s.seats.length), s.settings.seed, 9000);
-  const assigned: Record<string, MafiaRole> = {};
-  s.seats.forEach((id, i) => { assigned[id] = roles[i]; });
-  s.secret = { roles: assigned, sniperUsed: {}, night: {}, checks: {} };
-  s.phase = 'reveal';
-  events.push({ type: 'GAME_STARTED' });
+const zeroStats = (): MatchStats => ({ kills: 0, saves: 0, finds: 0, reads: 0 });
+
+function bump(s: MafiaState, id: string | undefined, key: keyof MatchStats): void {
+  if (!id || !s.secret) return;
+  (s.secret.stats[id] ??= zeroStats())[key] += 1;
 }
 
-function ackRole(s: MafiaState, events: MafiaEvent[], pid: string): void {
-  s.acks.push(pid);
-  const alive = s.seats.filter((id) => s.players[id].alive);
-  if (!alive.every((id) => s.acks.includes(id))) return;
+function startGame(s: MafiaState, events: MafiaEvent[]): void {
+  const roles = shuffle(dealRoles(s.settings.roles, s.seats.length), s.settings.seed, 9000);
+  const assigned: Record<string, (typeof roles)[number]> = {};
+  const stats: Record<string, MatchStats> = {};
+  s.seats.forEach((id, i) => { assigned[id] = roles[i]; stats[id] = zeroStats(); });
+  s.secret = { roles: assigned, night: {}, lastProtect: {}, sniperUsed: [], checks: {}, stats };
   s.phase = 'night';
   s.round = 1;
-  s.secret!.night = {};
-  events.push({ type: 'NIGHT_FALLS', round: 1 });
+  refreshCounts(s);
+  events.push({ type: 'GAME_STARTED' }, { type: 'NIGHT_FALLS', round: 1 });
 }
 
-/** A night move lands. Any submission may be revised while the night is
- *  young; the moment nobody is waited on, the night resolves. */
-function nightMove(s: MafiaState, events: MafiaEvent[], a: NightAction): void {
-  const night = s.secret!.night;
-  switch (a.type) {
-    case 'NIGHT_KILL': night.killBy = a.playerId; night.kill = a.target; break;
-    case 'NIGHT_SILENCE': night.silence = a.target; break;
-    case 'NIGHT_SAVE': night.save = a.target; break;
-    case 'NIGHT_CHECK': night.check = a.target; break;
-    case 'NIGHT_GUARD': night.guard = a.target; break;
-    case 'NIGHT_SHOOT': night.shoot = a.target; break;
-  }
-  events.push({ type: 'ACTED', playerId: a.playerId });
-  if (waitingOn(s).length === 0) resolveNight(s, events);
+/** The detective learns at once, as the app did; the Godfather reads as a
+ *  plain villager. */
+function investigate(s: MafiaState, detective: string, target: string): void {
+  const sec = s.secret!;
+  const real = sec.roles[target];
+  const seen = real === 'godfather' ? 'villager' : real;
+  (sec.checks[detective] ??= []).push({ round: s.round, target, seen, guilty: isFamily(seen) });
+  bump(s, detective, 'finds');
+}
+
+function kill(s: MafiaState, id: string, cause: MafiaDeath['cause'], saved?: string): MafiaDeath {
+  const sec = s.secret!;
+  s.players[id].alive = false;
+  const role = s.settings.revealRolesOnDeath ? sec.roles[id] : null;
+  if (role) s.revealed[id] = role;
+  return saved ? { id, role, cause, saved } : { id, role, cause };
 }
 
 function resolveNight(s: MafiaState, events: MafiaEvent[]): void {
   const sec = s.secret!;
-  const night = sec.night;
-  const round = s.round;
+  const moves = Object.entries(sec.night);
+  const alive = (id: string) => Boolean(s.players[id]?.alive);
 
-  // The doctor's hand and the bodyguard's post cover the knife and the bullet alike.
-  const protectedIds = new Set<string>();
-  if (night.save != null) protectedIds.add(night.save);
-  if (night.guard != null) protectedIds.add(night.guard);
-
-  const dead = new Set<string>();
-  if (night.kill != null && !protectedIds.has(night.kill)) dead.add(night.kill);
-  if (night.shoot != null) {
-    const sniper = s.seats.find((id) => sec.roles[id] === 'sniper');
-    if (sniper) sec.sniperUsed[sniper] = true;
-    if (!protectedIds.has(night.shoot)) dead.add(night.shoot);
+  const protectedBy = new Map<string, string>();
+  const guardedBy = new Map<string, string>();
+  for (const [by, m] of moves) {
+    if (m.kind === 'protect') protectedBy.set(m.target, by);
+    if (m.kind === 'guard') guardedBy.set(m.target, by);
   }
 
-  if (night.check != null) {
-    const detective = s.seats.find((id) => sec.roles[id] === 'detective');
-    if (detective) {
-      const role = sec.roles[night.check];
-      (sec.checks[detective] ??= []).push({
-        round,
-        target: night.check,
-        guilty: ROLE_TEAM[role] === 'mafia' && role !== 'godfather',
-      });
+  // The family's kill: the boss's word, or else the most-named target,
+  // ties going to whoever was named first at the table.
+  const picks = moves.filter(([, m]) => m.kind === 'kill');
+  const boss = actingBoss(s);
+  let victim: string | null = picks.find(([by]) => by === boss)?.[1].target ?? null;
+  let killer: string | undefined = boss ?? undefined;
+  if (!victim && picks.length > 0) {
+    const tally = new Map<string, number>();
+    for (const [, m] of picks) tally.set(m.target, (tally.get(m.target) ?? 0) + 1);
+    const best = Math.max(...tally.values());
+    victim = s.seats.find((id) => tally.get(id) === best) ?? null;
+    killer = picks.find(([, m]) => m.target === victim)?.[0];
+  }
+
+  const deaths: MafiaDeath[] = [];
+  const saved: string[] = [];
+  const dead = new Set<string>();
+  const take = (id: string, cause: MafiaDeath['cause'], by?: string, savedId?: string) => {
+    if (dead.has(id) || !alive(id)) return;
+    dead.add(id);
+    deaths.push(kill(s, id, cause, savedId));
+    if (by) bump(s, by, cause === 'bodyguard' ? 'saves' : 'kills');
+  };
+
+  // The knife: the doctor stops it; failing that the bodyguard takes it.
+  if (victim && alive(victim)) {
+    if (protectedBy.has(victim)) {
+      saved.push(victim);
+      bump(s, protectedBy.get(victim), 'saves');
+    } else if (guardedBy.has(victim) && alive(guardedBy.get(victim)!)) {
+      const guard = guardedBy.get(victim)!;
+      take(guard, 'bodyguard', guard, victim);
+    } else {
+      take(victim, 'mafia', killer);
     }
   }
 
-  const reveal = s.settings.revealRolesOnDeath;
-  s.lastDeaths = s.seats.filter((id) => dead.has(id)).map((id) => {
-    s.players[id].alive = false;
-    if (reveal) s.revealed = { ...(s.revealed ?? {}), [id]: sec.roles[id] };
-    return { id, role: reveal ? sec.roles[id] : null };
-  });
-  s.silencedToday = night.silence != null && s.players[night.silence].alive ? [night.silence] : [];
+  // The detective's shot goes past the doctor, but not past a bodyguard.
+  // It was fired in the night, so it lands even if the detective did not
+  // live to see the dawn.
+  for (const [by, m] of moves) {
+    if (m.kind !== 'shoot') continue;
+    const guard = guardedBy.get(m.target);
+    if (guard && alive(guard)) take(guard, 'bodyguard', guard, m.target);
+    else take(m.target, 'detective', by);
+  }
 
-  events.push({ type: 'DAWN', round, deaths: s.lastDeaths });
-  for (const id of s.silencedToday) events.push({ type: 'SILENCED', playerId: id });
+  const silenced = moves
+    .filter(([, m]) => m.kind === 'silence')
+    .map(([, m]) => m.target)
+    .filter((id) => alive(id));
+
+  // The doctor may not repeat tonight's patient tomorrow.
+  sec.lastProtect = {};
+  for (const [by, m] of moves) if (m.kind === 'protect') sec.lastProtect[by] = m.target;
+  sec.night = {};
+
+  s.lastDeaths = deaths;
+  s.lastSaved = saved;
+  s.silencedToday = silenced;
+  refreshCounts(s);
+  events.push({ type: 'DAWN', round: s.round, deaths, saved, silenced });
 
   if (checkWin(s, events)) return;
   s.phase = 'day';
   s.votes = {};
-  events.push({ type: 'DAY_STARTED', round });
+  events.push({ type: 'DAY_STARTED', round: s.round });
 }
 
-function castVote(s: MafiaState, events: MafiaEvent[], pid: string, target: string | null): void {
-  s.votes[pid] = target;
-  events.push({ type: 'VOTED', playerId: pid, target });
-  if (waitingOn(s).length === 0) resolveVote(s, events);
+function openVote(s: MafiaState, events: MafiaEvent[]): void {
+  s.phase = 'vote';
+  s.votes = {};
+  // The gag lasts for the talk; the vote is everyone's.
+  s.silencedToday = [];
+  events.push({ type: 'VOTE_OPENED', round: s.round });
+}
+
+/** The sniper's one shot, by day. It lands at once. */
+function snipe(s: MafiaState, events: MafiaEvent[], sniper: string, target: string): void {
+  const sec = s.secret!;
+  sec.sniperUsed.push(sniper);
+  const role = sec.roles[target];
+  const death = kill(s, target, 'sniper');
+  bump(s, sniper, 'kills');
+  // Added to the day's news, not in place of the night's.
+  s.lastDeaths = [...s.lastDeaths, death];
+  refreshCounts(s);
+  events.push({ type: 'SNIPED', playerId: target, role: death.role });
+  if (role === 'jester') { jesterWins(s, events, target); return; }
+  checkWin(s, events);
 }
 
 function resolveVote(s: MafiaState, events: MafiaEvent[]): void {
   const tally = new Map<string, number>();
-  for (const target of Object.values(s.votes)) {
-    if (target != null) tally.set(target, (tally.get(target) ?? 0) + 1);
-  }
-  let top: string | null = null;
-  let topVotes = 0;
-  let tied = false;
-  for (const [id, n] of tally) {
-    if (n > topVotes) { top = id; topVotes = n; tied = false; }
-    else if (n === topVotes) tied = true;
-  }
+  for (const target of Object.values(s.votes)) tally.set(target, (tally.get(target) ?? 0) + 1);
+  const counts = [...tally.values()].sort((a, b) => b - a);
+  const top = counts[0] ?? 0;
+  const leaders = [...tally.entries()].filter(([, n]) => n === top).map(([id]) => id);
 
-  if (top && !tied) {
-    const sec = s.secret;
-    const role = sec ? sec.roles[top] : undefined;
-    const shown = s.settings.revealRolesOnDeath && role ? role : null;
-    s.players[top].alive = false;
-    if (shown) s.revealed = { ...(s.revealed ?? {}), [top]: shown };
-    s.lastDeaths = [{ id: top, role: shown }];
-    events.push({ type: 'LYNCHED', playerId: top, role: shown });
-    if (role === 'jester') {
-      s.phase = 'game_over';
-      s.winner = 'jester';
-      s.winnerId = top;
-      s.finalRoles = { ...sec!.roles };
-      events.push({ type: 'GAME_OVER', winner: 'jester', winnerId: top });
-      return;
+  if (leaders.length === 1) {
+    const hanged = leaders[0];
+    const sec = s.secret!;
+    const role = sec.roles[hanged];
+    s.lastVoteMargin = top - (counts[1] ?? 0);
+    s.finalEliminatedId = hanged;
+    // A town vote that lands on the family is a good read.
+    if (isFamily(role)) {
+      for (const [voter, target] of Object.entries(s.votes)) {
+        if (target === hanged && ROLE_TEAM[sec.roles[voter]] === 'village') bump(s, voter, 'reads');
+      }
     }
+    const death = kill(s, hanged, 'vote');
+    s.lastDeaths = [death];
+    refreshCounts(s);
+    events.push({ type: 'LYNCHED', playerId: hanged, role: death.role });
+    if (role === 'jester') { jesterWins(s, events, hanged); return; }
   } else {
-    events.push({ type: 'NO_LYNCH' });
+    s.lastDeaths = [];
+    events.push({ type: 'NO_LYNCH', tie: leaders.length > 1 });
   }
 
   if (checkWin(s, events)) return;
   s.round += 1;
   s.phase = 'night';
-  if (s.secret) s.secret.night = {};
   s.votes = {};
-  s.silencedToday = [];
-  s.lastDeaths = [];
+  s.lastSaved = [];
   events.push({ type: 'NIGHT_FALLS', round: s.round });
 }
 
-/* ---------------------------- win condition -------------------------- */
+/* ---------------------------- the ending ----------------------------- */
+
+function refreshCounts(s: MafiaState): void {
+  const sec = s.secret;
+  if (!sec || !s.settings.revealRolesOnDeath) { s.aliveCounts = null; return; }
+  const counts = { village: 0, mafia: 0, jester: 0 };
+  for (const id of s.seats) if (s.players[id].alive) counts[ROLE_TEAM[sec.roles[id]]] += 1;
+  s.aliveCounts = counts;
+}
+
+function jesterWins(s: MafiaState, events: MafiaEvent[], id: string): void {
+  finish(s, 'jester', id);
+  events.push({ type: 'GAME_OVER', winner: 'jester', winnerId: id });
+}
 
 function checkWin(s: MafiaState, events: MafiaEvent[]): boolean {
   const sec = s.secret;
   if (!sec) return false;
   const alive = s.seats.filter((id) => s.players[id].alive);
-  const mafiaAlive = alive.filter((id) => ROLE_TEAM[sec.roles[id]] === 'mafia').length;
-  const villageAlive = alive.filter((id) => ROLE_TEAM[sec.roles[id]] === 'village').length;
+  const mafia = alive.filter((id) => ROLE_TEAM[sec.roles[id]] === 'mafia').length;
+  const town = alive.filter((id) => ROLE_TEAM[sec.roles[id]] === 'village').length;
   let winner: MafiaTeam | null = null;
-  if (mafiaAlive === 0) winner = 'village';
-  else if (mafiaAlive >= villageAlive) winner = 'mafia';
+  if (mafia === 0) winner = 'village';
+  else if (mafia >= town) winner = 'mafia';
   if (!winner) return false;
-  s.phase = 'game_over';
-  s.winner = winner;
-  s.winnerId = null;
-  s.finalRoles = { ...sec.roles };
+  finish(s, winner, null);
   events.push({ type: 'GAME_OVER', winner, winnerId: null });
   return true;
 }
 
-/**
- * A player whose clock ran out has their pending decision made for them:
- * the reveal is acknowledged, the night is passed, the vote abstained.
- * In the day phase anyone's clock closing ends the discussion and opens
- * the vote. The host says when; the engine decides what that means.
- */
-function timeOut(prev: MafiaState, pid: string): MafiaReduction {
-  const p = prev.players[pid];
-  if (!p || !p.alive) return { state: prev, events: [] };
-
-  switch (prev.phase) {
-    case 'reveal': {
-      if (prev.acks.includes(pid)) return { state: prev, events: [] };
-      const s = clone(prev);
-      s.version = prev.version + 1;
-      const events: MafiaEvent[] = [{ type: 'TIMED_OUT', playerId: pid }];
-      ackRole(s, events, pid);
-      return { state: s, events };
-    }
-    case 'night': {
-      const sec = prev.secret;
-      if (!sec) return { state: prev, events: [] };
-      const pending = nightDuties(prev, pid).filter((k) => !(k in sec.night));
-      if (pending.length === 0) return { state: prev, events: [] };
-      const s = clone(prev);
-      s.version = prev.version + 1;
-      const events: MafiaEvent[] = [{ type: 'TIMED_OUT', playerId: pid }];
-      const night = s.secret!.night;
-      for (const k of pending) {
-        if (k === 'kill') { night.killBy = pid; night.kill = null; }
-        else night[k] = null;
-      }
-      if (waitingOn(s).length === 0) resolveNight(s, events);
-      return { state: s, events };
-    }
-    case 'day': {
-      const s = clone(prev);
-      s.version = prev.version + 1;
-      s.phase = 'vote';
-      s.votes = {};
-      return { state: s, events: [{ type: 'TIMED_OUT', playerId: pid }] };
-    }
-    case 'vote': {
-      if (prev.silencedToday.includes(pid) || pid in prev.votes) return { state: prev, events: [] };
-      const s = clone(prev);
-      s.version = prev.version + 1;
-      const events: MafiaEvent[] = [{ type: 'TIMED_OUT', playerId: pid }];
-      s.votes[pid] = null;
-      events.push({ type: 'VOTED', playerId: pid, target: null });
-      if (waitingOn(s).length === 0) resolveVote(s, events);
-      return { state: s, events };
-    }
-    default:
-      return { state: prev, events: [] };
-  }
+function finish(s: MafiaState, winner: MafiaTeam, winnerId: string | null): void {
+  const sec = s.secret!;
+  s.phase = 'game_over';
+  s.winner = winner;
+  s.winnerId = winnerId;
+  s.finalRoles = { ...sec.roles };
+  s.mvp = pickMvp(s, winner, winnerId);
 }
+
+/** The most decisive player of the match: kills and saves weigh most,
+ *  then good reads, then investigations; surviving and winning tip it. */
+function pickMvp(s: MafiaState, winner: MafiaTeam, winnerId: string | null): MafiaMvp | null {
+  const sec = s.secret!;
+  let best: MafiaMvp | null = null;
+  let bestScore = -1;
+  for (const id of s.seats) {
+    const st = sec.stats[id] ?? zeroStats();
+    const survived = s.players[id].alive;
+    const won = winner === 'jester' ? id === winnerId : ROLE_TEAM[sec.roles[id]] === winner;
+    const score = st.kills * 3 + st.saves * 3 + st.reads * 2 + st.finds + (survived ? 1 : 0) + (won ? 2 : 0);
+    if (score > bestScore) { bestScore = score; best = { id, stats: st, survived }; }
+  }
+  return best;
+}
+
+/* ---------------------------- seats ----------------------------- */
 
 /**
  * A signed-in player takes over a bot's seat in a game in progress. Not a
- * MafiaAction, for the same reason as Monopoly's: the host applies it after
- * the player's pass has checked out, and the reducer never can.
+ * MafiaAction: the host applies it after the player's pass has checked
+ * out, and the reducer never can.
  */
 export function handOverSeat(prev: MafiaState, playerId: string, name: string): MafiaReduction {
   const p = prev.players[playerId];
@@ -317,8 +364,7 @@ export function handOverSeat(prev: MafiaState, playerId: string, name: string): 
   return { state: s, events: [{ type: 'SEAT_TAKEN', playerId, name, previous: p.name }] };
 }
 
-/** The reverse of a hand-over: a removed player's seat plays on as a bot.
- *  Host-side only, like the hand-over. */
+/** The reverse of a hand-over: a removed player's seat plays on as a bot. */
 export function botifySeat(prev: MafiaState, playerId: string): MafiaReduction {
   const p = prev.players[playerId];
   if (!p || p.isBot || prev.phase === 'game_over' || prev.phase === 'lobby') {
@@ -329,4 +375,11 @@ export function botifySeat(prev: MafiaState, playerId: string): MafiaReduction {
   s.players[playerId].isBot = true;
   s.players[playerId].connected = false;
   return { state: s, events: [] };
+}
+
+/** A dead player's one last line has been spoken. Host-side, like the
+ *  chat it guards. */
+export function spendLastWords(prev: MafiaState, playerId: string): MafiaState {
+  if (prev.lastWords.includes(playerId)) return prev;
+  return { ...prev, version: prev.version + 1, lastWords: [...prev.lastWords, playerId] };
 }
