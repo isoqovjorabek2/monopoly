@@ -138,7 +138,16 @@ const sendNow = (): void => {
   if (!report) return;
   lastSent = Date.now();
   lastSig = signature(report);
-  void reportTable(report);
+  void reportTable(report).then((ack) => {
+    // The directory's answer can carry the operator's moderation. This tab
+    // runs the table, so it is the one that can act on it: remove banned
+    // accounts from their seats, and disband the table if its own host -
+    // this tab - is the one banned.
+    if (!ack) return;
+    const st = useStore.getState();
+    if (ack.bannedSeats?.length) st.enforceModeration(ack.bannedSeats);
+    if (ack.banned) st.moderationLeave('banned');
+  });
 };
 
 const sendSoon = (): void => {

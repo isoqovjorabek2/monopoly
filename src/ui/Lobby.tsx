@@ -101,11 +101,14 @@ export function Lobby() {
     >
       <header className="lobby__head">
         <button type="button" className="btn btn--ghost btn--sm" onClick={leave}>{t.common.leave}</button>
-        <span className="chip">{gameName}</span>
+        <h1 className="lobby__title">{gameName}</h1>
         <div className="spacer" />
         <LangSwitch />
-        <span className="chip" data-tone={netStatus === 'online' ? 'good' : undefined}>
-          {isLocal ? L.localGame : netStatus === 'online' ? L.roomOpen : t.status[netStatus]}
+        {/* On a phone this shrinks to its dot; the words stay for screen readers. */}
+        <span className="chip lobby__status" data-tone={netStatus === 'online' ? 'good' : undefined}>
+          <span className="lobby__statusText">
+            {isLocal ? L.localGame : netStatus === 'online' ? L.roomOpen : t.status[netStatus]}
+          </span>
         </span>
       </header>
 
@@ -190,22 +193,37 @@ export function Lobby() {
                   {canEdit && !seat.isHost && (
                     <button
                       type="button"
-                      className="btn btn--ghost btn--sm"
+                      className="seat__remove"
                       onClick={() => removeSeat(seat.playerId)}
                       aria-label={L.removeAria(seat.name)}
+                      title={L.remove}
                     >
-                      {L.remove}
+                      <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                        <path d="M2.5 2.5l7 7M9.5 2.5l-7 7" />
+                      </svg>
                     </button>
                   )}
                 </motion.li>
               ))}
             </AnimatePresence>
-            {Array.from({ length: Math.max(0, Math.min(limit, 8) - room.seats.length) }, (_, i) => (
-              <li key={`empty${i}`} className="seat seat--empty">
-                <span className="seat__slot" aria-hidden />
-                <span className="seat__info"><span className="muted small">{L.emptySeat}</span></span>
+            {/* Every empty chair is one tile: it says how many are left, and
+                a tap fills one - a bot for the host, the invite for a guest. */}
+            {room.seats.length < limit && (
+              <li className="seat seat--empty">
+                <button
+                  type="button"
+                  className="seat__open"
+                  disabled={!canEdit && isLocal}
+                  onClick={() => (canEdit ? addBot() : void copy('link'))}
+                >
+                  <span className="seat__slot" aria-hidden>+</span>
+                  <span className="seat__info">
+                    <span className="seat__name">{L.openSeats(limit - room.seats.length)}</span>
+                    <span className="muted small">{canEdit ? L.tapForBot : copied === 'link' ? L.linkCopied : L.tapToInvite}</span>
+                  </span>
+                </button>
               </li>
-            ))}
+            )}
           </ul>
         </Panel>
 

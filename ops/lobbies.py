@@ -26,6 +26,15 @@ tab, a lost connection - is closed as "went quiet", with no separate cleanup
 path to get wrong. One that comes back soon after (a refresh, a host handing
 over) picks up where it was rather than counting as a new table.
 
+It also enforces the operator's moderation. The panel writes bans.json next
+to the table log (who may not play, which room codes are closed); this
+service reads it back every few seconds. A banned host's room never reaches
+the public list, and the answer to its announce says so. A report's answer
+carries what the reporting browser can act on: which seated accounts are
+banned (so the host's client removes them), whether its own host is banned,
+whether the room code was closed. Reports themselves are never refused -
+the panel staying able to see a table matters more than turning it away.
+
 Binds 127.0.0.1; nginx puts it on the internet at /lobbies/.
 Python 3 standard library only, same as the status panel.
 """
@@ -149,6 +158,72 @@ def live_rooms() -> list[dict]:
         (not r["inProgress"]) and r["seats"] >= r["maxSeats"],
         -r["seats"], r["age"],
     ))
+    return out
+
+
+# -------------------------------------------------------------- moderation --
+# bans.json is written by the operator's panel (ops/panel.py) into the same
+# state directory. It names accounts (u_...) and display names that may not
+# play, and room codes that were closed. Read back here at most every few
+# seconds; missing or unreadable means no bans, never a failure to serve.
+
+CLOSE_TTL = 24 * 3600.0     # a closed room code stays blocked for a day
+_bans_cache: tuple[float, dict] = (0.0, {})
+
+
+def bans_data() -> dict:
+    global _bans_cache
+    at, data = _bans_cache
+    now = time.time()
+    if now - at < 5.0:
+        return data
+    try:
+        with open(os.path.join(STATE_DIR, "bans.json"), encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    _bans_cache = (now, data)
+    return data
+
+
+def _bans() -> list:
+    bans = bans_data().get("bans", [])
+    return [b for b in bans if isinstance(b, dict)] if isinstance(bans, list) else []
+
+
+def name_banned(name: str) -> bool:
+    low = str(name or "").strip().lower()
+    return bool(low) and any(b.get("kind") == "name" and b.get("id") == low for b in _bans())
+
+
+def account_banned(uid: str) -> bool:
+    return any(b.get("kind") == "account" and b.get("id") == uid for b in _bans())
+
+
+def room_closed(room_id: str) -> bool:
+    closed = bans_data().get("closed", {})
+    at = closed.get(room_id) if isinstance(closed, dict) else None
+    return isinstance(at, (int, float)) and time.time() - at < CLOSE_TTL
+
+
+def moderation_for(table_id: str, report: dict) -> dict:
+    """What the reporting browser has to act on: the banned accounts seated
+    (its client removes them), whether its own host is banned (its client
+    disbands the table), whether the room code was closed (it stops
+    announcing). A guest's *name* is never matched for a kick - names are
+    claimed, not owned, so only the host's name carries that consequence."""
+    out: dict = {}
+    seats = [p["id"] for p in report["players"]
+             if not p["bot"] and p["id"].startswith("u_") and account_banned(p["id"])]
+    if seats:
+        out["bannedSeats"] = seats
+    host = next((p for p in report["players"] if p["host"]), None)
+    if host and (account_banned(host["id"]) or name_banned(host["name"])):
+        out["banned"] = True
+    if room_closed(table_id):
+        out["close"] = True
     return out
 
 
@@ -475,6 +550,18 @@ class Handler(BaseHTTPRequestHandler):
             if limited:
                 return self._send(429, {"error": "slow down"})
 
+            if room_closed(room_id):
+                # Closed by the operator: off the list for a day, and the host
+                # is told so it stops beating instead of re-creating it.
+                _rooms.pop(room_id, None)
+                return self._send(200, {"ok": True, "closed": True})
+            host_name = clean_text(body.get("host"), 18) or "Someone"
+            if name_banned(host_name):
+                # A banned host never reaches the public list. 200, not an
+                # error: the client acts on the flag, it does not retry.
+                _rooms.pop(room_id, None)
+                return self._send(200, {"ok": True, "banned": True})
+
             existing = _rooms.get(room_id)
             if existing is not None and time.time() - existing["opened"] > MAX_AGE:
                 # A room past the age cap is not renewed: tell the host it
@@ -507,7 +594,7 @@ class Handler(BaseHTTPRequestHandler):
             now = time.time()
             _rooms[room_id] = {
                 "id": room_id,
-                "host": clean_text(body.get("host"), 18) or "Someone",
+                "host": host_name,
                 "seats": seats,
                 "maxSeats": max_seats,
                 "preset": preset,
@@ -535,6 +622,16 @@ class Handler(BaseHTTPRequestHandler):
             if report is None:
                 return self._send(400, {"error": "bad report"})
             code, payload = accept_report(table_id, report)
+            # The report is kept either way (the panel must stay able to see
+            # the table); what moderation adds is instructions in the answer.
+            note = moderation_for(table_id, report)
+            if note:
+                payload.update(note)
+                table = _tables.get(table_id)
+                sig = json.dumps(note, sort_keys=True)
+                if table is not None and table.get("moderation") != sig:
+                    table["moderation"] = sig
+                    log_event("moderated", table, **note)
         return self._send(code, payload)
 
     def log_message(self, *_):

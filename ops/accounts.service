@@ -9,6 +9,9 @@ Wants=network-online.target
 Type=exec
 User=playerauth
 Group=playerauth
+# opspanel, so the ban list the panel writes (0640 in /var/lib/lobbies) is
+# readable here. Nothing else of that group is on this service's path.
+SupplementaryGroups=opspanel
 ExecStart=/usr/bin/python3 /opt/opspanel/accounts.py
 # Saved tables. The one place it may write.
 StateDirectory=playerauth

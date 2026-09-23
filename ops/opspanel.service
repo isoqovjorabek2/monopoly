@@ -1,10 +1,10 @@
-# The status panel. Binds 127.0.0.1:9000 and is reached over an SSH tunnel,
-# so it is never exposed to the internet and has no auth surface of its own.
+# The status panel. Binds 127.0.0.1:9000 and is reached over an SSH tunnel
+# or the signed-in public route - see docs/panel.md.
 #
 # It runs as its own unprivileged user in two groups: `adm` to read nginx's
-# access log, and `systemd-journal` to read coturn's session lines. It needs
-# nothing else, and the hardening below makes sure it cannot take anything
-# else - a panel that only ever reads should not be able to write.
+# access log, and `systemd-journal` to read coturn's session lines. It reads
+# the machine and writes exactly one file: the ban list the other services
+# enforce.
 [Unit]
 Description=Droplet status panel (localhost only)
 After=network-online.target
@@ -17,6 +17,11 @@ Group=opspanel
 SupplementaryGroups=adm systemd-journal
 # Read-only: the config holds the OAuth secret and the allowlist.
 ReadOnlyPaths=/etc/opspanel
+# Writable: /var/lib/lobbies, where this panel writes bans.json for the
+# lobby and accounts services to enforce. (lobbies.service owns the same
+# StateDirectory; both run as this user.)
+StateDirectory=lobbies
+StateDirectoryMode=0750
 ExecStart=/usr/bin/python3 /opt/opspanel/panel.py
 Restart=always
 RestartSec=3

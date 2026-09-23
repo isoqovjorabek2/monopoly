@@ -140,6 +140,12 @@ interface Store {
   mafSkip: () => void;
   addBot: () => void;
   removeSeat: (playerId: string) => void;
+  /** The operator's word, carried by the directory's answers: these accounts
+   *  may not play - remove their seats from this table. */
+  enforceModeration: (ids: string[]) => void;
+  /** This tab's own player is banned (or its room was closed): leave the
+   *  table and say why. */
+  moderationLeave: (kind: 'banned' | 'delisted') => void;
   /** Endorse a candidate for co-owner while the owner is away
    *  (net/moderation.ts). */
   endorse: (candidate: string) => void;
@@ -1446,10 +1452,14 @@ export const useStore = create<Store>((set, get) => {
       maxSeats: room.settings.maxPlayers,
       settings: room.settings,
       live,
-    }).then(({ expired }) => {
+    }).then(({ expired, banned, closed }) => {
+      // The operator banned this player outright: leave the table entirely.
+      if (banned) { get().moderationLeave('banned'); return; }
       // The directory declines to keep a room that has been open for hours:
       // a table that old is done, whether or not anyone remembered to leave.
-      if (expired) { stopListing(); set({ listed: false }); }
+      // A closed room is the operator's word: off the list, and it stays off.
+      if (expired || closed) { stopListing(); set({ listed: false }); }
+      if (closed) set({ netError: tr().net.delisted });
     });
   };
 
@@ -1734,6 +1744,26 @@ export const useStore = create<Store>((set, get) => {
       const { role, me } = get();
       if (role === 'guest') guest?.send({ t: 'REMOVE_SEAT', playerId: me.playerId, target: playerId });
       else kickTarget(me.playerId, playerId);
+    },
+
+    enforceModeration: (ids) => {
+      const room = snapshot();
+      if (!room || get().role === 'guest') return;
+      for (const id of ids) {
+        // Our own seat is never the target here - a ban on the account
+        // holding this tab arrives as `banned`, not as a seat to remove.
+        if (id === get().me.playerId) continue;
+        const seat = room.seats.find((s) => s.playerId === id && !s.isBot);
+        // The usual removal path, with its usual rules: the seat is botified
+        // in a running game, deleted in a lobby, and the kicked list keeps
+        // the account from walking back in.
+        if (seat) kickTarget(get().me.playerId, id);
+      }
+    },
+
+    moderationLeave: (kind) => {
+      get().leave();
+      set({ netStatus: 'closed', netError: kind === 'banned' ? tr().net.banned : tr().net.delisted });
     },
 
     endorse: (candidate) => {

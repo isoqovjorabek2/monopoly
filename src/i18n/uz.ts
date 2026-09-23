@@ -151,6 +151,9 @@ export const uz: Dict = {
     removeAria: (name) => `${name}ni olib tashlash`,
     remove: 'Olib tashlash',
     emptySeat: 'Bo‘sh joy',
+    openSeats: (n: number): string => `Bo‘sh joylar: ${n}`,
+    tapForBot: 'Bot qo‘shish uchun bosing',
+    tapToInvite: 'Havolani nusxalash uchun bosing',
     settingsAria: 'Xona sozlamalari',
     tabs: { seats: 'Tayyor to‘plamlar', rules: 'Qoidalar', economy: 'Iqtisod', pace: 'Sur’at va botlar' },
     hostOnly: 'Qoidalarni faqat mezbon o‘zgartira oladi. O‘zgarishlarni darhol ko‘rasiz.',
@@ -539,6 +542,8 @@ export const uz: Dict = {
     noRelay: 'Mezbonga to‘g‘ridan-to‘g‘ri ham, retranslyator orqali ham ulanib bo‘lmadi. Xona kodini va mezbonda sahifa hali ochiqligini tekshiring.',
     noDirect: 'To‘g‘ridan-to‘g‘ri ulanishni ochib bo‘lmadi. Tarmog‘ingiz uni to‘sayotgan bo‘lishi mumkin — boshqa tarmoq yoki telefondan internet tarqatishni sinab ko‘ring.',
     lost: 'Mezbon bilan aloqa uzildi va uni tiklab bo‘lmadi.',
+    banned: 'Bu hisob Party Hall’da bloklangan.',
+    delisted: 'Operator bu xonani ommaviy ro‘yxatdan olib tashladi.',
     reconnecting: (n) => `Qayta ulanmoqda (${n}-urinish)…`,
     bye: {
       host_left: 'Mezbon xonani yopdi.',

@@ -19,6 +19,7 @@ export const accountRu: AccountDict = {
     unavailable: 'Вход сейчас недоступен.',
     invalid: 'Не удалось проверить вход. Попробуйте ещё раз.',
     popup: 'Окно входа заблокировано.',
+    banned: 'Этот аккаунт заблокирован в Party Hall.',
   },
   joinAfterSignIn: (code) => `Войти и присоединиться к ${code}`,
 

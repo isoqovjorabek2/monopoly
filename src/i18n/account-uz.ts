@@ -10,6 +10,7 @@ export const accountUz: AccountDict = {
     unavailable: 'Hozir kirish imkoni yo‘q.',
     invalid: 'Kirishni tekshirib bo‘lmadi. Qayta urinib ko‘ring.',
     popup: 'Kirish oynasi bloklandi.',
+    banned: 'Bu hisob Party Hall’da bloklangan.',
   },
   joinAfterSignIn: (code) => `Kirib, ${code} ga qo‘shilish`,
 

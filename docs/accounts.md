@@ -80,6 +80,15 @@ Routes: `/auth/google/start?return=…`, `/auth/google/callback`, `/auth/key`
 the GitHub Pages site, or localhost; anything else is refused before Google
 is involved.
 
+**Bans.** A player the operator bans on the status panel (by `u_…` id) gets
+nothing new here: sign-in answers `auth_error=banned`, and `/refresh`,
+`/history` and `/saves` all answer 403. The list is read from
+`/var/lib/lobbies/bans.json` — written by the panel, shared by group
+membership (`SupplementaryGroups=opspanel` in the unit), re-read every ten
+seconds. A missing or unreadable file means no bans, never a lockout of
+everyone. A pass already issued keeps working at tables until it expires;
+the lobby service handles that half by telling tables to remove the seat.
+
 ## The one Google setting
 
 The service has its own OAuth client, separate from the status panel's; its

@@ -79,11 +79,13 @@ async function post(path: string, body: unknown): Promise<boolean> {
 
 /** Say this room exists, and keep saying it. Also the heartbeat. The answer
  *  can carry `expired`: the room has been open longer than the directory
- *  keeps them, and beating further only re-asks a settled question. */
+ *  keeps them, and beating further only re-asks a settled question. And it
+ *  can carry the operator's word: `closed` (this code is off the list for a
+ *  day) or `banned` (this host may not host publicly at all). */
 export async function announce(room: {
   id: string; host: string; seats: number; maxSeats: number; settings: GameSettings;
   live?: { openSeats: number; round: number };
-}): Promise<{ expired: boolean }> {
+}): Promise<{ expired: boolean; banned: boolean; closed: boolean }> {
   const { preset, deviations } = describeRules(room.settings);
   const res = await postJson('announce', {
     id: room.id,
@@ -94,7 +96,7 @@ export async function announce(room: {
     deviations,
     ...(room.live ? { inProgress: true, openSeats: room.live.openSeats, round: room.live.round } : {}),
   });
-  return { expired: res?.expired === true };
+  return { expired: res?.expired === true, banned: res?.banned === true, closed: res?.closed === true };
 }
 
 /** Take it off the list. Best effort - the expiry is the real cleanup. */
@@ -143,8 +145,19 @@ export interface TableReport {
   players: TableSeatReport[];
 }
 
-export function reportTable(report: TableReport): Promise<boolean> {
-  return post('report', report);
+/** What the directory answers to a report. Alongside `ok` it can carry the
+ *  operator's moderation: `bannedSeats` (accounts seated here that may not
+ *  play - the host's client removes them), `banned` (this table's own host
+ *  is banned), `close` (the room code was closed). */
+export interface ReportAck {
+  ok: boolean;
+  banned?: boolean;
+  bannedSeats?: string[];
+  close?: boolean;
+}
+
+export function reportTable(report: TableReport): Promise<ReportAck | null> {
+  return postJson('report', report) as Promise<ReportAck | null>;
 }
 
 /** The table was left on purpose. A table that just stops reporting is

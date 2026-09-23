@@ -1,7 +1,8 @@
 # The status panel
 
-A read-only page that answers "is it up, and is anyone using it" for the
-droplet that runs the relay and the site.
+The operator's console: it answers "is it up, and is anyone using it" for the
+droplet that runs the relay and the site - and it is also where bans and room
+closures come from.
 
 ## Getting to it
 
@@ -93,23 +94,68 @@ sudo systemctl restart opspanel         # not strictly needed; picks up in ~10s
 `ops/test_auth.py` covers the parts where a mistake is a hole rather than a
 bug — forged and tampered signatures, expiry, replay of a one-time link, the
 allowlist, fail-closed behaviour, and that last indistinguishability
-property. Run it on the droplet with `python3 /opt/opspanel/test_auth.py`.
+property. `ops/test_bans.py` covers the ban list: what the panel accepts and
+writes, what the lobby service matches, and that a missing or corrupt file
+opens the door rather than locking everyone out. Run them on the droplet
+with `python3 /opt/opspanel/test_auth.py` and `python3 /opt/opspanel/test_bans.py`.
 
 ## What it shows
 
 | Card | Reading |
 | --- | --- |
 | Right now | Tables open, games in progress, tables waiting in a lobby, players online and disconnected, bots seated, public rooms listed. |
-| Live tables | Every open table - public, private and solo - with its code, game, whether it has started, the round and whose move it is, each seat (name, bot or human, host, online or dropped, bankrupt, cash), how long it has been open and when it last reported. Also the host's device (phone or desktop) and language. |
+| Who's online | Every human seat at every live table, one row each: name, account or guest, which table and game, cash, online or dropped - and a Ban button. Refreshes every 3 seconds. |
+| Live tables | Every open table - public, private and solo - with its code, game, whether it has started, the round and whose move it is, each seat (name, bot or human, host, online or dropped, bankrupt, cash), how long it has been open and when it last reported. Also the host's device (phone or desktop) and language. Banned seats are flagged, and every human seat has a Ban button; every room has Close. |
+| Moderation | The active bans (account and name), who set them and why, with Unban; the rooms currently closed, with Reopen; and a form for banning by hand. |
 | Last 24 hours | Tables opened (by game, and public / private / solo), games started and finished, average game length, distinct player names, peak players online, tables opened from a phone, connection drops, tables that went quiet. A players-online chart (one point per 5 minutes) and tables opened per day for the last week. |
 | Recently ended | The last 60 tables to close: players, winner or where it stopped, how long it ran, and whether it was left or went quiet. |
-| Activity | A feed of the last 24 hours: opened, joined, left, dropped, reconnected, started, finished, closed. |
+| Activity | A feed of the last 24 hours: opened, joined, left, dropped, reconnected, started, finished, closed, moderated. |
 | Services | `coturn`, `nginx`, `lobbies`, `aitutor`: active or not, and for how long. |
 | Relay | Allocations in the last 24h, how many are still open, bytes each way, and the split between `turns:` on 443 and plain `turn:` on 3478. |
 | Web traffic | Requests over 24h bucketed by hour, split into page loads / assets / `/api`, with status codes and bytes served. |
 | Certificate | Days left — read from the socket, per SNI name. |
 | Top paths | The eight most requested paths. |
 | Host | Load, memory, disk, uptime. |
+
+The page polls `api/live` (tables, who is online, bans - one small file)
+every 3 seconds and `api/stats` (journald, nginx's log, /proc) every 15.
+
+## The controls
+
+**Ban a player.** Two kinds, and the difference matters:
+
+- An **account ban** names a signed-in player's `u_…` id. The accounts
+  service stops signing or refreshing their pass (their current one expires
+  on its own, in at most 30 days), and their saved tables and history stop
+  answering. The lobby service names the banned seat in every table report's
+  answer, and the host's client removes that seat - in a lobby it is
+  deleted, in a running game it plays on as a bot, and the kicked list keeps
+  them from walking back into that table.
+- A **name ban** matches a display name, case-insensitively. Names are
+  claimed, not owned, so it does one thing only: nobody calling themselves
+  that can host a *public* room. A banned name's announces are answered
+  `banned`, the room never reaches the list, and the host's client disbands
+  the table. Guests at someone else's table are never matched by name.
+
+**Close a room.** The room leaves the public list at once and cannot be
+listed again for 24 hours; the host's next announce is answered `closed` and
+its client unlists and says so. A game already running on the code is not
+interrupted - closing is about discoverability, and so is its limit.
+
+Bans and closes land in `bans.json` and are enforced at the next beat of any
+table - within about 20 seconds. Each enforcement is written to the day file
+as a `moderated` event, so the Activity feed shows the controls working.
+
+Two honest limits. The game itself runs in browsers, so the client-side half
+of enforcement (removing a seat, disbanding a banned host's table) is done by
+the *unmodified* client: someone who patches their build can ignore it, but
+their room still never lists, their account still dies, and the panel still
+sees their table. And "distinct players" counts names, not people.
+
+The controls ride the same two ways in as the page - the tunnel, or an
+allowlisted session - plus an `X-Ops-Admin` header the page sends and a
+cross-site request cannot: the header is the CSRF proof. The panel is the
+only writer of `bans.json`; the lobby and accounts services only read it.
 
 ## Three things it is careful about
 
@@ -165,23 +211,27 @@ true.
 | Source | `ops/panel.py` in this repo, deployed to `/opt/opspanel/panel.py` |
 | Unit | `ops/opspanel.service` → `/etc/systemd/system/opspanel.service` |
 | Config | `/etc/opspanel/config.json` — secrets and allowlist, never in git |
-| Tests | `ops/test_auth.py` → `/opt/opspanel/test_auth.py` |
+| Tests | `ops/test_auth.py` and `ops/test_bans.py` → `/opt/opspanel/` |
 | Table log | Written by `ops/lobbies.py` (`lobbies.service`, `StateDirectory=lobbies`) to `/var/lib/lobbies`: `tables.json` (live and recently ended, rewritten every few seconds) and `events-YYYY-MM-DD.jsonl` (30 days) |
+| Ban list | `/var/lib/lobbies/bans.json` — written by this panel, read and enforced by the lobby service (listings, report answers) and the accounts service (passes, saves, history) |
 | Runs as | `opspanel`, in `adm` (nginx logs) and `systemd-journal` (coturn logs) |
 | Deps | Python 3 standard library only |
 
 It runs as its own unprivileged user with `ProtectSystem=strict`, a
-read-only mount of its config, and a 128M cap — a process that only ever
-reads should not be able to write.
+read-only mount of its config, and a 128M cap. It shares the lobby service's
+`StateDirectory` so that exactly one path is writable: the ban list it
+exists to write.
 
 There is deliberately no `IPAddressDeny` any more. Public sign-in has to
 reach Google's token endpoint and an SMTP server, so the panel needs egress;
 what still protects it is that it **listens** only on loopback and is never
 opened in ufw.
 
-To update it after editing `ops/panel.py`:
+To update it after editing `ops/panel.py` (the units changed too, so reload
+and restart all three):
 
 ```bash
-scp ops/panel.py aitutor:/opt/opspanel/panel.py
-ssh aitutor systemctl restart opspanel
+scp ops/panel.py ops/lobbies.py ops/accounts.py ops/test_bans.py aitutor:/opt/opspanel/
+scp ops/opspanel.service ops/lobbies.service ops/accounts.service aitutor:/etc/systemd/system/
+ssh aitutor 'systemctl daemon-reload && systemctl restart opspanel lobbies accounts'
 ```

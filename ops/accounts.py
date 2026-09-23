@@ -53,6 +53,12 @@ cannot be used to read or overwrite anyone's games. What is saved is the copy
 every guest already holds - no dice seed, no card order - and a resumed table
 deals fresh ones, so a save is never a way to see the future.
 
+Bans: a player the operator bans on the status panel (which writes
+bans.json into the lobby service's state directory) gets no new pass here,
+no refresh, no saves and no history. The pass they already hold expires on
+its own; meanwhile the lobby service tells every table they sit at to
+remove them.
+
 Binds 127.0.0.1. Python 3 standard library plus ``cryptography``, which is
 already on the droplet because certbot depends on it.
 
@@ -336,6 +342,34 @@ def google_exchange(code: str) -> dict | None:
     if not claims.get("sub"):
         return None
     return claims
+
+
+# ------------------------------------------------------------------ bans --
+# The operator's ban list, written by the status panel into the lobby
+# service's state directory (this service reads it by group membership). A
+# banned player gets no new pass, no refresh, no saves and no history; the
+# pass they already hold expires on its own, and the lobby service tells
+# every table they sit at to remove them in the meantime.
+
+BANS_PATH = os.environ.get("BANS_PATH", "/var/lib/lobbies/bans.json")
+_bans_cache: tuple[float, frozenset] = (0.0, frozenset())
+
+
+def banned_uid(uid: str) -> bool:
+    global _bans_cache
+    at, ids = _bans_cache
+    now = time.time()
+    if now - at >= 10:
+        try:
+            with open(BANS_PATH, encoding="utf-8") as fh:
+                data = json.load(fh)
+            bans = data.get("bans", []) if isinstance(data, dict) else []
+            ids = frozenset(str(b.get("id")) for b in bans
+                            if isinstance(b, dict) and b.get("kind") == "account")
+        except (OSError, ValueError):
+            ids = frozenset()  # unreadable means no bans, never a lockout of all
+        _bans_cache = (now, ids)
+    return uid in ids
 
 
 # -------------------------------------------------------------------- plus --
@@ -865,6 +899,9 @@ class Handler(BaseHTTPRequestHandler):
         if not claims:
             self.json(401, {"error": "sign in again"})
             return
+        if banned_uid(claims["sub"]):
+            self.json(403, {"error": "banned"})
+            return
         uid = claims["sub"]
         code = path[len("/saves/"):] if path.startswith("/saves/") else ""
         if method == "GET" and not code:
@@ -916,6 +953,9 @@ class Handler(BaseHTTPRequestHandler):
         if not claims:
             self.json(401, {"error": "sign in again"})
             return
+        if banned_uid(claims["sub"]):
+            self.json(403, {"error": "banned"})
+            return
         if path == "/history":
             try:
                 payload = json.loads(body or b"{}")
@@ -952,6 +992,9 @@ class Handler(BaseHTTPRequestHandler):
             claims = check_request(self.headers, "GET", path, b"")
             if not claims:
                 self.json(401, {"error": "sign in again"})
+                return
+            if banned_uid(claims["sub"]):
+                self.json(403, {"error": "banned"})
                 return
             self.json(200, read_history(claims["sub"], full=bool(plus_until(claims["sub"]))))
             return
@@ -995,6 +1038,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.redirect(with_fragment(return_to, "auth_error", "failed"))
                 return
             sub = player_id(str(claims["sub"]))
+            if banned_uid(sub):
+                self.redirect(with_fragment(return_to, "auth_error", "banned"))
+                return
             # The name the table sees is the one on the Google account.
             name = claims.get("name") or claims.get("given_name") or "Player"
             pass_ = mint_pass(sub, name, cnf=point if point_ok(point) else None, plus=plus_until(sub))

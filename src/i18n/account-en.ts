@@ -12,7 +12,8 @@ export const accountEn = {
     unavailable: 'Sign-in is not available right now.',
     invalid: 'That sign-in could not be verified. Try again.',
     popup: 'The sign-in window was blocked.',
-  } as Record<'cancelled' | 'failed' | 'unavailable' | 'invalid' | 'popup', string>,
+    banned: 'This account has been blocked from Party Hall.',
+  } as Record<'cancelled' | 'failed' | 'unavailable' | 'invalid' | 'popup' | 'banned', string>,
   /** Home, after being turned away from a game in progress. */
   joinAfterSignIn: (code: string) => `Sign in to join ${code}`,
 

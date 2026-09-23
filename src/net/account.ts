@@ -194,7 +194,7 @@ interface AccountStore {
   /** Set while a sign-in popup is open, so the button can say so. */
   pending: boolean;
   /** Why the last sign-in did not finish, if it did not. */
-  error: 'cancelled' | 'failed' | 'unavailable' | 'invalid' | 'popup' | null;
+  error: 'cancelled' | 'failed' | 'unavailable' | 'invalid' | 'popup' | 'banned' | null;
 }
 
 export const useAccount = create<AccountStore>(() => ({

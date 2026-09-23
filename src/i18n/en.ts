@@ -155,6 +155,9 @@ export const en = {
     removeAria: (name: string) => `Remove ${name}`,
     remove: 'Remove',
     emptySeat: 'Empty seat',
+    openSeats: (n: number): string => `${n} open seat${n === 1 ? '' : 's'}`,
+    tapForBot: 'Tap to seat a bot',
+    tapToInvite: 'Tap to copy the invite link',
     settingsAria: 'Room settings',
     tabs: { seats: 'Presets', rules: 'Rules', economy: 'Economy', pace: 'Pace & bots' },
     hostOnly: 'Only the host can change the rules. You will see updates live.',
@@ -549,6 +552,8 @@ export const en = {
     noRelay: 'Could not reach the host, directly or through the relay. Check the room code, and that the host still has the page open.',
     noDirect: 'Could not open a direct connection. Your network may be blocking it - try a different network or a phone hotspot.',
     lost: 'Lost the connection to the host and could not get it back.',
+    banned: 'This account has been blocked from Party Hall.',
+    delisted: 'The operator took this room off the public list.',
     reconnecting: (n: number) => `Reconnecting (attempt ${n})...`,
     bye: {
       host_left: 'The host closed the room.',

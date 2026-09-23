@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-A read-only status panel for the droplet that runs the relay and the site.
+The operator's panel for the droplet that runs the relay and the site.
 
 Binds 127.0.0.1 only, and is reached two ways.
 
@@ -14,6 +14,16 @@ separate allowlist decides whether that address may look. Anyone can get a
 Google account, so treating "signed in" as "allowed" would be a lock with no
 key. With neither method configured the public route serves nothing at all,
 because an unconfigured panel on a public URL must not be an open one.
+
+It is a console, not just a dashboard: the same two ways in also guard the
+controls. The panel writes bans.json into the lobby service's state
+directory - who may not play (by account, or by display name for hosting),
+and which room codes are closed. The lobby service enforces that file
+against announces and reports, and the accounts service refuses banned
+players new passes. Writes from the public route carry the session cookie
+and an X-Ops-Admin header; the header is the CSRF proof, because a
+cross-site form cannot set one and a cross-site fetch that tries triggers a
+preflight this server never answers.
 
 Most of it is derived from what the machine already writes down - journald,
 nginx's access log, /proc. The tables section is the exception: the game
@@ -640,6 +650,107 @@ def tables() -> dict:
     }
 
 
+# ------------------------------------------------------------- moderation --
+# bans.json lives in the lobby service's state directory: the lobby service
+# enforces it against announces and reports, the accounts service refuses
+# banned players new passes, and this panel is its only writer. Everything
+# is rewritten whole and swapped in atomically - the file is small and there
+# is exactly one writer.
+
+BANS_PATH = os.path.join(LOBBY_STATE, "bans.json")
+ACCOUNT_RE = re.compile(r"^u_[a-z0-9]{1,38}$")
+BAN_ROOM_RE = re.compile(r"^[A-Z]{3,10}-[A-Z]{3,10}-\d{1,3}$")
+BAN_NAME_MAX = 18           # what the game allows at the table
+BAN_REASON_MAX = 120
+
+
+def read_bans() -> dict:
+    """The bans file, reduced to exactly two shapes: a list and a dict."""
+    try:
+        with open(BANS_PATH, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    bans, closed = data.get("bans"), data.get("closed")
+    return {
+        "bans": [b for b in bans if isinstance(b, dict)] if isinstance(bans, list) else [],
+        "closed": {str(k): v for k, v in closed.items() if isinstance(v, (int, float))}
+        if isinstance(closed, dict) else {},
+    }
+
+
+def write_bans(data: dict) -> None:
+    os.makedirs(LOBBY_STATE, exist_ok=True)
+    tmp = BANS_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=1)
+    try:
+        os.chmod(tmp, 0o640)   # the accounts service reads it group-only
+    except OSError:
+        pass
+    os.replace(tmp, BANS_PATH)
+
+
+def _clean(value: object, limit: int) -> str:
+    text = "".join(ch for ch in str(value or "") if ch.isprintable())
+    return " ".join(text.split())[:limit]
+
+
+def add_ban(body: dict, by: str) -> tuple[int, dict]:
+    kind = str(body.get("kind") or "")
+    reason = _clean(body.get("reason"), BAN_REASON_MAX)
+    data = read_bans()
+    if kind == "account":
+        uid = _clean(body.get("id"), 40)
+        if not ACCOUNT_RE.fullmatch(uid):
+            return 400, {"error": "an account ban needs the player's id (u_...)"}
+        name = _clean(body.get("name"), BAN_NAME_MAX)
+    elif kind == "name":
+        name = _clean(body.get("name") or body.get("id"), BAN_NAME_MAX)
+        if not name:
+            return 400, {"error": "a name ban needs the name"}
+        uid = name.lower()
+    else:
+        return 400, {"error": "kind must be account or name"}
+    data["bans"] = [b for b in data["bans"]
+                    if not (b.get("kind") == kind and b.get("id") == uid)]
+    data["bans"].append({"kind": kind, "id": uid, "name": name, "reason": reason,
+                         "by": by, "at": int(time.time())})
+    write_bans(data)
+    return 200, {"ok": True, **read_bans()}
+
+
+def remove_ban(body: dict) -> tuple[int, dict]:
+    kind = str(body.get("kind") or "")
+    uid = _clean(body.get("id"), 40)
+    if kind == "name":
+        uid = uid.lower()
+    data = read_bans()
+    keep = [b for b in data["bans"] if not (b.get("kind") == kind and b.get("id") == uid)]
+    if len(keep) == len(data["bans"]):
+        return 404, {"error": "no such ban"}
+    data["bans"] = keep
+    write_bans(data)
+    return 200, {"ok": True, **read_bans()}
+
+
+def set_room_closed(body: dict, closed: bool) -> tuple[int, dict]:
+    room_id = _clean(body.get("id"), 40).upper()
+    if not BAN_ROOM_RE.fullmatch(room_id):
+        return 400, {"error": "not a room code"}
+    data = read_bans()
+    if closed:
+        data["closed"][room_id] = time.time()
+    else:
+        if room_id not in data["closed"]:
+            return 404, {"error": "that room is not closed"}
+        data["closed"].pop(room_id)
+    write_bans(data)
+    return 200, {"ok": True, **read_bans()}
+
+
 # ------------------------------------------------------------------- host --
 
 def host() -> dict:
@@ -788,6 +899,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
+        if path.startswith("/api/"):
+            return self._admin_post(path)
         if not self.public or path != "/auth/email":
             return self._send(404, b"not found", "text/plain")
         if not auth_modes()["email"]:
@@ -806,11 +919,54 @@ class Handler(BaseHTTPRequestHandler):
     def _serve(self, path: str):
         if path.startswith("/api/stats"):
             return self._send(200, json.dumps(snapshot()).encode(), "application/json")
+        if path.startswith("/api/live"):
+            # The fast poll: just the tables and the moderation file, none of
+            # the journald/nginx/host work the full snapshot does.
+            live = {"generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    "tables": tables(), "moderation": read_bans()}
+            return self._send(200, json.dumps(live).encode(), "application/json")
         if path in ("/", "/index.html"):
             who = self._session_email() if self.public else None
             page = PAGE.replace("__WHO__", f"{who} · <a href='{base_url()}/auth/logout'>sign out</a>" if who else "")
             return self._send(200, page.encode(), "text/html; charset=utf-8")
         return self._send(404, b"not found", "text/plain")
+
+    # -- the controls -------------------------------------------------------
+    # Same two ways in as the page itself (tunnel, or an allowlisted session
+    # on the public route), plus one header a cross-site request cannot send.
+    def _admin_ok(self) -> bool:
+        if self.headers.get("X-Ops-Admin") != "1":
+            return False
+        return not self.public or self._session_email() is not None
+
+    def _admin_post(self, path: str):
+        def reply(code: int, payload: dict):
+            self._send(code, json.dumps(payload).encode(), "application/json")
+
+        if not self._admin_ok():
+            return reply(403, {"error": "not allowed"})
+        length = min(int(self.headers.get("Content-Length") or 0), 4096)
+        try:
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except Exception:
+            return reply(400, {"error": "bad json"})
+        if not isinstance(body, dict):
+            return reply(400, {"error": "bad body"})
+        who = self._session_email() or "tunnel"
+        try:
+            if path == "/api/ban":
+                code, out = add_ban(body, who)
+            elif path == "/api/unban":
+                code, out = remove_ban(body)
+            elif path == "/api/close":
+                code, out = set_room_closed(body, True)
+            elif path == "/api/reopen":
+                code, out = set_room_closed(body, False)
+            else:
+                return reply(404, {"error": "not found"})
+        except OSError:
+            return reply(500, {"error": "could not write the bans file"})
+        return reply(code, out)
 
     def log_message(self, *_):
         pass  # the panel watching the logs should not be filling them
@@ -1141,6 +1297,43 @@ h2{margin:0;font-size:var(--t-xl);font-weight:680;letter-spacing:-.015em;line-he
 .paths td:last-child{width:4.5em;text-align:right;font-variant-numeric:tabular-nums}
 .foot{padding-top:0;color:var(--text-faint);font-size:var(--t-xs);line-height:1.6}
 
+/* --------------------------------------------------------- admin controls */
+.act{display:inline-flex;align-items:center;justify-content:center;min-height:26px;padding:0 10px;
+     border-radius:var(--r-pill);border:1px solid var(--border-strong);background:transparent;
+     color:var(--text-muted);font:inherit;font-size:var(--t-xs);font-weight:650;cursor:pointer;
+     white-space:nowrap;transition:color var(--dur-fast) var(--ease-out),background-color var(--dur-fast) var(--ease-out),border-color var(--dur-fast) var(--ease-out)}
+@media (pointer:coarse){.act{min-height:32px}}
+.act:hover{color:var(--text);background:var(--bg-raised)}
+.act--bad{color:var(--bad);border-color:color-mix(in oklab,var(--bad) 45%,transparent)}
+.act--bad:hover{background:var(--bad-soft);color:var(--bad)}
+.act--good{color:var(--good);border-color:color-mix(in oklab,var(--good) 45%,transparent)}
+.act--good:hover{background:var(--good-soft);color:var(--good)}
+.tcard__acts{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:var(--s-2)}
+.seat__side{display:inline-flex;align-items:center;gap:var(--s-2)}
+.orow{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1.3fr) minmax(0,.6fr) auto;
+      align-items:center;gap:var(--s-2) var(--s-3);padding:var(--s-2) var(--s-4);
+      border-bottom:1px solid var(--border);font-size:var(--t-sm)}
+.orow:last-child{border-bottom:0}
+.orow--head{padding-block:var(--s-2);background:var(--bg-raised);font-size:var(--t-xs);font-weight:700;
+      letter-spacing:.08em;text-transform:uppercase;color:var(--text-faint)}
+.orow[data-off] .o-who{opacity:.55}
+.o-who{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-1) var(--s-2);min-width:0}
+.o-where{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.o-act{text-align:right}
+@media (max-width:720px){
+  .orow{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"who act" "where act"}
+  .orow--head{display:none}
+  .o-who{grid-area:who}.o-where{grid-area:where}.o-act{grid-area:act}
+  .orow>:nth-child(3){display:none}
+}
+.banform{display:flex;flex-wrap:wrap;gap:var(--s-2)}
+.banform select,.banform input{min-height:40px;padding:0 var(--s-3);border-radius:var(--r-md);
+      border:1px solid var(--border-strong);background:var(--bg-app);color:var(--text);font:inherit;font-size:var(--t-sm)}
+.banform input{flex:1;min-width:130px}
+.banform button{min-height:40px;padding:0 var(--s-4);border-radius:var(--r-md);cursor:pointer;
+      border:1px solid color-mix(in oklab,var(--bad) 45%,transparent);background:var(--bad-soft);
+      color:var(--bad);font:inherit;font-size:var(--t-sm);font-weight:700}
+
 /* ----------------------------------------------------- loading + motion */
 .sk{position:relative;overflow:hidden;border-radius:var(--r-md);background:var(--skeleton)}
 .sk::after{content:"";position:absolute;inset:0;transform:translateX(-100%);
@@ -1162,7 +1355,7 @@ h2{margin:0;font-size:var(--t-xl);font-weight:680;letter-spacing:-.015em;line-he
     <span class="live" id="live" data-state="loading"><i class="pulse" aria-hidden="true"></i><span id="liveText">Loading…</span></span>
     <span class="who" id="who">__WHO__</span>
     <nav class="nav" aria-label="Sections">
-      <a href="#overview">Now</a><a href="#live-tables">Tables</a><a href="#today">24 hours</a><a href="#ended">Ended</a><a href="#activity">Activity</a><a href="#server">Server</a>
+      <a href="#overview">Now</a><a href="#online">Online</a><a href="#live-tables">Tables</a><a href="#bans">Moderation</a><a href="#today">24 hours</a><a href="#ended">Ended</a><a href="#activity">Activity</a><a href="#server">Server</a>
     </nav>
   </div>
 </header>
@@ -1173,16 +1366,29 @@ h2{margin:0;font-size:var(--t-xl);font-weight:680;letter-spacing:-.015em;line-he
     <div class="sk sk--title"></div>
     <div class="kpis"><div class="sk sk--kpi"></div><div class="sk sk--kpi"></div><div class="sk sk--kpi"></div><div class="sk sk--kpi"></div><div class="sk sk--kpi"></div><div class="sk sk--kpi"></div></div>
   </section>
+  <section id="online"></section>
   <section id="live-tables">
     <div class="sk sk--title"></div>
     <div class="cards"><div class="sk sk--card"></div><div class="sk sk--card"></div></div>
+  </section>
+  <section id="bans">
+    <div id="banHead"></div>
+    <div class="panel">
+      <form class="banform" id="banForm">
+        <select name="kind" aria-label="Ban kind"><option value="name">Name</option><option value="account">Account</option></select>
+        <input name="target" required maxlength="40" placeholder="name, or u_… for an account" aria-label="Who to ban">
+        <input name="reason" maxlength="120" placeholder="reason (optional)">
+        <button type="submit">Ban</button>
+      </form>
+    </div>
+    <div id="banBody"></div>
   </section>
   <section id="today"></section>
   <section id="ended"></section>
   <section id="activity"></section>
   <section id="server"></section>
 </main>
-<footer class="wrap foot">Tables are reported by the host's browser every 20 seconds and whenever they change; a table that stops reporting for 90 seconds is closed as "went quiet". Times are shown in this device's time zone.</footer>
+<footer class="wrap foot">Tables are reported by the host's browser every 20 seconds and whenever they change; a table that stops reporting for 90 seconds is closed as "went quiet". Bans and closed rooms are enforced on that same beat. Times are shown in this device's time zone.</footer>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -1208,6 +1414,75 @@ const people = ps => {
   return (h.join(", ") || "No humans") + (b ? ` <span class="faint">+ ${b} bot${b > 1 ? "s" : ""}</span>` : "");
 };
 
+/* ---------------------------------------------------------- moderation */
+/* M is the bans file as the panel wrote it: {bans: [...], closed: {...}}.
+   The same matching rules run in the lobby service; here they only decide
+   what is flagged and which buttons make sense. */
+const bansOf = kind => M => new Set((M?.bans || []).filter(b => b.kind === kind).map(b => b.id));
+const accountBans = bansOf("account"), nameBans = bansOf("name");
+const roomClosed = (M, id) => {
+  const at = (M?.closed || {})[id];
+  return typeof at === "number" && Date.now() / 1000 - at < 86400;
+};
+/* A seat is certainly banned when its account is. A host seat additionally
+   carries its name ban - a guest's name is never matched for them, because
+   names are claimed, not owned. */
+const seatBanned = (M, p) => p.id.startsWith("u_") && accountBans(M).has(p.id);
+const hostNameBanned = (M, t) => {
+  const h = (t.players || []).find(p => p.host);
+  return !!h && nameBans(M).has(h.name.trim().toLowerCase());
+};
+const hostBanned = (M, t) => {
+  const h = (t.players || []).find(p => p.host);
+  return !!h && (seatBanned(M, h) || nameBans(M).has(h.name.trim().toLowerCase()));
+};
+
+/* The header is the CSRF proof - a cross-site form cannot set one. */
+async function adminPost(path, body) {
+  try {
+    const res = await fetch(path, {method: "POST", credentials: "same-origin", cache: "no-store",
+      headers: {"Content-Type": "application/json", "X-Ops-Admin": "1"}, body: JSON.stringify(body)});
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok || out.error) { window.alert(out.error || `That did not work (HTTP ${res.status}).`); return null; }
+    return out;
+  } catch { window.alert("Could not reach the panel."); return null; }
+}
+
+/* One handler for every button the sections draw: what to do rides on
+   data- attributes, so a player name with a quote in it breaks nothing. */
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-act]");
+  if (!el) return;
+  e.preventDefault();
+  const {act, id, kind, name} = el.dataset;
+  (async () => {
+    let out = null;
+    if (act === "ban") {
+      const account = id.startsWith("u_");
+      const what = account
+        ? `Ban ${name} (${id})?\n\nTheir sign-in and pass refresh stop working within seconds, and every table they sit at is told to remove them.`
+        : `Ban the name "${name}"?\n\nAnyone calling themselves that can no longer host a public room. Guests pick any name, so for a guest this is a warning shot, not a wall - a signed-in account is the durable ban.`;
+      if (!window.confirm(what)) return;
+      const reason = window.prompt("Reason (optional; only this panel shows it):", "");
+      if (reason === null) return;
+      out = await adminPost("api/ban", {kind: account ? "account" : "name", id, name, reason});
+    } else if (act === "unban") {
+      if (!window.confirm(`Lift the ban on ${name || id}?`)) return;
+      out = await adminPost("api/unban", {kind, id});
+    } else if (act === "close") {
+      if (!window.confirm(`Close ${id}?\n\nIt leaves the public list now and cannot be listed again for 24 hours. A game already going on the room code is not interrupted.`)) return;
+      out = await adminPost("api/close", {id});
+    } else if (act === "reopen") {
+      out = await adminPost("api/reopen", {id});
+    }
+    if (out) {
+      if (liveData) liveData.moderation = {bans: out.bans || [], closed: out.closed || {}};
+      renderLive();
+      tickLive();
+    }
+  })();
+});
+
 /* ------------------------------------------------------------- sections */
 function overview(T) {
   if (!T) return head("Right now");
@@ -1223,35 +1498,106 @@ function overview(T) {
   ]);
 }
 
-const seatRow = (p, t) => `<li class="seat"${p.connected ? "" : " data-off"}${p.out ? " data-out" : ""}>`
+const banBtn = (M, p) => p.bot ? "" : seatBanned(M, p)
+  ? `<button class="act act--good" data-act="unban" data-kind="account" data-id="${esc(p.id)}" data-name="${esc(p.name)}">Unban</button>`
+  : `<button class="act act--bad" data-act="ban" data-id="${esc(p.id)}" data-name="${esc(p.name)}">Ban</button>`;
+
+const seatRow = (p, t, M) => `<li class="seat"${p.connected ? "" : " data-off"}${p.out ? " data-out" : ""}>`
   + `<i class="seat__dot" style="background:${esc(p.color)}"></i>`
-  + `<span class="seat__who"><span class="seat__name" title="${esc(p.name)}">${esc(p.name)}</span>`
+  + `<span class="seat__who"><span class="seat__name" title="${esc(p.name)} · ${esc(p.id)}">${esc(p.name)}</span>`
   + (p.bot ? tag("bot") : "") + (p.host && t.mode !== "solo" ? tag("host", "accent") : "")
+  + (p.id.startsWith("u_") && !p.bot ? tag("account") : "")
+  + (seatBanned(M, p) ? tag("banned", "bad") : "")
   + (!p.bot && !p.connected ? tag("offline", "bad") : "")
   + (p.out ? tag(t.kind === "cashflow" ? "out" : "bankrupt", "bad") : "")
   + (t.kind === "cashflow" && p.track === "fast" ? tag("fast track", "good") : "")
-  + `</span><span class="seat__cash">${t.phase === "lobby" ? "" : money(p.cash)}</span></li>`;
+  + `</span><span class="seat__side"><span class="seat__cash">${t.phase === "lobby" ? "" : money(p.cash)}</span>${banBtn(M, p)}</span></li>`;
 
-function tableCard(t, i) {
+function tableCard(t, i, M) {
   const status = [phaseTag(t)];
   if (t.phase === "playing") status.push(`<span>Round <b class="num">${t.round}</b></span>`);
   if (t.turn) status.push(`<span class="muted">${esc(t.turn)} to move</span>`);
   if (t.phase === "over") status.push(t.winner ? `<span><b>${esc(t.winner)}</b> won</span>` : "");
+  if (hostBanned(M, t)) status.push(tag("host banned", "bad"));
+  const closable = /^[A-Z]{3,10}-/.test(t.id);   // a room code, not a solo table
+  const closed = closable && roomClosed(M, t.id);
   return `<article class="tcard reveal" style="--i:${i}">
     <div class="tcard__head"><span class="code" title="${esc(t.id)}">${esc(t.id)}</span><span class="game">${esc(GAME[t.kind] || t.kind)}</span></div>
     <div class="status">${status.join("")}</div>
-    <ul class="seats">${(t.players || []).map(p => seatRow(p, t)).join("")}</ul>
-    <div class="tcard__foot"><div class="tags">${modeTag(t.mode)}${deviceTag(t.device)}${t.lang ? tag(t.lang) : ""}</div>
-      <span class="num${t.quiet > 45 ? " bad" : ""}">open ${dur(t.age)} · seen ${dur(t.quiet)} ago</span></div>
+    <ul class="seats">${(t.players || []).map(p => seatRow(p, t, M)).join("")}</ul>
+    <div class="tcard__foot"><div class="tags">${modeTag(t.mode)}${deviceTag(t.device)}${t.lang ? tag(t.lang) : ""}${closed ? tag("closed", "bad") : ""}</div>
+      <span class="tcard__acts">${!closable ? "" : closed
+        ? `<button class="act act--good" data-act="reopen" data-id="${esc(t.id)}">Reopen</button>`
+        : `<button class="act" data-act="close" data-id="${esc(t.id)}">Close room</button>`}
+      <span class="num${t.quiet > 45 ? " bad" : ""}">open ${dur(t.age)} · seen ${dur(t.quiet)} ago</span></span></div>
   </article>`;
 }
 
-function liveTables(T) {
+function liveTables(T, M) {
   const list = T && !T.error ? T.live : [];
   const h = head("Live tables", `<span class="count num">${list.length}</span><span class="sec-note">public, private and solo · newest first</span>`);
   if (!T || T.error) return h;
   if (!list.length) return h + `<div class="empty"><b>Nobody is at a table</b>A table shows up here the moment someone opens a room or starts a solo game.</div>`;
-  return h + `<div class="cards">${list.map(tableCard).join("")}</div>`;
+  return h + `<div class="cards">${list.map((t, i) => tableCard(t, i, M)).join("")}</div>`;
+}
+
+/* Every human seat at every live table, one row each - the "who is on right
+   now" answer, with the ban button next to the name it applies to. */
+function onlineRow({t, p}, M) {
+  const account = p.id.startsWith("u_");
+  const banned = seatBanned(M, p) || (p.host && nameBans(M).has(p.name.trim().toLowerCase()));
+  return `<div class="orow"${p.connected ? "" : " data-off"}>
+    <span class="o-who"><i class="seat__dot" style="background:${esc(p.color)}"></i>
+      <span class="seat__name" title="${esc(p.name)} · ${esc(p.id)}">${esc(p.name)}</span>
+      ${account ? tag("account", "accent") : tag("guest")}${p.host ? tag("host") : ""}
+      ${p.connected ? "" : tag("away", "warn")}${banned ? tag("banned", "bad") : ""}</span>
+    <span class="o-where muted"><span class="code">${esc(t.id)}</span> · ${esc(GAME[t.kind] || t.kind)}${t.phase === "playing" ? ` · round ${t.round}` : ""}${t.mode === "solo" ? " · solo" : ""}</span>
+    <span class="num muted">${t.phase === "lobby" ? "—" : money(p.cash)}</span>
+    <span class="o-act">${banned && !account ? "" : banBtn(M, p)}</span>
+  </div>`;
+}
+
+function onlineSec(T, M) {
+  const rows = [];
+  if (T && !T.error)
+    for (const t of T.live)
+      for (const p of t.players || [])
+        if (!p.bot) rows.push({t, p});
+  rows.sort((a, b) => Number(b.p.connected) - Number(a.p.connected) || (b.t.opened - a.t.opened));
+  const on = rows.filter(r => r.p.connected).length;
+  const h = head("Who's online", `<span class="count num">${on}</span><span class="sec-note">every human seat at a live table · names, not people</span>`);
+  if (!T || T.error) return h;
+  if (!rows.length) return h + `<div class="empty"><b>Nobody online</b>Players appear the moment a table reports them, and grey out when they drop.</div>`;
+  return h + `<div class="rows"><div class="orow orow--head"><span>Player</span><span>Table</span><span>Cash</span><span></span></div>`
+    + rows.map(r => onlineRow(r, M)).join("") + `</div>`;
+}
+
+function bansSec(M) {
+  const bans = [...(M?.bans || [])].sort((a, b) => b.at - a.at);
+  const closed = Object.entries(M?.closed || {})
+    .filter(([, at]) => Date.now() / 1000 - at < 86400)
+    .sort((a, b) => b[1] - a[1]);
+  // The form itself is static markup: re-rendering it every three seconds
+  // would wipe whatever the operator is typing into it.
+  $("banHead").innerHTML = head("Moderation", `<span class="count num">${bans.length}</span>`
+    + `<span class="sec-note">enforced at the next beat of any table - within about 20 seconds</span>`);
+  const list = bans.length ? `<div class="rows">${bans.map(b => `<div class="orow">
+      <span class="o-who">${tag(b.kind, b.kind === "account" ? "accent" : "")}<b>${esc(b.name || b.id)}</b>${b.kind === "account" ? `<code class="faint">${esc(b.id)}</code>` : ""}</span>
+      <span class="o-where muted">${esc(b.reason || "—")}</span>
+      <span class="faint">by ${esc(b.by || "?")}<br>${dur(Math.max(0, Math.round(Date.now() / 1000 - b.at)))} ago</span>
+      <span class="o-act"><button class="act act--good" data-act="unban" data-kind="${esc(b.kind)}" data-id="${esc(b.id)}" data-name="${esc(b.name || b.id)}">Unban</button></span>
+    </div>`).join("")}</div>`
+    : `<div class="empty"><b>No bans</b>Ban a player from "Who's online" or a live table card, or by hand above.</div>`;
+  const rooms = closed.length
+    ? `<div class="sec-h" style="margin-top:var(--s-4)"><h2>Closed rooms</h2><span class="sec-note">cannot be listed for 24 hours from closing</span></div>`
+      + `<div class="rows">${closed.map(([id, at]) => `<div class="orow">
+        <span class="o-who"><span class="code">${esc(id)}</span></span>
+        <span class="o-where muted">closed ${dur(Math.max(0, Math.round(Date.now() / 1000 - at)))} ago</span>
+        <span></span>
+        <span class="o-act"><button class="act act--good" data-act="reopen" data-id="${esc(id)}">Reopen</button></span>
+      </div>`).join("")}</div>`
+    : "";
+  $("banBody").innerHTML = list + rooms;
 }
 
 /* 288 five-minute samples do not fit a phone-width chart, and a clipped
@@ -1325,7 +1671,7 @@ function ended(T) {
 }
 
 const evTone = e => e.ev === "closed" ? (e.reason === "went quiet" ? "warn" : "")
-  : ({opened: "accent", started: "good", finished: "good", returned: "good", resumed: "good", dropped: "bad", listed: "accent", rematch: "accent"})[e.ev] || "";
+  : ({opened: "accent", started: "good", finished: "good", returned: "good", resumed: "good", dropped: "bad", listed: "accent", rematch: "accent", moderated: "bad"})[e.ev] || "";
 
 function evText(e) {
   const code = `<span class="code">${esc(e.id)}</span>`, who = `<b>${esc(e.name)}</b>`;
@@ -1342,6 +1688,10 @@ function evText(e) {
     case "listed": return `${code} made public`;
     case "unlisted": return `${code} made private`;
     case "rematch": return `${code} back to the lobby for another game`;
+    case "moderated": return `${code} flagged by moderation`
+      + (e.banned ? " · its host is banned" : "")
+      + (e.close ? " · the room was closed" : "")
+      + (e.bannedSeats && e.bannedSeats.length ? ` · ${e.bannedSeats.length} banned account(s) seated` : "");
     default: return `${code} ${esc(e.ev)}`;
   }
 }
@@ -1402,11 +1752,13 @@ function server(d) {
 }
 
 /* --------------------------------------------------------------- refresh */
-let last = null, lastAt = 0, failing = false, first = true;
+/* Two clocks. The live poll - tables, who is online, the bans - runs every
+   three seconds and is cheap: one small file read. The heavy snapshot
+   (journald, nginx's log, /proc) runs every fifteen. */
+let liveData = null, statsData = null, lastAt = 0, failing = false, first = true;
 
-function banners(d) {
-  const T = d && d.tables;
-  if (failing) return `<div class="banner banner--bad" role="alert"><b>Can't load the panel data.</b> Retrying every 5 seconds${last ? " — showing what was last loaded" : ""}. If it keeps happening, reload the page or sign in again.</div>`;
+function banners(T) {
+  if (failing) return `<div class="banner banner--bad" role="alert"><b>Can't load the panel data.</b> Retrying every 3 seconds${liveData ? " — showing what was last loaded" : ""}. If it keeps happening, reload the page or sign in again.</div>`;
   if (T && T.stale) return `<div class="banner banner--warn"><b>The table log is ${dur(T.generated_age)} old.</b> The lobby service may be down — check <code>systemctl status lobbies</code>. Tables below may be out of date.</div>`;
   return "";
 }
@@ -1417,50 +1769,87 @@ function updateLive() {
   if (!lastAt) { el.dataset.state = "loading"; txt.textContent = "Loading…"; return; }
   if (document.hidden) { el.dataset.state = "paused"; txt.textContent = "Paused"; return; }
   const s = Math.max(0, Math.round((Date.now() - lastAt) / 1000));
-  const stale = last && last.tables && last.tables.stale;
+  const stale = liveData && liveData.tables && liveData.tables.stale;
   el.dataset.state = stale ? "stale" : "ok";
   txt.textContent = `${stale ? "Table log stale" : "Live"} · updated ${s < 2 ? "just now" : s + "s ago"}`;
 }
 
-function render(d) {
-  const feed = document.querySelector(".feed"), feedTop = feed ? feed.scrollTop : 0;
+function renderLive() {
+  if (!liveData) return;
+  const T = liveData.tables, M = liveData.moderation;
   if (first) document.body.classList.add("first");
-  const T = d.tables;
   $("overview").innerHTML = overview(T);
   $("overview").removeAttribute("aria-busy");
-  $("live-tables").innerHTML = liveTables(T);
-  $("today").innerHTML = today(T);
-  $("ended").innerHTML = ended(T);
-  $("activity").innerHTML = activity(T);
-  $("server").innerHTML = server(d);
-  const feedNow = document.querySelector(".feed");
-  if (feedNow) feedNow.scrollTop = feedTop;
+  $("online").innerHTML = onlineSec(T, M);
+  $("live-tables").innerHTML = liveTables(T, M);
+  bansSec(M);
   // The page just changed height under the reader; the menu has to catch up.
   if (typeof queueMark === "function") queueMark();
   if (first) { first = false; setTimeout(() => document.body.classList.remove("first"), 1500); }
 }
 
-async function tick() {
+function renderStats() {
+  if (!statsData) return;
+  const feed = document.querySelector(".feed"), feedTop = feed ? feed.scrollTop : 0;
+  const T = statsData.tables;
+  $("today").innerHTML = today(T);
+  $("ended").innerHTML = ended(T);
+  $("activity").innerHTML = activity(T);
+  $("server").innerHTML = server(statsData);
+  const feedNow = document.querySelector(".feed");
+  if (feedNow) feedNow.scrollTop = feedTop;
+  if (typeof queueMark === "function") queueMark();
+}
+
+async function tickLive() {
   if (document.hidden) { updateLive(); return; }
   try {
-    // Relative, NOT "/api/stats": the page is served from "/" over the tunnel
+    // Relative, NOT "/api/live": the page is served from "/" over the tunnel
     // but from "/admin/" through nginx, where "/api/" is another app entirely.
-    const res = await fetch("api/stats", {credentials: "same-origin", cache: "no-store"});
+    const res = await fetch("api/live", {credentials: "same-origin", cache: "no-store"});
     const d = await res.json();
-    if (!d || !d.generated) throw new Error("no data");
-    last = d; lastAt = Date.now(); failing = false;
-    render(d);
+    if (!d || !d.tables) throw new Error("no data");
+    liveData = d; lastAt = Date.now(); failing = false;
+    renderLive();
   } catch (e) {
     failing = true;
   }
-  $("banners").innerHTML = banners(last);
+  $("banners").innerHTML = banners(liveData && liveData.tables);
   updateLive();
 }
 
-document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); else updateLive(); });
-setInterval(tick, 5000);
+async function tickStats() {
+  if (document.hidden) return;
+  try {
+    const res = await fetch("api/stats", {credentials: "same-origin", cache: "no-store"});
+    const d = await res.json();
+    if (!d || !d.generated) throw new Error("no data");
+    statsData = d;
+    renderStats();
+  } catch (e) { /* the live poll is the one that reports trouble */ }
+}
+
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { tickLive(); tickStats(); } else updateLive(); });
+setInterval(tickLive, 3000);
+setInterval(tickStats, 15000);
 setInterval(updateLive, 1000);
-tick();
+tickLive();
+tickStats();
+
+// The ban form is static markup (see bansSec); handle it by delegation.
+document.addEventListener("submit", async (e) => {
+  if (e.target.id !== "banForm") return;
+  e.preventDefault();
+  const f = e.target, kind = f.kind.value, target = f.target.value.trim(), reason = f.reason.value.trim();
+  if (!target) return;
+  const out = await adminPost("api/ban", {kind, id: target, name: target, reason});
+  if (out) {
+    f.reset();
+    if (liveData) liveData.moderation = {bans: out.bans || [], closed: out.closed || {}};
+    renderLive();
+    tickLive();
+  }
+});
 
 /* Which section is being read, for the menu: the last one whose top has
    passed under the header. (Several short sections can be on screen at
