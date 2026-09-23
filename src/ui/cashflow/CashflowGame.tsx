@@ -10,6 +10,8 @@ import { useWakeLock } from '../wakeLock';
 import { FxLayer, useFx } from '../Fx';
 import { useGameKeys } from '../Help';
 import { LangSwitch } from '../LangSwitch';
+import { TableMenu } from '../TableMenu';
+import { useDockInset } from '../dockInset';
 import { FeedView, type FeedLine } from '../Panels';
 import { CFActions } from './CFActions';
 import { CFBoard } from './CFBoard';
@@ -91,19 +93,22 @@ export default function CashflowGame() {
     }))
     : []), [cfLog, s, t]);
 
+  const gameRef = useRef<HTMLDivElement>(null);
+  useDockInset(gameRef, '.cfGame__side', Boolean(room && s));
+
   if (!room || !s) return null;
 
   const round = Math.max(1, s.round);
 
   return (
-    <div className="cfGame">
+    <div className="cfGame" ref={gameRef}>
       <header className="cfGame__top">
         <button type="button" className="btn btn--ghost btn--sm" onClick={leave}>{t.common.leave}</button>
         <span className="overline cfGame__title">
           {t.cf.name} · {t.game.turn(round, s.settings.turnLimit > 0 ? s.settings.turnLimit : null)}
         </span>
         <div className="spacer" />
-        <button type="button" className="btn btn--ghost btn--sm" onClick={toggleSound} aria-pressed={soundOn}>
+        <button type="button" className="btn btn--ghost btn--sm" onClick={toggleSound} aria-pressed={soundOn} data-hdr="wide">
           {soundOn ? t.game.soundOn : t.game.soundOff}
         </button>
         <button
@@ -111,6 +116,7 @@ export default function CashflowGame() {
           className="btn btn--ghost btn--sm"
           onClick={toggleHaptics}
           aria-pressed={hapticsOn}
+          data-hdr="wide"
           title={t.game.haptics}
         >
           {t.game.haptics}
@@ -120,11 +126,12 @@ export default function CashflowGame() {
           className="btn btn--ghost btn--sm"
           onClick={alerts.toggle}
           aria-pressed={alerts.on}
+          data-hdr="wide"
           title={alerts.blocked ? t.table.alerts.blocked : t.table.alerts.title}
         >
           {alerts.on ? t.table.alerts.on : t.table.alerts.off}
         </button>
-        <LangSwitch />
+        <span data-hdr="wide"><LangSwitch /></span>
         <button
           type="button"
           className="btn btn--ghost btn--sm"
@@ -134,6 +141,7 @@ export default function CashflowGame() {
           <span className="cfGame__helpLabel">{t.game.howToPlay}</span>
           <kbd className="kbd">?</kbd>
         </button>
+        <TableMenu alerts={alerts} />
       </header>
 
       {netError && <div className="banner banner--bad" role="alert">{netError}</div>}

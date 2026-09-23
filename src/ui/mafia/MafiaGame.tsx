@@ -244,7 +244,13 @@ export default function MafiaGame() {
 
       <div className="tw:relative tw:z-10 tw:flex tw:flex-col" style={{ height: '100dvh' }}>
         <div className="tw:flex tw:items-center tw:justify-between tw:gap-2 tw:px-4 tw:py-3 tw:border-b tw:flex-shrink-0"
-          style={{ background: 'rgba(10,10,15,0.85)', backdropFilter: 'blur(20px)', borderColor: 'rgba(255,215,0,0.07)' }}>
+          style={{
+            background: 'rgba(10,10,15,0.85)', backdropFilter: 'blur(20px)', borderColor: 'rgba(255,215,0,0.07)',
+            // Clear the notch and the rounded corners on a phone.
+            paddingTop: 'calc(0.75rem + env(safe-area-inset-top))',
+            paddingLeft: 'max(1rem, env(safe-area-inset-left))',
+            paddingRight: 'max(1rem, env(safe-area-inset-right))',
+          }}>
           <PhaseTimer phase={m.phase} timeLeft={left} round={m.round} />
           <SurvivorCounter m={m} />
           <div className="tw:flex tw:items-center tw:gap-2">
@@ -360,7 +366,7 @@ export default function MafiaGame() {
             <motion.div key="mobile-chat" initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', stiffness: 340, damping: 32 }}
               className="tw:md:hidden tw:fixed tw:inset-x-0 tw:bottom-0 tw:z-40 tw:flex tw:flex-col tw:rounded-t-2xl"
-              style={{ height: 'calc(100dvh * 0.65)', background: 'rgba(10,10,15,0.97)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,215,0,0.12)', borderBottom: 'none' }}>
+              style={{ height: 'calc(100dvh * 0.65)', paddingBottom: 'env(safe-area-inset-bottom)', background: 'rgba(10,10,15,0.97)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,215,0,0.12)', borderBottom: 'none' }}>
               <div className="tw:flex tw:items-center tw:justify-center tw:px-4 tw:pt-3 tw:pb-1 tw:flex-shrink-0">
                 <div className="tw:w-10 tw:h-1 tw:rounded-full tw:bg-[rgba(255,255,255,0.15)]" />
               </div>

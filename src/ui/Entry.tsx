@@ -233,7 +233,7 @@ export function EntryCard({ pick, urlCode }: { pick: GameKind; urlCode: string }
               </div>
               <button
                 type="button"
-                className="btn btn--primary btn--block btn--lg"
+                className="btn btn--primary btn--block btn--lg entry__go"
                 disabled={!nameOk}
                 onClick={() => go(() => hostRoom(undefined, pick, { listed }))}
               >
@@ -278,7 +278,7 @@ export function EntryCard({ pick, urlCode }: { pick: GameKind; urlCode: string }
               <p className="modePanel__body">{E.practice.body(gameName, pick === 'mafia' ? MAF_PRACTICE_BOTS : 2)}</p>
               <button
                 type="button"
-                className="btn btn--primary btn--block btn--lg"
+                className="btn btn--primary btn--block btn--lg entry__go"
                 disabled={!nameOk}
                 onClick={() => go(() => playSolo(pick))}
               >

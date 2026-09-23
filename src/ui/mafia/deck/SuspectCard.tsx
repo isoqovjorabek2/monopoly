@@ -1,9 +1,10 @@
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { MicOff, WifiOff } from 'lucide-react';
 import { useT } from '../../../i18n';
 import { AvatarImg } from '../Hud';
 import type { RoleDef, ViewPlayer } from '../model';
+import { Portrait } from './Portrait';
 
 /* ------------------------------------------------------------------ *
  * One suspect, dealt face up: a seat number, a portrait, a name plate.
@@ -42,6 +43,11 @@ interface Props {
   /** Null when this card takes no note (you, the dead). */
   onNote: (() => void) | null;
   onTap: () => void;
+  /** The lobby's use: a line in place of the role under the name, a seal
+   *  in place of "You", and a control in place of the note tag. */
+  sub?: string;
+  seal?: string;
+  corner?: ReactNode;
 }
 
 const ROMAN: [number, string][] = [[10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']];
@@ -55,6 +61,7 @@ const MAX_FACES = 5;
 
 export function SuspectCard({
   player, seatNo, index, role, isMe, isAlly, tappable, selected, dim, stamp, voters, leading, knives, check, note, onNote, onTap,
+  sub, seal, corner,
 }: Props) {
   const t = useT();
   const D = t.maf.ui.deck;
@@ -112,17 +119,18 @@ export function SuspectCard({
           </span>
         )}
         <div className="dk-card__art">
-          <AvatarImg avatar={player.avatar} playerId={player.id} size={180} />
+          <Portrait playerId={player.id} avatar={player.avatar} size={180} />
         </div>
         <div className="dk-card__plate">
           <span className="dk-card__name">{player.username}</span>
           <span className="dk-card__sub">
-            {isMe ? D.you : role ? role.name : player.isSilenced ? t.maf.table.silenced : ' '}
+            {sub ?? (isMe ? D.you : role ? role.name : player.isSilenced ? t.maf.table.silenced : ' ')}
           </span>
         </div>
       </motion.div>
 
-      {isMe && <span className="dk-seal dk-seal--you">{D.you}</span>}
+      {(seal || isMe) && <span className="dk-seal dk-seal--you">{seal ?? D.you}</span>}
+      {corner}
       {isAlly && <span className="dk-seal dk-seal--ally">{t.maf.ui.ally}</span>}
       {check && <span className="dk-seal dk-seal--check" data-guilty={check.guilty}>🔍 {check.faction}</span>}
 

@@ -6,7 +6,11 @@ import { useStore } from '../../store/store';
 import { avatarUrl, formatTime } from './model';
 
 /** A Google picture at about the size it is drawn, for a sharp card. */
-const sized = (url: string, px: number): string => url.replace(/=s\d+(-c)?$/, `=s${Math.min(512, Math.ceil(px * 2))}-c`);
+export const sized = (url: string, px: number): string => url.replace(/=s\d+(-c)?$/, `=s${Math.min(512, Math.ceil(px * 2))}-c`);
+
+/** The Google picture on a player's seat, if they sat down signed in. */
+export const usePhoto = (playerId: string | undefined): string | undefined =>
+  useStore((s) => (playerId ? s.room?.seats.find((x) => x.playerId === playerId)?.photo : undefined));
 
 /**
  * A player's face: their Google picture when they sat down signed in, the
@@ -17,7 +21,7 @@ const sized = (url: string, px: number): string => url.replace(/=s\d+(-c)?$/, `=
 export function AvatarImg({ avatar, playerId, size = 28, className = '', style }: {
   avatar: string; playerId?: string; size?: number; className?: string; style?: CSSProperties;
 }) {
-  const photo = useStore((s) => (playerId ? s.room?.seats.find((x) => x.playerId === playerId)?.photo : undefined));
+  const photo = usePhoto(playerId);
   const [broken, setBroken] = useState<string | null>(null);
   if (photo && broken !== photo) {
     return (

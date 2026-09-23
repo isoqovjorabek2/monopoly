@@ -2715,3 +2715,171 @@
 @media (prefers-reduced-motion: reduce) {
   .pwaToast { animation: none; }
 }
+
+/* ==================================================================
+   Phones, again - the pass that puts the turn in the thumb's reach.
+
+   1. The header: on a phone (either way up) the once-a-session toggles
+      fold into the table menu (TableMenu.tsx), so the row never has to
+      scroll sideways and what is left is Leave, the turn, the rules.
+   2. Upright: the header stays on screen even in focus mode - a touch
+      screen has no hover to reveal it with - and clears the notch.
+   3. Upright: what you can do this turn is docked above the tab bar, on
+      the Board tab too, so rolling never costs a tap and never hides the
+      board. The Actions tab still opens the whole column with the log.
+   4. The closed sheets go all the way off screen, and the view controls
+      move up to the board's corner instead of lying over the tab bar.
+   ================================================================== */
+
+.hdr-phone { display: none; }
+
+@media (max-width: 780px), (max-height: 540px) {
+  [data-hdr="wide"] { display: none !important; }
+  .hdr-phone { display: inline-flex; }
+  .tmenu__open { min-width: 40px; min-height: 36px; justify-content: center; }
+}
+
+@media (max-width: 780px) and (min-height: 541px) {
+  .game,
+  .game[data-focus] {
+    padding-top: calc(48px + env(safe-area-inset-top));
+    padding-left: max(var(--s-2), env(safe-area-inset-left));
+    padding-right: max(var(--s-2), env(safe-area-inset-right));
+  }
+  .game .game__top,
+  .game[data-focus] .game__top {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 65;
+    min-height: calc(46px + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) max(var(--s-2), env(safe-area-inset-right)) 0 max(var(--s-2), env(safe-area-inset-left));
+    align-items: center;
+    background: linear-gradient(180deg, rgb(4 10 7 / 0.96), rgb(4 10 7 / 0.84));
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+    transform: none;
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .game[data-focus] .game__reveal { display: none; }
+  .game__top .btn--sm { min-height: 36px; }
+
+  /* The turn dock. */
+  .game .game__side:not([data-open]),
+  .game[data-focus] .game__side:not([data-open]) {
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: calc(54px + env(safe-area-inset-bottom));
+    width: auto;
+    max-height: 42dvh;
+    z-index: 44;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px max(10px, env(safe-area-inset-left)) 8px max(10px, env(safe-area-inset-right));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
+    border: 0;
+    border-top: 1px solid var(--border-strong);
+    background: color-mix(in oklab, var(--bg-app) 92%, transparent);
+    backdrop-filter: blur(12px);
+    box-shadow: 0 -16px 36px -18px rgb(0 0 0 / 0.9);
+    transform: none;
+    opacity: 1;
+  }
+  .game__side:not([data-open]) > :not(.actions):not(.offerDock) { display: none; }
+  .game__side:not([data-open]) .actions { padding: 10px 12px; gap: 8px; }
+  .game__side:not([data-open]) .actions .kbd { display: none; }
+  .game__side:not([data-open]) .actions .btn { min-height: 44px; }
+  /* Open, the Actions tab is the whole column again, above the dock's spot. */
+  .game .game__side[data-open],
+  .game[data-focus] .game__side[data-open] {
+    bottom: calc(54px + env(safe-area-inset-bottom));
+    max-height: calc(100dvh - 120px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    z-index: 46;
+  }
+
+  /* A closed sheet leaves nothing behind, not even its top edge. */
+  .game .game__rail:not([data-open]),
+  .game[data-focus] .game__rail:not([data-open]) { transform: translateY(calc(100% + 140px)); }
+  .game .game__rail[data-open],
+  .game[data-focus] .game__rail[data-open] { bottom: calc(54px + env(safe-area-inset-bottom)); z-index: 46; }
+
+  .game__tabbar { z-index: 50; }
+  .game__tabbar .tabbar__item { min-height: 54px; font-size: var(--t-sm); }
+
+  /* The board is framed in what the dock leaves: the shell stops above the
+     dock (its height measured into --dock-h, see dockInset.ts) and the tab
+     bar, so the 3D camera and the flat board both fit the space you see. */
+  .game,
+  .game[data-focus] {
+    padding-bottom: calc(54px + env(safe-area-inset-bottom) + var(--dock-h, 160px) + var(--s-2));
+  }
+  .game .boardTools,
+  .game[data-focus] .boardTools {
+    position: fixed;
+    top: calc(56px + env(safe-area-inset-top));
+    right: max(8px, env(safe-area-inset-right));
+    left: auto;
+    bottom: auto;
+    transform: none;
+    margin: 0;
+    opacity: 0.92;
+    z-index: 40;
+  }
+}
+
+/* ---- the table menu ------------------------------------------------ */
+.tmenu { display: flex; flex-direction: column; }
+.tmenu__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  width: 100%;
+  min-height: 56px;
+  padding: var(--s-2) 0;
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.tmenu__row:first-child { border-top: 0; }
+.tmenu__row--static { cursor: default; }
+.tmenu__label { flex: 1; min-width: 0; font-weight: 600; }
+.tmenu__label small { display: block; margin-top: 2px; font-weight: 400; font-size: var(--t-xs); color: var(--text-muted); line-height: 1.4; }
+.tmenu__switch {
+  position: relative;
+  flex: none;
+  width: 46px;
+  height: 28px;
+  border-radius: var(--r-pill);
+  background: rgb(255 255 255 / 0.1);
+  border: 1px solid var(--border-strong);
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.tmenu__switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  box-shadow: 0 2px 4px rgb(0 0 0 / 0.5);
+  transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+.tmenu__row[aria-checked='true'] .tmenu__switch { background: var(--accent); border-color: var(--brass-200); }
+.tmenu__row[aria-checked='true'] .tmenu__switch::after { transform: translateX(18px); background: #fff; }
+.tmenu__row:focus-visible { outline: 2px solid var(--brass-200); outline-offset: 2px; border-radius: var(--r-sm); }
+@media (prefers-reduced-motion: reduce) {
+  .tmenu__switch, .tmenu__switch::after { transition: none; }
+}

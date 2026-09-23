@@ -716,3 +716,44 @@
   .cfProgress__bar > span,
   .dreamCard { transition: none; }
 }
+
+/* Upright phones: the same turn dock as the Monopoly table (see the last
+   block of app.css). What you can do this turn sits above the tab bar on
+   the Board tab too; the Actions tab still opens the full column - the
+   statement and the log. The tab bar clears the home indicator, and the
+   header the notch. */
+@media (max-width: 900px) and (min-height: 541px) {
+  .cfGame { padding-top: env(safe-area-inset-top); }
+  .cfGame__top { padding-left: max(var(--s-2), env(safe-area-inset-left)); padding-right: max(var(--s-2), env(safe-area-inset-right)); }
+  .cfGame__top .btn--sm { min-height: 36px; }
+  .cfGame__layout { padding-bottom: calc(56px + env(safe-area-inset-bottom) + var(--dock-h, 160px) + var(--s-3)); }
+
+  .cfGame__side:not([data-open]) {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: calc(56px + env(safe-area-inset-bottom));
+    z-index: 30;
+    max-height: 42dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 8px max(10px, env(safe-area-inset-left)) 8px max(10px, env(safe-area-inset-right));
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
+    border-top: 1px solid var(--border-brass);
+    background: color-mix(in oklab, var(--bg-surface) 94%, transparent);
+    backdrop-filter: blur(12px);
+    box-shadow: 0 -16px 36px -18px rgb(0 0 0 / 0.9);
+  }
+  .cfGame__side:not([data-open]) > :not(.actions) { display: none; }
+  .cfGame__side:not([data-open]) .actions { padding: 10px 12px; gap: 8px; }
+  .cfGame__side:not([data-open]) .actions .kbd { display: none; }
+  .cfGame__side:not([data-open]) .actions .btn { min-height: 44px; }
+  .cfGame__rail[data-open],
+  .cfGame__side[data-open] { bottom: calc(56px + env(safe-area-inset-bottom)); z-index: 32; }
+
+  .cfGame__tabbar { height: calc(56px + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom); z-index: 34; }
+}

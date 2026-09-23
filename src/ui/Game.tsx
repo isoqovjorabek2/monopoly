@@ -22,6 +22,8 @@ import { SeatRequestsDock, CoownerDock, TakeSeatPanel } from './Account';
 import { tableNeed, useAlertsSwitch, useTableAlert } from './alerts';
 import { useWakeLock } from './wakeLock';
 import { LangSwitch } from './LangSwitch';
+import { TableMenu } from './TableMenu';
+import { useDockInset } from './dockInset';
 import { canKick } from '../net/moderation';
 import { useBreakBefore } from './Ads';
 
@@ -158,13 +160,16 @@ export function Game() {
     autoEnter();
   }, [room?.game, autoEnter]);
 
+  const gameRef = useRef<HTMLDivElement>(null);
+  useDockInset(gameRef, '.game__side', Boolean(room && state));
+
   if (!room || !state) return null;
 
   const isMyTurn = state.seats[state.seatIndex] === myId;
   const iAmBankrupt = state.players[myId]?.bankrupt ?? false;
 
   return (
-    <div className="game" data-focus={focused || undefined}>
+    <div className="game" ref={gameRef} data-focus={focused || undefined}>
       {/* A strip along the top edge that reveals the header. The header
           itself is out of the way in focus mode, so something has to be
           left behind to bring it back. */}
@@ -191,6 +196,7 @@ export function Game() {
           className="btn btn--ghost btn--sm"
           onClick={toggleRender}
           aria-pressed={renderMode === '3d'}
+          data-hdr="wide"
           title={renderMode === '3d' ? t.game.toFlat : t.game.to3d}
         >
           {renderMode === '3d' ? (
@@ -205,6 +211,7 @@ export function Game() {
           className="btn btn--ghost btn--sm"
           onClick={toggleSound}
           aria-pressed={soundOn}
+          data-hdr="wide"
           title={soundOn ? t.game.soundOn : t.game.soundOff}
         >
           <svg {...glyph}>
@@ -220,6 +227,7 @@ export function Game() {
           className="btn btn--ghost btn--sm"
           onClick={toggleHaptics}
           aria-pressed={hapticsOn}
+          data-hdr="wide"
           title={t.game.haptics}
         >
           <svg {...glyph}>
@@ -235,6 +243,7 @@ export function Game() {
           className="btn btn--ghost btn--sm"
           onClick={alerts.toggle}
           aria-pressed={alerts.on}
+          data-hdr="wide"
           title={alerts.blocked ? t.table.alerts.blocked : t.table.alerts.title}
         >
           <svg {...glyph}>
@@ -244,16 +253,21 @@ export function Game() {
           </svg>
           <span className="btn__label">{alerts.on ? t.table.alerts.on : t.table.alerts.off}</span>
         </button>
-        <LangSwitch />
+        <span data-hdr="wide"><LangSwitch /></span>
         <button
           type="button"
           className="btn btn--ghost btn--sm"
           onClick={() => setHelpOpen(true)}
           title={t.game.helpTitle}
+          aria-label={t.game.howToPlay}
         >
           <span className="btn__label">{t.game.howToPlay}</span>
           <kbd className="kbd">?</kbd>
         </button>
+        <TableMenu
+          alerts={alerts}
+          extra={[{ key: 'view', label: t.game.board3d, hint: t.game.to3d, on: renderMode === '3d', onToggle: toggleRender }]}
+        />
       </header>
 
       {netError && <div className="banner banner--bad" role="alert">{netError}</div>}

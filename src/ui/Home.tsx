@@ -54,7 +54,13 @@ export function Home() {
 
   return (
     <div className="home" data-game={pick} style={{ '--hero-img': `url("${hero}")` } as CSSProperties}>
-      <LangSwitch className="home__lang" />
+      {/* On a phone this is the top bar - the name of the place, and the
+          language - clear of the notch; on a desk the switch alone takes
+          the corner. */}
+      <div className="home__bar">
+        <span className="home__brand" aria-hidden>Party Hall</span>
+        <LangSwitch className="home__lang" />
+      </div>
       <motion.div
         className="home__inner"
         initial={{ opacity: 0 }}
