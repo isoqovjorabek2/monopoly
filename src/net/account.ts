@@ -37,9 +37,9 @@ export interface Account {
   /** Party Hall Plus runs until then, in seconds since the epoch; 0 or
    *  absent without it. */
   plus?: number;
-  /** Who is signed in, for this player's own screen only: full name,
-   *  address and picture. Unsigned and never sent to anyone - hosts see the
-   *  pass, and the pass does not carry it. */
+  /** Who is signed in: full name, address and picture. Unsigned. Only the
+   *  picture ever leaves this tab - sent with the pass, so the table can
+   *  show it on this player's seat; the name and address never do. */
   profile?: AccountProfile;
 }
 
@@ -65,6 +65,15 @@ function readProfile(raw: string | undefined): AccountProfile | undefined {
     return undefined;
   }
 }
+
+/** A Google profile picture, or undefined for anything else. The pass does
+ *  not vouch for it, so only Google's own image host is let through: a
+ *  player can show a picture, never make a table fetch an arbitrary URL. */
+export const cleanPhoto = (url: unknown): string | undefined =>
+  typeof url === 'string' && url.length <= 400 && /^https:\/\/[a-z0-9.-]+\.googleusercontent\.com\/[^\s"'<>]*$/i.test(url) ? url : undefined;
+
+/** This player's own picture, when signed in with one. */
+export const myPhoto = (): string | undefined => cleanPhoto(currentAccount()?.profile?.picture);
 
 export interface PassClaims {
   sub: string;

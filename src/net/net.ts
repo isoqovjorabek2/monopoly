@@ -563,7 +563,7 @@ export class GuestNet {
     private h: GuestHandlers,
     epoch = 0,
     /** Read on every connect, so a pass signed in mid-session is used. */
-    private account: () => { uid: string; pass: string } | null = () => null,
+    private account: () => { uid: string; pass: string; photo?: string } | null = () => null,
   ) {
     this.epoch = epoch;
     this.searchTo = epoch + EPOCH_SEARCH;
@@ -638,7 +638,7 @@ export class GuestNet {
         token: this.me.token,
         skin: this.me.skin,
         secret: localSecret(),
-        ...(account ? { auth: account.pass } : {}),
+        ...(account ? { auth: account.pass, photo: account.photo } : {}),
       });
     });
 

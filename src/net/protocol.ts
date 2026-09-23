@@ -38,6 +38,9 @@ export interface SeatInfo {
   plus?: boolean;
   /** That player's finish, set by the host only on a Plus seat. */
   skin?: SkinId;
+  /** A signed-in player's Google picture, set by the host only on a seat
+   *  whose pass it verified. */
+  photo?: string;
 }
 
 /** Everything a client needs to render the room, game or no game. */
@@ -72,7 +75,7 @@ export interface RoomSnapshot {
   owners?: Record<string, string>;
   /** Signed-in players watching a game in progress, who may take over a
    *  bot's seat. */
-  watchers?: { uid: string; name: string }[];
+  watchers?: { uid: string; name: string; photo?: string }[];
   /** Seat id -> SHA-256 of the secret a guest first claimed it with. Only a
    *  hash, so it is safe for every tab to hold - and every tab has to hold
    *  it, because any of them may become the host and need to check a guest
@@ -123,6 +126,8 @@ export type Up =
     skin?: SkinId;
     /** A signed-in player's pass (see net/account.ts). */
     auth?: string;
+    /** That player's Google picture; the host keeps it only with the pass. */
+    photo?: string;
     /** Set by the host's own transport once the pass has checked out, and
      *  stripped from anything a peer sends. Never trusted off the wire. */
     verified?: string;

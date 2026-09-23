@@ -34,7 +34,7 @@ import type {
   MafiaAction, MafiaEvent, MafiaPrivate, MafiaRules, MafiaSettings, MafiaState,
 } from '../mafia/types';
 import { GuestNet, HostNet, type NetStatus } from '../net/net';
-import { currentAccount, isAccountId, signOut, useAccount, hasPlus } from '../net/account';
+import { cleanPhoto, currentAccount, isAccountId, myPhoto, signOut, useAccount, hasPlus } from '../net/account';
 import { cleanSkin, roomTheme } from '../net/plus';
 import { fetchTable, membersOf, uploadTable } from '../net/saves';
 import { announce as announceRoom, close as closeRoom, closeOnUnload } from '../net/directory';
@@ -114,8 +114,9 @@ interface Store {
   openAccount: () => void;
   closeAccount: () => void;
   setProfile: (name: string, token: TokenId) => void;
-  /** Show this tab's own seat with the Plus its pass now carries. Host or
-   *  solo only: a guest's seat is set by the host from the pass it shows. */
+  /** Show this tab's own seat with the Plus and the picture its account now
+   *  carries. Host or solo only: a guest's seat is set by the host from the
+   *  pass it shows. */
   syncPlus: () => void;
   /** Choose a finish for this player's piece and dice. The table shows it only
    *  while their seat holds Plus; the choice is remembered either way. */
@@ -956,6 +957,7 @@ export const useStore = create<Store>((set, get) => {
               ...s, connected: true, name,
               plus: uid ? Boolean(msg.verifiedPlus) : s.plus,
               skin: uid ? (msg.verifiedPlus ? cleanSkin(msg.skin) : undefined) : s.skin,
+              photo: uid ? cleanPhoto(msg.photo) : s.photo,
             } : s);
           const next = { ...room, seats };
           set({ room: next });
@@ -973,7 +975,7 @@ export const useStore = create<Store>((set, get) => {
             host?.refuse(from, 'sign_in_to_join');
             return;
           }
-          const watchers = [...(room.watchers ?? []).filter((w) => w.uid !== uid), { uid, name }];
+          const watchers = [...(room.watchers ?? []).filter((w) => w.uid !== uid), { uid, name, photo: cleanPhoto(msg.photo) }];
           const next = { ...room, watchers };
           host?.welcome(from, next);
           publish(next);
@@ -993,6 +995,8 @@ export const useStore = create<Store>((set, get) => {
           ...emptySeat(from, name, token, room.seats.length, false),
           plus: Boolean(msg.verifiedPlus),
           skin: msg.verifiedPlus ? cleanSkin(msg.skin) : undefined,
+          // Only a pass the transport checked lets a picture onto a seat.
+          photo: uid ? cleanPhoto(msg.photo) : undefined,
         };
         const next = { ...room, seats: [...room.seats, seat] };
         set({ room: next });
@@ -1172,7 +1176,7 @@ export const useStore = create<Store>((set, get) => {
     next = {
       ...next,
       seats: next.seats.map((s) => (s.playerId === target
-        ? { ...s, isBot: false, name, connected: true, ping: 0 }
+        ? { ...s, isBot: false, name, connected: true, ping: 0, photo: watcher?.photo }
         : s)),
       owners: { ...(room.owners ?? {}), [target]: uid },
       watchers: (room.watchers ?? []).filter((w) => w.uid !== uid),
@@ -1348,7 +1352,7 @@ export const useStore = create<Store>((set, get) => {
       cf,
       mf,
       seats: room.seats.map((s) => (s.playerId === target
-        ? { ...s, isBot: true, connected: false, ping: 0 }
+        ? { ...s, isBot: true, connected: false, ping: 0, photo: undefined }
         : s)),
       owners: Object.fromEntries(Object.entries(room.owners ?? {}).filter(([seatId]) => seatId !== target)),
       kicked, coowners, coownerVotes,
@@ -1536,11 +1540,12 @@ export const useStore = create<Store>((set, get) => {
       const { role, room, me } = get();
       if (!room || role === 'guest') return;
       const plus = hasPlus(currentAccount());
+      const photo = myPhoto();
       const mine = room.seats.find((x) => x.playerId === me.playerId);
-      if (!mine || Boolean(mine.plus) === plus) return;
+      if (!mine || (Boolean(mine.plus) === plus && mine.photo === photo)) return;
       publish({
         ...room,
-        seats: room.seats.map((x) => (x.playerId === me.playerId ? { ...x, plus, skin: plus ? cleanSkin(me.skin) : undefined } : x)),
+        seats: room.seats.map((x) => (x.playerId === me.playerId ? { ...x, plus, skin: plus ? cleanSkin(me.skin) : undefined, photo } : x)),
       });
     },
 
@@ -1554,6 +1559,7 @@ export const useStore = create<Store>((set, get) => {
           ...emptySeat(me.playerId, me.name || tr().defaults.host, me.token, 0, true),
           plus: hasPlus(currentAccount()),
           skin: hasPlus(currentAccount()) ? cleanSkin(me.skin) : undefined,
+          photo: myPhoto(),
         },
         kind,
         {
@@ -1606,7 +1612,7 @@ export const useStore = create<Store>((set, get) => {
         onHostGone,
       }, epoch, () => {
         const account = currentAccount();
-        return account ? { uid: account.uid, pass: account.pass } : null;
+        return account ? { uid: account.uid, pass: account.pass, photo: myPhoto() } : null;
       });
       guest.start();
     },
@@ -1646,6 +1652,7 @@ export const useStore = create<Store>((set, get) => {
           ...emptySeat(me.playerId, me.name || tr().defaults.you, me.token, 0, true),
           plus: hasPlus(currentAccount()),
           skin: hasPlus(currentAccount()) ? cleanSkin(me.skin) : undefined,
+          photo: myPhoto(),
         },
         kind,
         {
@@ -1916,7 +1923,9 @@ export const useStore = create<Store>((set, get) => {
  * turned away from a game in progress goes straight back to that game. */
 useAccount.subscribe((next, prev) => {
   // A refreshed pass can bring Plus with it; the seat this tab hosts shows it.
-  if (hasPlus(next.account) !== hasPlus(prev.account)) useStore.getState().syncPlus();
+  if (hasPlus(next.account) !== hasPlus(prev.account) || next.account?.profile?.picture !== prev.account?.profile?.picture) {
+    useStore.getState().syncPlus();
+  }
   if (next.account?.uid === prev.account?.uid) return;
   const st = useStore.getState();
   if (st.screen === 'home') {

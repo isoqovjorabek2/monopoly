@@ -124,7 +124,7 @@ export function RoleReveal({ role, teammates, onClose }: {
                           style={{ width: 72, height: 72, border: '3px solid #e74c3c' }}
                           animate={{ boxShadow: ['0 0 12px rgba(231,76,60,0.5)', '0 0 28px rgba(231,76,60,0.9)', '0 0 12px rgba(231,76,60,0.5)'] }}
                           transition={{ duration: 2, repeat: Infinity }}>
-                          <AvatarImg avatar={ally.avatar} size={72} style={{ width: '100%', height: '100%' }} />
+                          <AvatarImg avatar={ally.avatar} playerId={ally.id} size={72} style={{ width: '100%', height: '100%' }} />
                         </motion.div>
                         <span className="tw:text-sm tw:font-bold tw:text-[#ff6b6b] tw:tracking-wide" style={{ fontFamily: cinzel, textShadow: '0 0 8px rgba(231,76,60,0.6)' }}>
                           {ally.username}
@@ -191,7 +191,7 @@ export function ElimScreen({ m, death, onClose }: { m: MafiaState; death: MafiaD
           {player && (
             <div className="tw:w-20 tw:h-20 tw:rounded-full tw:mx-auto tw:mb-4 tw:flex tw:items-center tw:justify-center tw:overflow-hidden"
               style={{ background: 'rgba(192,57,43,0.2)', border: '3px solid rgba(192,57,43,0.6)', filter: 'grayscale(0.5)' }}>
-              <AvatarImg avatar={player.name} size={72} />
+              <AvatarImg avatar={player.name} playerId={player.id} size={72} />
             </div>
           )}
           <h2 className="tw:text-3xl tw:font-black tw:mb-2 tw:text-[#e74c3c]"
@@ -371,7 +371,7 @@ export function GameOverScreen({ m, myId, onRematch, onLeave }: {
                         <Crown size={8} /> {t.maf.end.mvp}
                       </span>
                     )}
-                    <AvatarImg avatar={p.name} size={28} />
+                    <AvatarImg avatar={p.name} playerId={p.id} size={28} />
                     <div className="tw:flex-1 tw:min-w-0">
                       <p className="tw:text-xs tw:font-bold tw:truncate tw:text-white" style={{ fontFamily: cinzel }}>
                         {p.name}{id === myId && ' ★'}

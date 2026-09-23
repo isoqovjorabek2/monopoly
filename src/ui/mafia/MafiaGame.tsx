@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Home, Layers, LayoutGrid, MessageCircle, SkipForward, Volume2, VolumeX } from 'lucide-react';
+import { Home, MessageCircle, SkipForward, Volume2, VolumeX } from 'lucide-react';
 import './omerta.css';
 import { useT } from '../../i18n';
 import type { Dict } from '../../i18n/en';
 import type { MFLogLine } from '../../mafia/describe';
 import { clockKey, clockSeconds } from '../../mafia/rules';
-import type { MafiaAction, MafiaDeath, MafiaState, NightKind } from '../../mafia/types';
+import type { MafiaAction, MafiaDeath, MafiaState } from '../../mafia/types';
 import type { ChatMessage } from '../../net/protocol';
 import { useStore } from '../../store/store';
 import { TakeSeatPanel } from '../Account';
@@ -18,24 +18,16 @@ import { isAudioEnabled, onAudioChange, playAmbient, playSFX, setAudioEnabled, s
 import { ChatPanel, type ChatItem } from './ChatPanel';
 import { PhaseTimer, SurvivorCounter } from './Hud';
 import { roleDef, teammateNames, viewPlayers } from './model';
+import { Deck } from './deck/Deck';
 import { ElimScreen, GameOverScreen, RoleReveal } from './Overlays';
-import { NightPanel, SniperPanel, VotingPanel } from './Panels';
-import { PlayerGrid } from './Seats';
-import { CardTable } from './table/CardTable';
 
 type Dispatch = (a: MafiaAction) => void;
-type Layout = 'grid' | 'table';
 
 const PHASE_BG: Record<string, string> = {
   night: 'radial-gradient(ellipse at center, rgba(60,20,90,0.25) 0%, rgba(10,10,15,0.97) 60%), radial-gradient(ellipse at bottom, rgba(192,57,43,0.08) 0%, transparent 50%)',
   day: 'radial-gradient(ellipse at top, rgba(180,100,10,0.15) 0%, rgba(10,10,15,0.97) 60%)',
   vote: 'radial-gradient(ellipse at center, rgba(192,57,43,0.15) 0%, rgba(10,10,15,0.97) 60%)',
   game_over: 'radial-gradient(ellipse at center, rgba(192,57,43,0.2) 0%, rgba(0,0,0,0.99) 60%)',
-};
-
-const LAYOUT_KEY = 'mply.mafLayout';
-const readLayout = (): Layout => {
-  try { return localStorage.getItem(LAYOUT_KEY) === 'grid' ? 'grid' : 'table'; } catch { return 'table'; }
 };
 
 const mono = "'JetBrains Mono', monospace";
@@ -102,20 +94,9 @@ export default function MafiaGame() {
   const isHost = Boolean(room && room.hostId === myId);
   const phase = m?.phase ?? 'night';
 
-  const [layout, setLayout] = useState<Layout>(readLayout);
-  const toggleLayout = () => setLayout((v: Layout) => {
-    const next: Layout = v === 'grid' ? 'table' : 'grid';
-    try { localStorage.setItem(LAYOUT_KEY, next); } catch { /* private mode */ }
-    return next;
-  });
   const [audioOn, setAudioOn] = useState(isAudioEnabled);
   useEffect(() => onAudioChange(setAudioOn), []);
   const [showMobileChat, setShowMobileChat] = useState(false);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [kind, setKind] = useState<NightKind | null>(null);
-  const phaseKey = m ? `${m.phase}:${m.round}` : '';
-  useEffect(() => { setSelected(null); setKind(null); }, [phaseKey]);
-
   const left = useCountdown(m ? clockSeconds(m) : 0, m ? clockKey(m) : '');
 
   /* Stars for the night sky, placed once. */
@@ -227,26 +208,8 @@ export default function MafiaGame() {
   const myRole = priv ? roleDef(t, priv.role) : null;
   const canSkip = isHost && m.phase !== 'game_over';
 
-  // What a tap on a chair means right now.
-  const nightKind: NightKind | null = m.phase === 'night' && mine?.alive && priv && priv.kinds.length > 0 && !priv.move
-    ? (kind && priv.kinds.includes(kind) ? kind : priv.kinds[0])
-    : null;
   const family = new Set((priv?.teammates ?? []).map((x) => x.id));
-  const aliveIds = m.seats.filter((id: string) => m.players[id].alive);
-  let targets: string[] = [];
-  if (nightKind === 'protect') targets = aliveIds.filter((id: string) => id !== priv?.noProtect);
-  else if (nightKind === 'kill') targets = aliveIds.filter((id: string) => id !== myId && !family.has(id));
-  else if (nightKind) targets = aliveIds.filter((id: string) => id !== myId);
-  else if (m.phase === 'vote' && mine?.alive) targets = aliveIds.filter((id: string) => id !== myId);
-  else if (m.phase === 'day' && mine?.alive && priv?.role === 'sniper' && priv.shotLeft) targets = aliveIds.filter((id: string) => id !== myId);
-
   const vote = (target: string | null) => dispatch({ type: 'VOTE', playerId: myId, target });
-  const onSeat = (id: string) => {
-    if (m.phase === 'vote') { playSFX(TRACKS.click, 0.4); vote(m.votes[myId] === id ? null : id); return; }
-    setSelected((cur) => (cur === id ? null : id));
-  };
-  const bossName = priv?.boss ? m.players[priv.boss]?.name ?? '' : '';
-  const bannerPhase = m.phase === 'night' || m.phase === 'day' || m.phase === 'vote' ? m.phase : null;
 
   const chatPanel = (
     <ChatPanel
@@ -264,7 +227,6 @@ export default function MafiaGame() {
 
   const iconBtn = 'tw:w-11 tw:h-11 tw:rounded-lg tw:flex tw:items-center tw:justify-center tw:relative';
   const iconStyle = { background: 'rgba(26,26,46,0.6)', border: '1px solid rgba(255,215,0,0.1)', color: '#e8e8f0' };
-  const layoutLabel = layout === 'grid' ? U.cards.table : U.cards.classic;
 
   return (
     <div className="om tw:min-h-screen tw:overflow-hidden">
@@ -319,10 +281,6 @@ export default function MafiaGame() {
                 <SkipForward size={16} className="tw:text-[#f39c12]" />
               </motion.button>
             )}
-            <motion.button type="button" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={toggleLayout}
-              title={layoutLabel} aria-label={layoutLabel} className={`tw:hidden tw:sm:flex ${iconBtn}`} style={iconStyle}>
-              {layout === 'grid' ? <Layers size={16} /> : <LayoutGrid size={16} />}
-            </motion.button>
             <motion.button type="button" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => setAudioEnabled(!audioOn)}
               aria-label={U.music} aria-pressed={audioOn} className={iconBtn} style={iconStyle}>
               {audioOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
@@ -343,9 +301,6 @@ export default function MafiaGame() {
               <span style={{ color: myRole.color, fontFamily: cinzel }}>{myRole.name}</span>
             </div>
           ) : <span />}
-          <button type="button" onClick={toggleLayout} className="tw:text-[#8888aa] tw:p-2" aria-label={layoutLabel}>
-            {layout === 'grid' ? <Layers size={14} /> : <LayoutGrid size={14} />}
-          </button>
           <SurvivorCounter m={m} compact />
         </div>
 
@@ -368,106 +323,28 @@ export default function MafiaGame() {
               )}
             </AnimatePresence>
 
-            <AnimatePresence mode="wait">
-              {bannerPhase && layout === 'grid' && (
-                <motion.div key={bannerPhase} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.4 }}
-                  className="tw:text-center tw:py-3">
-                  <motion.div className="tw:text-5xl tw:mb-2"
-                    animate={bannerPhase === 'day' ? { rotate: [-5, 5, -5] } : { scale: bannerPhase === 'vote' ? [1, 1.06, 1] : [1, 1.1, 1] }}
-                    transition={{ duration: bannerPhase === 'vote' ? 1.5 : bannerPhase === 'day' ? 4 : 3, repeat: Infinity }}>
-                    {bannerPhase === 'night' ? '🌙' : bannerPhase === 'day' ? '☀️' : '🗳️'}
-                  </motion.div>
-                  <h2 className="tw:text-xl tw:font-bold"
-                    style={{ fontFamily: cinzel, color: bannerPhase === 'night' ? '#8e44ad' : bannerPhase === 'day' ? '#f39c12' : '#e74c3c' }}>
-                    {U.banner[bannerPhase][0]}
-                  </h2>
-                  <p className="tw:text-sm tw:text-[#8888aa] tw:mt-1" style={{ fontFamily: "'Crimson Text', serif" }}>{U.banner[bannerPhase][1]}</p>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {layout === 'table' ? (
-              <CardTable
-                m={m}
-                myId={myId}
-                priv={priv}
-                players={players}
-                teammates={teammates}
-                left={left}
-                total={clockSeconds(m)}
-                onNightMove={(k, target) => {
-                  dispatch({ type: 'NIGHT_MOVE', playerId: myId, kind: k, target });
-                  if (k === 'shoot') setNightResult(U.result.shot(m.players[target]?.name ?? ''));
-                }}
-                onSnipe={(target) => {
-                  dispatch({ type: 'SNIPE', playerId: myId, target });
-                  setNightResult(U.result.sniped(m.players[target]?.name ?? ''));
-                }}
-                onVote={vote}
-              />
-            ) : (
-              <div>
-                <p className="tw:text-xs tw:font-bold tw:text-[#8888aa] tw:tracking-widest tw:uppercase tw:mb-3" style={{ fontFamily: mono }}>
-                  {U.players}
-                </p>
-                <PlayerGrid
-                  players={players}
-                  phase={m.phase}
-                  round={m.round}
-                  myPlayerId={myId}
-                  teammates={teammates}
-                  onSelect={onSeat}
-                  selectedId={selected}
-                  votes={m.votes}
-                  targets={targets}
-                />
-              </div>
-            )}
+            <Deck
+              m={m}
+              myId={myId}
+              priv={priv}
+              players={players}
+              teammates={teammates}
+              left={left}
+              total={clockSeconds(m)}
+              onNightMove={(k, target) => {
+                dispatch({ type: 'NIGHT_MOVE', playerId: myId, kind: k, target });
+                if (k === 'shoot') setNightResult(U.result.shot(m.players[target]?.name ?? ''));
+              }}
+              onSnipe={(target) => {
+                dispatch({ type: 'SNIPE', playerId: myId, target });
+                setNightResult(U.result.sniped(m.players[target]?.name ?? ''));
+              }}
+              onVote={vote}
+            />
 
             <AnimatePresence mode="wait">
               {!mine && m.phase !== 'game_over' && (
                 <motion.div key="watch" initial={{ opacity: 0 }} animate={{ opacity: 1 }}><TakeSeatPanel /></motion.div>
-              )}
-              {layout === 'grid' && m.phase === 'night' && mine && !isDead && myRole && priv && (
-                <motion.div key="night" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}>
-                  <NightPanel
-                    role={myRole}
-                    players={players}
-                    myPlayerId={myId}
-                    priv={priv}
-                    kind={nightKind}
-                    setKind={setKind}
-                    onAction={(k, target) => {
-                      dispatch({ type: 'NIGHT_MOVE', playerId: myId, kind: k, target });
-                      if (k === 'shoot') setNightResult(U.result.shot(m.players[target]?.name ?? ''));
-                      setSelected(null);
-                    }}
-                    selectedTarget={selected}
-                    setSelectedTarget={setSelected}
-                    bossName={bossName}
-                  />
-                </motion.div>
-              )}
-              {layout === 'grid' && m.phase === 'day' && mine && !isDead && priv?.role === 'sniper' && (
-                <motion.div key="sniper" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}>
-                  <SniperPanel
-                    players={players}
-                    myPlayerId={myId}
-                    shotLeft={priv.shotLeft}
-                    onSnipe={(target) => {
-                      dispatch({ type: 'SNIPE', playerId: myId, target });
-                      setNightResult(U.result.sniped(m.players[target]?.name ?? ''));
-                      setSelected(null);
-                    }}
-                    selectedTarget={selected}
-                    setSelectedTarget={setSelected}
-                  />
-                </motion.div>
-              )}
-              {layout === 'grid' && m.phase === 'vote' && mine && (
-                <motion.div key="vote" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}>
-                  <VotingPanel players={players} myPlayerId={myId} votes={m.votes} onVote={vote} onCancelVote={() => vote(null)} isDead={isDead} />
-                </motion.div>
               )}
             </AnimatePresence>
           </div>

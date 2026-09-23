@@ -1,0 +1,608 @@
+/* ==================================================================
+   The case file. Suspects are dealt face up as tall cards on black
+   lacquer, framed in brass; what you do is stamped on a card in ink.
+   Every value below comes from the tokens on .dk - components never
+   carry a raw colour, shadow or duration of their own.
+   ================================================================== */
+
+.om .dk {
+  /* colour */
+  --dk-ink: #09080a;
+  --dk-stock-hi: #221b16;
+  --dk-stock: #15110f;
+  --dk-stock-lo: #0a0808;
+  --dk-brass: #c89b4a;
+  --dk-brass-hi: #ecd08a;
+  --dk-brass-lo: rgb(200 155 74 / 0.28);
+  --dk-bone: #f1e8d2;
+  --dk-bone-dim: #b9b19d;
+  --dk-ash: #8d8778;
+  --dk-blood: #d4412f;
+  --dk-blood-lo: rgb(212 65 47 / 0.35);
+  --dk-mint: #3cc79a;
+  --dk-mint-lo: rgb(60 199 154 / 0.3);
+  --dk-veil: rgb(9 8 10 / 0.72);
+  --dk-line: rgb(241 232 210 / 0.08);
+  /* the accent of the move in hand; set per phase / ability */
+  --dk-accent: var(--dk-brass-hi);
+
+  /* space (1.5 ratio, rounded) */
+  --dk-s1: 4px;
+  --dk-s2: 8px;
+  --dk-s3: 12px;
+  --dk-s4: 18px;
+  --dk-s5: 28px;
+  --dk-s6: 40px;
+
+  /* type (1.25 ratio) */
+  --dk-f0: 10px;
+  --dk-f1: 12px;
+  --dk-f2: 15px;
+  --dk-f3: 19px;
+  --dk-f4: 24px;
+  --dk-f5: 30px;
+  --dk-serif: "Cinzel", Georgia, serif;
+  --dk-body: "Crimson Text", Georgia, serif;
+  --dk-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* shape */
+  --dk-r-card: 12px;
+  --dk-r-ctl: 10px;
+  --dk-r-pill: 999px;
+
+  /* depth: contact + ambient + top highlight */
+  --dk-sh-card:
+    inset 0 1px 0 rgb(255 255 255 / 0.07),
+    0 2px 3px rgb(0 0 0 / 0.55),
+    0 16px 32px -14px rgb(0 0 0 / 0.9);
+  --dk-sh-lift:
+    inset 0 1px 0 rgb(255 255 255 / 0.1),
+    0 6px 10px rgb(0 0 0 / 0.5),
+    0 30px 50px -18px rgb(0 0 0 / 0.95);
+  --dk-sh-dock:
+    inset 0 1px 0 rgb(255 255 255 / 0.06),
+    0 -18px 40px -20px rgb(0 0 0 / 0.9);
+
+  /* motion */
+  --dk-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --dk-ease-in: cubic-bezier(0.55, 0, 0.75, 0.2);
+  --dk-t1: 140ms;
+  --dk-t2: 260ms;
+  --dk-t3: 480ms;
+
+  /* the card */
+  --dk-card-w: clamp(98px, 27vw, 148px);
+
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  color: var(--dk-bone);
+  font-family: var(--dk-body);
+}
+.om .dk[data-phase="night"] { --dk-tint: rgb(70 90 160 / 0.16); }
+.om .dk[data-phase="day"] { --dk-tint: rgb(240 170 60 / 0.08); }
+.om .dk[data-phase="vote"] { --dk-tint: rgb(212 65 47 / 0.1); --dk-accent: var(--dk-blood); }
+
+/* ── the brief: what this phase is, and what you do in it ──────── */
+.om .dk-brief {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dk-s2);
+  padding: var(--dk-s2) var(--dk-s1) var(--dk-s4);
+  text-align: center;
+}
+.om .dk-brief__title {
+  margin: 0;
+  font-family: var(--dk-serif);
+  font-size: var(--dk-f4);
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dk-accent);
+  text-shadow: 0 0 24px color-mix(in srgb, var(--dk-accent) 35%, transparent);
+}
+.om .dk-brief__hint {
+  margin: 0 auto;
+  max-width: 46ch;
+  font-size: var(--dk-f2);
+  font-style: italic;
+  color: var(--dk-bone-dim);
+  min-height: 1.4em;
+}
+.om .dk-clock {
+  position: relative;
+  height: 2px;
+  width: min(420px, 80%);
+  margin: var(--dk-s1) auto 0;
+  background: var(--dk-line);
+  border-radius: var(--dk-r-pill);
+  overflow: hidden;
+}
+.om .dk-clock__fill {
+  position: absolute;
+  inset: 0;
+  background: var(--dk-accent);
+  transform-origin: left center;
+  transition: transform 1s linear, background-color var(--dk-t2) var(--dk-ease);
+  box-shadow: 0 0 10px var(--dk-accent);
+}
+.om .dk-clock[data-urgent="true"] .dk-clock__fill { background: var(--dk-blood); }
+
+/* ── the spread ────────────────────────────────────────────────── */
+.om .dk-spread {
+  display: flex;
+  flex-wrap: wrap;
+  flex: 1 0 auto;
+  justify-content: center;
+  align-content: center;
+  gap: var(--dk-s5) var(--dk-s3);
+  padding: var(--dk-s3) 0 var(--dk-s5);
+}
+
+/* ── a suspect card ────────────────────────────────────────────── */
+.om .dk-card {
+  position: relative;
+  width: var(--dk-card-w);
+  aspect-ratio: 5 / 7;
+  flex-shrink: 0;
+  border-radius: var(--dk-r-card);
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+}
+.om .dk-card__body {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(ellipse 90% 55% at 50% 38%, color-mix(in srgb, var(--dk-card-c, var(--dk-brass)) 22%, transparent), transparent 70%),
+    linear-gradient(180deg, var(--dk-stock-hi), var(--dk-stock) 55%, var(--dk-stock-lo));
+  border: 1px solid var(--dk-brass-lo);
+  box-shadow: var(--dk-sh-card);
+  transition:
+    transform var(--dk-t2) var(--dk-ease),
+    box-shadow var(--dk-t2) var(--dk-ease),
+    border-color var(--dk-t2) var(--dk-ease),
+    filter var(--dk-t3) var(--dk-ease),
+    opacity var(--dk-t3) var(--dk-ease);
+}
+/* a film of the phase's light over every card */
+.om .dk-card__body::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 110% 80% at 50% 45%, transparent 55%, rgb(0 0 0 / 0.55) 100%),
+    linear-gradient(0deg, var(--dk-tint, transparent), var(--dk-tint, transparent));
+  pointer-events: none;
+}
+.om .dk-card__frame {
+  position: absolute;
+  inset: 5px;
+  border: 1px solid var(--dk-brass-lo);
+  border-radius: 7px;
+  pointer-events: none;
+  z-index: 2;
+}
+.om .dk-card__num {
+  position: absolute;
+  top: 9px;
+  left: 10px;
+  z-index: 3;
+  font-family: var(--dk-serif);
+  font-size: var(--dk-f0);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--dk-brass);
+  line-height: 1;
+}
+.om .dk-card__art {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  overflow: hidden;
+}
+.om .dk-card__art img {
+  width: 96%;
+  height: auto;
+  transform: translateY(6%);
+  filter: drop-shadow(0 6px 10px rgb(0 0 0 / 0.6));
+}
+/* A Google picture fills the portrait window, cropped, rather than
+   standing in it like a cut-out: it fades into the card toward the plate. */
+.om .dk-card__art img.is-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 30%;
+  border-radius: 0 !important;
+  transform: none;
+  filter: saturate(0.85) contrast(1.05);
+  -webkit-mask-image: linear-gradient(180deg, #000 62%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 62%, transparent 100%);
+}
+.om .dk-card__plate {
+  position: relative;
+  z-index: 3;
+  padding: var(--dk-s2) var(--dk-s2) 10px;
+  text-align: center;
+  background: linear-gradient(180deg, transparent, rgb(0 0 0 / 0.7) 35%);
+  border-top: 1px solid var(--dk-line);
+}
+.om .dk-card__name {
+  display: block;
+  font-family: var(--dk-serif);
+  font-size: var(--dk-f1);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--dk-bone);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.om .dk-card__sub {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--dk-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dk-ash);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* the little seals on a card's edge */
+.om .dk-seal {
+  position: absolute;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: var(--dk-r-pill);
+  font-family: var(--dk-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.6);
+}
+.om .dk-seal--you { top: -9px; left: 50%; translate: -50% 0; background: var(--dk-brass); color: var(--dk-ink); }
+.om .dk-seal--ally { top: -9px; left: 50%; translate: -50% 0; background: var(--dk-blood); color: #fff; }
+.om .dk-seal--check { top: 26px; left: 50%; translate: -50% 0; }
+.om .dk-seal--check[data-guilty="true"] { background: var(--dk-blood); color: #fff; }
+.om .dk-seal--check[data-guilty="false"] { background: var(--dk-mint); color: var(--dk-ink); }
+.om .dk-seal--knife { top: 26px; left: 50%; translate: -50% 0; background: rgb(120 20 12 / 0.95); color: #fff; border: 1px solid var(--dk-blood); }
+
+.om .dk-card__icons {
+  position: absolute;
+  top: 7px;
+  right: 30px;
+  z-index: 3;
+  display: flex;
+  gap: 3px;
+  color: var(--dk-bone-dim);
+}
+.om .dk-card__role {
+  position: absolute;
+  top: 24px;
+  left: 8px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  font-size: 11px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--dk-card-c) 30%, var(--dk-ink));
+  border: 1px solid var(--dk-card-c);
+}
+
+/* your private read: a corner tag */
+.om .dk-note {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 50%;
+  font-family: var(--dk-serif);
+  font-size: var(--dk-f1);
+  font-weight: 800;
+  line-height: 1;
+  color: var(--dk-ash);
+  background: rgb(0 0 0 / 0.45);
+  border: 1px dashed var(--dk-brass-lo);
+  opacity: 0.6;
+  transition: opacity var(--dk-t1) var(--dk-ease), transform var(--dk-t1) var(--dk-ease), background-color var(--dk-t1) var(--dk-ease);
+}
+.om .dk-note::before { content: ""; position: absolute; inset: -8px; } /* a finger-sized target */
+.om .dk-note:hover, .om .dk-note:focus-visible { opacity: 1; transform: scale(1.1); }
+.om .dk-note[data-note="suspect"] { opacity: 1; color: #fff; background: var(--dk-blood); border: 1px solid #ff8a78; }
+.om .dk-note[data-note="trust"] { opacity: 1; color: var(--dk-ink); background: var(--dk-mint); border: 1px solid #9ff0d0; }
+
+/* ballots: the voters' faces, stacked along the bottom edge */
+.om .dk-ballots {
+  position: absolute;
+  left: 50%;
+  bottom: -12px;
+  z-index: 5;
+  display: flex;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.om .dk-ballot {
+  width: 24px;
+  height: 24px;
+  margin-left: -7px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--dk-stock-hi);
+  border: 2px solid var(--dk-ballot-c, var(--dk-bone-dim));
+  box-shadow: 0 2px 5px rgb(0 0 0 / 0.7);
+}
+.om .dk-ballot:first-child { margin-left: 0; }
+.om .dk-ballot img { width: 100%; height: 100%; transform: scale(1.35) translateY(8%); }
+.om .dk-ballot img.is-photo { transform: none; }
+.om .dk-ballot--more {
+  display: grid;
+  place-items: center;
+  font-family: var(--dk-mono);
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--dk-bone);
+}
+.om .dk-tally {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: var(--dk-r-pill);
+  font-family: var(--dk-mono);
+  font-size: var(--dk-f1);
+  font-weight: 700;
+  color: #fff;
+  background: var(--dk-stock-hi);
+  border: 2px solid var(--dk-blood);
+  box-shadow: 0 3px 8px rgb(0 0 0 / 0.7);
+}
+.om .dk-card[data-leading="true"] .dk-tally { background: var(--dk-blood); }
+
+/* the stamp */
+.om .dk-stamp {
+  position: absolute;
+  left: 50%;
+  top: 44%;
+  z-index: 7;
+  padding: 5px 10px 4px;
+  font-family: var(--dk-serif);
+  font-size: var(--dk-f2);
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--dk-stamp-c);
+  border: 3px double var(--dk-stamp-c);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--dk-ink) 72%, transparent);
+  text-shadow: 0 0 12px color-mix(in srgb, var(--dk-stamp-c) 60%, transparent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--dk-stamp-c) 35%, transparent), inset 0 0 10px color-mix(in srgb, var(--dk-stamp-c) 25%, transparent);
+  pointer-events: none;
+  translate: -50% -50%;
+}
+.om .dk-stamp[data-pending="true"] { border-style: dashed; border-width: 2px; background: color-mix(in srgb, var(--dk-ink) 80%, transparent); }
+
+/* states */
+.om .dk-card[data-tappable="true"] { cursor: pointer; }
+.om .dk-card[data-tappable="true"] .dk-card__body { border-color: color-mix(in srgb, var(--dk-accent) 55%, transparent); }
+@media (hover: hover) {
+  .om .dk-card[data-tappable="true"]:hover .dk-card__body { transform: translateY(-6px); box-shadow: var(--dk-sh-lift); border-color: var(--dk-accent); }
+}
+.om .dk-card:focus-visible .dk-card__body { outline: 2px solid var(--dk-brass-hi); outline-offset: 3px; }
+.om .dk-card[data-me="true"] .dk-card__body { border-color: var(--dk-brass); }
+.om .dk-card[data-ally="true"] .dk-card__body { border-color: var(--dk-blood); --dk-card-c: var(--dk-blood); }
+.om .dk-card[data-selected="true"] .dk-card__body {
+  transform: translateY(-10px) scale(1.04);
+  border-color: var(--dk-accent);
+  box-shadow: var(--dk-sh-lift), 0 0 0 1px var(--dk-accent), 0 0 34px -4px color-mix(in srgb, var(--dk-accent) 60%, transparent);
+}
+.om .dk-card[data-leading="true"] .dk-card__body {
+  border-color: var(--dk-blood);
+  box-shadow: var(--dk-sh-card), 0 0 30px -6px var(--dk-blood);
+}
+.om .dk-card[data-dim="true"] .dk-card__body { filter: grayscale(0.7) brightness(0.55); }
+.om .dk-card[data-offline="true"] .dk-card__art img { opacity: 0.45; }
+
+/* ── the fallen ────────────────────────────────────────────────── */
+.om .dk-fallen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dk-s2);
+  padding: var(--dk-s3) 0 var(--dk-s4);
+  border-top: 1px solid var(--dk-line);
+}
+.om .dk-fallen__title {
+  margin: 0;
+  text-align: center;
+  font-family: var(--dk-mono);
+  font-size: var(--dk-f0);
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--dk-ash);
+}
+.om .dk-fallen__row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--dk-s2);
+}
+.om .dk-grave {
+  position: relative;
+  width: 62px;
+  aspect-ratio: 5 / 7;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background:
+    radial-gradient(ellipse 90% 60% at 50% 40%, color-mix(in srgb, var(--dk-card-c, #555) 28%, transparent), transparent 70%),
+    repeating-linear-gradient(45deg, #120e0c 0 5px, #0c0a09 5px 10px);
+  border: 1px solid color-mix(in srgb, var(--dk-card-c, #777) 55%, transparent);
+  box-shadow: var(--dk-sh-card);
+}
+.om .dk-grave__icon { font-size: var(--dk-f3); line-height: 1; filter: saturate(0.7); }
+.om .dk-grave__role {
+  font-family: var(--dk-serif);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dk-card-c, var(--dk-ash));
+  max-width: 100%;
+  padding: 0 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.om .dk-grave__name {
+  position: absolute;
+  inset: auto 0 0;
+  padding: 2px 3px;
+  font-family: var(--dk-serif);
+  font-size: 8px;
+  color: var(--dk-ash);
+  text-align: center;
+  background: rgb(0 0 0 / 0.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── the dock: your role, your move, the word to play it ───────── */
+.om .dk-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--dk-s3);
+  padding: var(--dk-s3) var(--dk-s4);
+  border-radius: 16px 16px 0 0;
+  background:
+    radial-gradient(ellipse 50% 120% at 50% 100%, color-mix(in srgb, var(--dk-accent) 10%, transparent), transparent 70%),
+    linear-gradient(180deg, rgb(24 20 18 / 0.94), rgb(10 9 10 / 0.98));
+  border: 1px solid var(--dk-brass-lo);
+  border-bottom: 0;
+  box-shadow: var(--dk-sh-dock);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.om .dk-dock__role { flex-shrink: 0; }
+.om .dk-dock__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--dk-s2); }
+.om .dk-dock__hint {
+  margin: 0;
+  font-size: var(--dk-f2);
+  line-height: 1.3;
+  color: var(--dk-bone);
+}
+.om .dk-dock__hint small { display: block; font-size: var(--dk-f1); color: var(--dk-ash); font-style: italic; }
+.om .dk-dock__actions { display: flex; gap: var(--dk-s2); flex-shrink: 0; }
+
+.om .dk-tabs { display: flex; flex-wrap: wrap; gap: var(--dk-s2); }
+.om .dk-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 var(--dk-s3);
+  border-radius: var(--dk-r-pill);
+  font-family: var(--dk-serif);
+  font-size: var(--dk-f1);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dk-bone-dim);
+  background: rgb(255 255 255 / 0.03);
+  border: 1px solid var(--dk-line);
+  transition: color var(--dk-t1) var(--dk-ease), border-color var(--dk-t1) var(--dk-ease), background-color var(--dk-t1) var(--dk-ease);
+}
+.om .dk-tab[aria-pressed="true"] {
+  color: var(--dk-tab-c);
+  border-color: var(--dk-tab-c);
+  background: color-mix(in srgb, var(--dk-tab-c) 14%, transparent);
+}
+.om .dk-tab:disabled { opacity: 0.4; }
+
+.om .dk-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 var(--dk-s4);
+  border-radius: var(--dk-r-ctl);
+  font-family: var(--dk-serif);
+  font-size: var(--dk-f1);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: transform var(--dk-t1) var(--dk-ease), box-shadow var(--dk-t2) var(--dk-ease), filter var(--dk-t1) var(--dk-ease);
+}
+.om .dk-btn:active { transform: scale(0.96); }
+.om .dk-btn:focus-visible { outline: 2px solid var(--dk-brass-hi); outline-offset: 2px; }
+.om .dk-btn--ghost { color: var(--dk-bone-dim); background: rgb(255 255 255 / 0.04); border: 1px solid var(--dk-line); }
+.om .dk-btn--go {
+  max-width: 46vw;
+  color: #fff;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--dk-accent) 88%, #fff), color-mix(in srgb, var(--dk-accent) 70%, #000));
+  border: 1px solid var(--dk-accent);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.25), 0 8px 22px -8px var(--dk-accent);
+}
+.om .dk-btn--go span { overflow: hidden; text-overflow: ellipsis; }
+@media (hover: hover) { .om .dk-btn--go:hover { filter: brightness(1.1); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.25), 0 10px 30px -6px var(--dk-accent); } }
+
+@media (max-width: 560px) {
+  .om .dk-brief__title { font-size: var(--dk-f3); }
+  .om .dk-brief__hint { font-size: var(--dk-f1); }
+  .om .dk-dock { flex-wrap: wrap; padding: var(--dk-s2) var(--dk-s3); gap: var(--dk-s2); }
+  .om .dk-dock__role { display: none; }
+  .om .dk-dock__main { flex-basis: 100%; }
+  .om .dk-dock__actions { width: 100%; }
+  .om .dk-dock__actions .dk-btn--go { flex: 1; max-width: none; }
+  .om .dk-dock__hint { font-size: var(--dk-f1); }
+  .om .dk-stamp { font-size: var(--dk-f1); padding: 4px 7px 3px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .om .dk *, .om .dk *::before, .om .dk *::after { transition-duration: 0ms !important; animation-duration: 0ms !important; }
+  .om .dk-card[data-selected="true"] .dk-card__body,
+  .om .dk-card[data-tappable="true"]:hover .dk-card__body { transform: none; }
+}

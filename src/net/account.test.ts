@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import fixture from './account.fixture.json';
-import { isAccountId, verifyPass, type PassClaims } from './account';
+import { cleanPhoto, isAccountId, verifyPass, type PassClaims } from './account';
 import { HostNet } from './net';
 import { proofMessage, type PublicPoint } from './deviceKey';
 import { wrap, type Up } from './protocol';
@@ -317,5 +317,20 @@ describe('taking over a bot', () => {
     expect(state.players.bot_ada.profession).toBe(cf.players.bot_ada.profession);
     expect(events[0]).toMatchObject({ type: 'SEAT_TAKEN', previous: 'Ada' });
     expect(cfHandOverSeat(cf, 'p0', 'Asil').state).toBe(cf);
+  });
+});
+
+describe('profile pictures', () => {
+  it('lets through a Google picture and nothing else', () => {
+    const google = 'https://lh3.googleusercontent.com/a/ACg8ocJ_x-Y=s96-c';
+    expect(cleanPhoto(google)).toBe(google);
+    for (const bad of [
+      'http://lh3.googleusercontent.com/a/x',              // not https
+      'https://evil.example/a.png',                        // not Google
+      'https://googleusercontent.com.evil.example/a.png',  // a lookalike host
+      'https://lh3.googleusercontent.com/a/x" onerror="x', // breaks out of an attribute
+      `https://lh3.googleusercontent.com/${'a'.repeat(400)}`,
+      'javascript:alert(1)', '', 42, null, undefined, {},
+    ]) expect(cleanPhoto(bad)).toBeUndefined();
   });
 });

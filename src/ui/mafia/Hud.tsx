@@ -2,12 +2,39 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { animate, motion, useMotionValue, useReducedMotion, useTransform } from 'framer-motion';
 import { useT } from '../../i18n';
 import type { MafiaState } from '../../mafia/types';
+import { useStore } from '../../store/store';
 import { avatarUrl, formatTime } from './model';
 
-/** The app's avatar: a DiceBear adventurer portrait. */
-export function AvatarImg({ avatar, size = 28, className = '', style }: {
-  avatar: string; size?: number; className?: string; style?: CSSProperties;
+/** A Google picture at about the size it is drawn, for a sharp card. */
+const sized = (url: string, px: number): string => url.replace(/=s\d+(-c)?$/, `=s${Math.min(512, Math.ceil(px * 2))}-c`);
+
+/**
+ * A player's face: their Google picture when they sat down signed in, the
+ * app's DiceBear adventurer otherwise - and again if the picture fails to
+ * load. A picture carries the `is-photo` class, so a frame that expects a
+ * cut-out bust can crop it instead.
+ */
+export function AvatarImg({ avatar, playerId, size = 28, className = '', style }: {
+  avatar: string; playerId?: string; size?: number; className?: string; style?: CSSProperties;
 }) {
+  const photo = useStore((s) => (playerId ? s.room?.seats.find((x) => x.playerId === playerId)?.photo : undefined));
+  const [broken, setBroken] = useState<string | null>(null);
+  if (photo && broken !== photo) {
+    return (
+      <img
+        src={sized(photo, size)}
+        alt=""
+        width={size}
+        height={size}
+        draggable={false}
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => setBroken(photo)}
+        className={`is-photo ${className}`}
+        style={{ display: 'block', flexShrink: 0, objectFit: 'cover', borderRadius: '50%', ...style }}
+      />
+    );
+  }
   return (
     <img
       src={avatarUrl(avatar)}

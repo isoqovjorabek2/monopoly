@@ -65,7 +65,7 @@ const PlayerCard = memo(function PlayerCard({ seat, isMe, isHost, index, canKick
           border: variant === 'me' ? '2px solid rgba(192,57,43,0.6)' : '2px solid rgba(255,215,0,0.15)',
           boxShadow: variant === 'me' ? '0 0 12px rgba(192,57,43,0.3)' : 'none',
         }}>
-        <AvatarImg avatar={seat.name} size={48} />
+        <AvatarImg avatar={seat.name} playerId={seat.playerId} size={48} />
       </div>
       <div className="tw:text-center">
         <p className="tw:text-xs tw:font-semibold tw:truncate tw:max-w-[72px]" style={{ color: isMe ? '#f1c40f' : '#e8e8f0', fontFamily: cinzel }}>

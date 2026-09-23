@@ -75,7 +75,7 @@ function ChatBubble({ msg, isMe }: { msg: ChatItem; isMe: boolean }) {
         className={`tw:flex tw:gap-2 ${isMe ? 'tw:flex-row-reverse' : 'tw:flex-row'}`}>
         <div className="tw:w-7 tw:h-7 tw:rounded-full tw:flex-shrink-0 tw:mt-1 tw:overflow-hidden"
           style={{ border: '1px solid rgba(142,68,173,0.5)', background: 'rgba(142,68,173,0.15)' }}>
-          <AvatarImg avatar={msg.avatar} size={28} />
+          <AvatarImg avatar={msg.avatar} playerId={msg.playerId} size={28} />
         </div>
         <div className={`tw:flex tw:flex-col tw:gap-0.5 tw:max-w-[75%] ${isMe ? 'tw:items-end' : 'tw:items-start'}`}>
           <span className="tw:text-[10px]" style={{ color: '#9b59b6', fontFamily: mono }}>
@@ -105,7 +105,7 @@ function ChatBubble({ msg, isMe }: { msg: ChatItem; isMe: boolean }) {
           background: isMafia ? 'rgba(192,57,43,0.25)' : 'rgba(26,26,46,0.8)',
           border: isMafia ? '1px solid rgba(231,76,60,0.4)' : '1px solid rgba(255,215,0,0.1)',
         }}>
-        <AvatarImg avatar={msg.avatar} size={28} />
+        <AvatarImg avatar={msg.avatar} playerId={msg.playerId} size={28} />
       </div>
       <div className={`tw:flex tw:flex-col tw:gap-0.5 tw:max-w-[75%] ${isMe ? 'tw:items-end' : 'tw:items-start'}`}>
         <span className="tw:text-[11px] tw:text-[#8888aa]" style={{ fontFamily: mono }}>
@@ -244,7 +244,7 @@ export function ChatPanel({
                     onMouseDown={(e) => { e.preventDefault(); setInput(`@${handle} `); setMentions([]); inputRef.current?.focus(); }}
                     className="tw:w-full tw:flex tw:items-center tw:gap-2 tw:px-3 tw:py-2 tw:text-left tw:hover:bg-[rgba(142,68,173,0.2)]"
                   >
-                    {p && <AvatarImg avatar={p.avatar} size={22} style={{ borderRadius: '50%' }} />}
+                    {p && <AvatarImg avatar={p.avatar} playerId={p.id} size={22} style={{ borderRadius: '50%' }} />}
                     <span style={{ fontFamily: cinzel, fontSize: 12, color: '#e8e8f0', flex: 1 }}>{p?.username ?? handle}</span>
                     <span style={{ fontFamily: mono, fontSize: 9, color: '#9b59b6' }}>{C.dm}</span>
                   </button>
