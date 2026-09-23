@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deploys the game to https://aytingchi.uz from GitHub Actions.
+# Deploys the game to https://partyhall.io from GitHub Actions.
 #
 # Installed as /usr/local/bin/aytingchi-deploy and bound to one SSH key in
 # root's authorized_keys as a forced command:

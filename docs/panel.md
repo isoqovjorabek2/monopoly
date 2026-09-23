@@ -25,7 +25,14 @@ than any password.
 
 ## The public way in
 
-`https://aytingchi.uz/admin` serves the same panel, behind sign-in. It is
+> **Moving from aytingchi.uz.** `bash ops/migrate-to-partyhall.sh`, run from
+> the repo on your own machine, gives partyhall.io the `/peer/`, `/lobbies/`
+> and `/admin/` routes, installs the current panel and services, and points
+> the panel's public address here. Google sign-in on the panel then also
+> needs `https://partyhall.io/admin/auth/google/callback` added to the OAuth
+> client's authorised redirect URIs.
+
+`https://partyhall.io/admin` serves the same panel, behind sign-in. It is
 **optional** — the tunnel keeps working whether or not this is configured,
 and with nothing configured the public route refuses to serve anything at
 all rather than being an open door.
@@ -52,7 +59,7 @@ credentials → OAuth client ID → Web application. The authorised redirect URI
 has to be exactly:
 
 ```
-https://aytingchi.uz/admin/auth/google/callback
+https://partyhall.io/admin/auth/google/callback
 ```
 
 Then set `google_client_id` and `google_client_secret`.

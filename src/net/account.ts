@@ -5,7 +5,7 @@ import { deviceKey, devicePublicKeyNow, encodePoint, isPoint, signProof, type Pu
 /* ------------------------------------------------------------------ *
  * Player accounts.
  *
- * Signing in gets this browser a *pass* from aytingchi.uz: a statement,
+ * Signing in gets this browser a *pass* from partyhall.io: a statement,
  * signed with a key only that server holds, that it belongs to player
  * u_xxxx. The public half of the key is compiled in below, so any browser
  * at the table - in practice the host's - checks a pass itself, offline.
@@ -18,8 +18,14 @@ import { deviceKey, devicePublicKeyNow, encodePoint, isPoint, signProof, type Pu
  * as before.
  * ------------------------------------------------------------------ */
 
-export const AUTH_BASE = (import.meta.env.VITE_AUTH_URL ?? 'https://aytingchi.uz/auth').replace(/\/$/, '');
-const ISSUER = 'https://aytingchi.uz/auth';
+export const AUTH_BASE = (import.meta.env.VITE_AUTH_URL ?? 'https://partyhall.io/auth').replace(/\/$/, '');
+/* The name a pass is issued under. It is an identifier inside the signed
+ * pass, not an address anything is fetched from. The service still issues
+ * under the domain it started on, and every browser already out there
+ * checks for that one; the partyhall.io name is accepted too, so the
+ * service can switch to it once those copies have updated (passes last
+ * thirty days) without signing anybody out. */
+const ISSUERS = ['https://partyhall.io/auth', 'https://aytingchi.uz/auth'];
 const AUDIENCE = 'monopoly';
 const STORE_KEY = 'mply.account';
 /** Where a redirect-based sign-in remembers what the address bar said. */
@@ -155,7 +161,7 @@ export async function verifyPass(
     );
     if (!ok) return null;
     const c = JSON.parse(new TextDecoder().decode(b64uBytes(body))) as Record<string, unknown>;
-    if (c.iss !== ISSUER || c.aud !== AUDIENCE) return null;
+    if (typeof c.iss !== 'string' || !ISSUERS.includes(c.iss) || c.aud !== AUDIENCE) return null;
     if (typeof c.exp !== 'number' || c.exp <= now) return null;
     if (typeof c.sub !== 'string' || !isAccountId(c.sub) || c.sub.length > 40) return null;
     // A pass not bound to a browser key is a bearer token, and a host would

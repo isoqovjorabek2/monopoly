@@ -1,5 +1,10 @@
 # The relay
 
+> **Names.** The site is served at `partyhall.io`. The relay's TLS name is
+> still `turn.aytingchi.uz`, because moving it needs a `turn.partyhall.io`
+> DNS record and a certificate for it; until then the sections below that
+> mention `aytingchi.uz` describe how the relay is reached today.
+
 Two browsers usually find each other on their own. STUN tells each one what
 its public address looks like from outside, both punch a hole outward at the
 same moment, and the packets cross in the middle.

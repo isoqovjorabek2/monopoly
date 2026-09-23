@@ -67,12 +67,12 @@ const ICE = {
  * Two browsers need somebody to introduce them before they can talk. That
  * used to be PeerJS's free public server, which has no uptime promise and
  * was the one part of joining a table this project did not run. It now runs
- * on aytingchi.uz beside the relay (ops/peerserver.service). Only the
+ * on partyhall.io beside the relay (ops/peerserver.service). Only the
  * introduction goes through it; the game itself is still browser to browser.
  *
  * VITE_PEER_HOST=public goes back to the public server, e.g. for a fork.
  * ------------------------------------------------------------------ */
-const PEER_HOST = import.meta.env.VITE_PEER_HOST ?? 'aytingchi.uz';
+const PEER_HOST = import.meta.env.VITE_PEER_HOST ?? 'partyhall.io';
 const BROKER = PEER_HOST === 'public'
   ? {}
   : { host: PEER_HOST, port: 443, secure: true, path: '/peer', key: 'mply' };

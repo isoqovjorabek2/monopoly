@@ -3,7 +3,7 @@ import { signProof } from './deviceKey';
 import { redactForGuests, type GameKind, type RoomSnapshot } from './protocol';
 
 /* ------------------------------------------------------------------ *
- * Saved tables, on aytingchi.uz.
+ * Saved tables, on partyhall.io.
  *
  * A table lives in its host's browser, so until now a game ended the moment
  * its last tab closed. Signed-in players' tables are copied to the server

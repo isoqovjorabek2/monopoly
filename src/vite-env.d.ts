@@ -9,12 +9,12 @@ interface ImportMetaEnv {
   readonly VITE_TURN_URLS?: string;
   readonly VITE_TURN_USERNAME?: string;
   readonly VITE_TURN_CREDENTIAL?: string;
-  /** Where player sign-in lives. Defaults to https://aytingchi.uz/auth. */
+  /** Where player sign-in lives. Defaults to https://partyhall.io/auth. */
   readonly VITE_AUTH_URL?: string;
-  /** The matchmaking server's host. Defaults to aytingchi.uz; `public` uses
+  /** The matchmaking server's host. Defaults to partyhall.io; `public` uses
    *  PeerJS's own free server. */
   readonly VITE_PEER_HOST?: string;
-  /** The public lobby directory. Defaults to https://aytingchi.uz/lobbies. */
+  /** The public lobby directory. Defaults to https://partyhall.io/lobbies. */
   readonly VITE_LOBBY_URL?: string;
   /** Paddle client-side token (public by design). No token, no checkout. */
   readonly VITE_PADDLE_CLIENT_TOKEN?: string;

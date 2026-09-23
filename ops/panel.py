@@ -372,7 +372,9 @@ def _served_cert(sni: str) -> dict:
 
 
 def cert() -> dict:
-    served = [_served_cert(n) for n in ("aytingchi.uz", "turn.aytingchi.uz")]
+    # The site, and the relay's TLS name (still turn.aytingchi.uz until a
+    # turn.partyhall.io record and certificate exist - see docs/turn.md).
+    served = [_served_cert(n) for n in ("partyhall.io", "turn.aytingchi.uz")]
     days = [s["days_left"] for s in served if s.get("days_left") is not None]
     expiries = {s.get("expires") for s in served if s.get("expires")}
     return {
@@ -975,7 +977,7 @@ class Handler(BaseHTTPRequestHandler):
 LOGIN_PAGE = r"""<!doctype html>
 <html lang="en">
 <meta charset="utf-8">
-<title>Sign in · Aytingchi ops</title>
+<title>Sign in · Party Hall ops</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23111814'/%3E%3Ccircle cx='32' cy='32' r='13' fill='%23e0a93b'/%3E%3C/svg%3E">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
@@ -1025,7 +1027,7 @@ LOGIN_PAGE = r"""<!doctype html>
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 <main class="box">
-  <p class="brand">Aytingchi · ops</p>
+  <p class="brand">Party Hall · ops</p>
   <h1>Sign in to the status panel</h1>
   <div class="msg" role="status">__MSG__</div>
   <a class="btn" href="auth/google" style="display:__GOOGLE__">Continue with Google</a>
@@ -1051,7 +1053,7 @@ LOGIN_PAGE = r"""<!doctype html>
 PAGE = r"""<!doctype html>
 <html lang="en">
 <meta charset="utf-8">
-<title>Aytingchi · ops</title>
+<title>Party Hall · ops</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23111814'/%3E%3Ccircle cx='32' cy='32' r='13' fill='%23e0a93b'/%3E%3C/svg%3E">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
@@ -1351,7 +1353,7 @@ h2{margin:0;font-size:var(--t-xl);font-weight:680;letter-spacing:-.015em;line-he
 
 <header class="bar">
   <div class="bar__in">
-    <p class="brand">Aytingchi <span>· ops</span></p>
+    <p class="brand">Party Hall <span>· ops</span></p>
     <span class="live" id="live" data-state="loading"><i class="pulse" aria-hidden="true"></i><span id="liveText">Loading…</span></span>
     <span class="who" id="who">__WHO__</span>
     <nav class="nav" aria-label="Sections">

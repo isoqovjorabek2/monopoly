@@ -17,13 +17,13 @@ PATH = "/etc/opspanel/config.json"
 
 TEMPLATE = {
     "_comment": "Secrets for the status panel. Root-owned, 0640, never in git.",
-    "public_base_url": "https://aytingchi.uz/admin",
+    "public_base_url": "https://partyhall.io/admin",
     "allowlist": ["isoqovjorabek774@gmail.com"],
     "session_secret": "",
 
     "_google": ("Google Cloud Console > APIs & Services > Credentials > "
                 "Create OAuth client ID > Web application. Authorised redirect "
-                "URI must be exactly: https://aytingchi.uz/admin/auth/google/callback"),
+                "URI must be exactly: https://partyhall.io/admin/auth/google/callback"),
     "google_client_id": "",
     "google_client_secret": "",
 

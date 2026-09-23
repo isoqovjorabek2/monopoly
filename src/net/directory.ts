@@ -16,7 +16,7 @@ import type { GameSettings } from '../game/types';
  * ashes - and that is the property the whole architecture is built on.
  * ------------------------------------------------------------------ */
 
-const BASE = (import.meta.env.VITE_LOBBY_URL ?? 'https://aytingchi.uz/lobbies')
+const BASE = (import.meta.env.VITE_LOBBY_URL ?? 'https://partyhall.io/lobbies')
   .replace(/\/$/, '');
 
 /** Off entirely when built without a directory, which keeps a fully

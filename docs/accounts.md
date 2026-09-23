@@ -21,7 +21,7 @@ an account cannot be a session that a server checks on every move - nothing
 is on that path to check it. It is a **pass** instead.
 
 ```
-  browser ──sign in──► aytingchi.uz/auth ──► Google
+  browser ──sign in──► partyhall.io/auth ──► Google
      ▲                        │
      └──── pass (signed) ─────┘
 
@@ -70,15 +70,16 @@ itself, so the browser and the server provably agree on the format.
 | | |
 | --- | --- |
 | Service | `accounts.service`, user `playerauth`, `127.0.0.1:9200` |
-| Public route | nginx `location /auth/` in `/etc/nginx/sites-available/aytingchi` |
+| Public route | nginx `location /auth/` in `/etc/nginx/sites-available/partyhall` |
 | Source | `ops/accounts.py`, deployed to `/opt/opspanel/accounts.py` |
 | Config | `/etc/playerauth/config.json` (root:playerauth, 0640): Google client, state and id secrets |
 | Signing key | `/etc/playerauth/signing-key.pem` (root:playerauth, 0640) |
 
 Routes: `/auth/google/start?return=…`, `/auth/google/callback`, `/auth/key`
-(the public JWK), `/auth/health`. A return address must be aytingchi.uz,
-the GitHub Pages site, or localhost; anything else is refused before Google
-is involved.
+(the public JWK), `/auth/health`. A return address must be partyhall.io,
+the GitHub Pages site, or localhost (aytingchi.uz is still accepted, for
+copies of the app cached under the old address); anything else is refused
+before Google is involved.
 
 **Bans.** A player the operator bans on the status panel (by `u_…` id) gets
 nothing new here: sign-in answers `auth_error=banned`, and `/refresh`,
@@ -123,7 +124,7 @@ ssh aitutor 'python3 /opt/opspanel/accounts-init.py && systemctl daemon-reload &
 
 **Testing a table without Google.** `python3 /opt/opspanel/accounts.py mint
 u_sometester000000001 Tester` prints a valid pass for a made-up player. Open
-`https://aytingchi.uz/#auth=<pass>` in a fresh browser to be that player.
+`https://partyhall.io/#auth=<pass>` in a fresh browser to be that player.
 Only root on the droplet can do this, since it reads the signing key.
 
 **Rotating the key** invalidates every pass (everyone signs in again): delete

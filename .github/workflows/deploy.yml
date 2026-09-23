@@ -81,7 +81,7 @@ jobs:
           touch dist/.nojekyll
           mv dist dist-pages
 
-      - name: Build for aytingchi.uz (served from /)
+      - name: Build for partyhall.io (served from /)
         env:
           BASE_PATH: /
           VITE_TURN_URLS: ${{ secrets.TURN_URLS }}
@@ -96,7 +96,7 @@ jobs:
           VITE_ADINPLAY_SITE: ${{ vars.ADINPLAY_SITE }}
         run: |
           npm run build
-          mv dist dist-aytingchi
+          mv dist dist-site
 
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
@@ -105,8 +105,8 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: aytingchi
-          path: dist-aytingchi
+          name: site
+          path: dist-site
           retention-days: 7
 
   deploy-pages:
@@ -119,24 +119,26 @@ jobs:
       - id: deployment
         uses: actions/deploy-pages@v5
 
-  # The same build, at the site root, onto the droplet. The key can do one
-  # thing: hand ops/aytingchi-deploy.sh a tarball on stdin. See that script.
-  deploy-aytingchi:
+  # The same build, at the site root, onto the droplet behind partyhall.io.
+  # The key can do one thing: hand ops/aytingchi-deploy.sh (the droplet's
+  # deploy command, under the name it was installed with) a tarball on stdin.
+  deploy-partyhall:
     needs: build
     runs-on: ubuntu-latest
     environment:
-      name: aytingchi
-      url: https://aytingchi.uz/
+      name: partyhall
+      url: https://partyhall.io/
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: aytingchi
+          name: site
           path: site
 
       - name: Upload to the droplet
         env:
-          DEPLOY_KEY: ${{ secrets.AYTINGCHI_DEPLOY_KEY }}
-          KNOWN_HOSTS: ${{ secrets.AYTINGCHI_KNOWN_HOSTS }}
+          # DEPLOY_KEY / DEPLOY_KNOWN_HOSTS when set; the older names until then.
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY || secrets.AYTINGCHI_DEPLOY_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS || secrets.AYTINGCHI_KNOWN_HOSTS }}
         run: |
           install -d -m 700 ~/.ssh
           printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy_key
@@ -149,8 +151,8 @@ jobs:
         run: |
           want=$(grep -o 'assets/index-[^"]*\.js' site/index.html)
           for i in 1 2 3 4 5; do
-            if curl -fsS https://aytingchi.uz/ | grep -q "$want"; then echo "live: $want"; exit 0; fi
+            if curl -fsS https://partyhall.io/ | grep -q "$want"; then echo "live: $want"; exit 0; fi
             sleep 3
           done
-          echo "aytingchi.uz is not serving $want" >&2
+          echo "partyhall.io is not serving $want" >&2
           exit 1
