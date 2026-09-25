@@ -69,16 +69,17 @@ CERT = "/etc/coturn/certs/fullchain.pem"
 # Written by lobbies.service, which runs as the same user.
 LOBBY_STATE = os.environ.get("LOBBIES_STATE", "/var/lib/lobbies")
 
-# journalctl over a day is the slowest thing here; a short cache keeps a
-# refreshing browser from making the panel the busiest process on the box.
+# journalctl over a day is the slowest thing here; a cache keeps a refreshing
+# browser from making the panel the busiest process on the box. The page polls
+# api/stats every 15s, so anything shorter than that never hits.
 _CACHE: dict[str, tuple[float, object]] = {}
-CACHE_TTL = 10.0
+CACHE_TTL = 30.0
 
 
-def cached(key, fn):
+def cached(key, fn, ttl: float = CACHE_TTL):
     now = time.time()
     hit = _CACHE.get(key)
-    if hit and now - hit[0] < CACHE_TTL:
+    if hit and now - hit[0] < ttl:
         return hit[1]
     val = fn()
     _CACHE[key] = (now, val)
@@ -372,6 +373,12 @@ def _served_cert(sni: str) -> dict:
 
 
 def cert() -> dict:
+    # Live TLS connections to both names; expiry moves daily, so a long cache
+    # costs nothing and keeps two handshakes out of every stats poll.
+    return cached("cert", _cert, ttl=600.0)
+
+
+def _cert() -> dict:
     # The site, and the relay's TLS name (still turn.aytingchi.uz until a
     # turn.partyhall.io record and certificate exist - see docs/turn.md).
     served = [_served_cert(n) for n in ("partyhall.io", "turn.aytingchi.uz")]
@@ -398,6 +405,12 @@ RE_CLOSED = re.compile(r"session (\d+): closed.*local [\d.]+:(\d+).*reason: (.+)
 
 
 def turn(hours: int = 24) -> dict:
+    # The journal text is cached below, but the regex pass over a day of
+    # coturn logs is not free either - cache the finished answer.
+    return cached(f"turn{hours}", lambda: _turn(hours))
+
+
+def _turn(hours: int) -> dict:
     text = cached(
         f"journal{hours}",
         lambda: run([
@@ -470,6 +483,12 @@ TAIL_BYTES = 3_000_000  # plenty for a low-traffic box, bounded for a small one
 
 
 def nginx(hours: int = 24) -> dict:
+    # Up to 3MB of access log parsed per call; cached so the 15s poll does
+    # not redo it.
+    return cached(f"nginx{hours}", lambda: _nginx(hours))
+
+
+def _nginx(hours: int) -> dict:
     try:
         with open(NGINX_ACCESS, "rb") as fh:
             fh.seek(0, 2)
