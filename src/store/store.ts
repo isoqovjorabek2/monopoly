@@ -19,9 +19,12 @@ import {
   waitingOn as cfWaitingOn,
 } from '../cashflow/rules';
 import type { CFAction, CFEvent, CFRules, CFSettings, CFState } from '../cashflow/types';
-import { mfBotDecide, mfBotDelay } from '../mafia/ai';
+import {
+  mentionsIn, mfBotDecide, mfBotDelay, mfBotLine, mfBotTalkDelay, talkKind, type BotLine, type TalkLine,
+} from '../mafia/ai';
 import { MAF_MAX_SEATS, MAF_MIN_PLAYERS, MAF_PRACTICE_BOTS } from '../mafia/data';
-import { mafLogLine, type MFLogLine } from '../mafia/describe';
+import { REACT_GAP_MS, canReact, isReaction, type Reaction, type ReactionShown } from '../net/reactions';
+import { botLineText, mafLogLine, type MFLogLine } from '../mafia/describe';
 import {
   MAF_DEFAULTS, MAF_RULES_DEFAULT, botifySeat as mfBotifySeat, createMafia,
   handOverSeat as mfHandOverSeat, reduce as mfReduce, spendLastWords,
@@ -89,6 +92,8 @@ interface Store {
    *  Null for anyone not holding a role. */
   mafPrivate: MafiaPrivate | null;
   chat: ChatMessage[];
+  /** Emoji reactions floating over the table right now. */
+  reactions: ReactionShown[];
   floats: CashFloat[];
 
   netStatus: NetStatus;
@@ -150,9 +155,14 @@ interface Store {
    *  (net/moderation.ts). */
   endorse: (candidate: string) => void;
   startGame: () => void;
+  /** Host: seat bots up to a playable table and start. On a public table
+   *  the bots are seats for whoever turns up next. */
+  startWithBots: () => void;
 
   dispatch: (action: AnyAction) => void;
   sendChat: (text: string) => void;
+  /** React with one of net/reactions.ts's emoji. */
+  sendReaction: (emoji: Reaction) => void;
   /** A signed-in watcher takes over a bot's seat - or asks to. */
   takeSeat: (target: string) => void;
   /** The host lets a waiting watcher take the seat they asked for, or not. */
@@ -178,6 +188,24 @@ interface Store {
 let host: HostNet | null = null;
 let guest: GuestNet | null = null;
 let botTimer: number | null = null;
+/** Seconds per decision a public table starts with when it had no clock. */
+const PUBLIC_TURN_TIMER = 60;
+/* Omertà's table talk, as the host heard it: who named whom. The bots read
+ * it (it is public, or family-only where the family said it), and it lives
+ * only on the host - a new host after a migration starts with a clean slate,
+ * which costs the bots some memory and nothing else. */
+let mafTalk: TalkLine[] = [];
+/** Bots that have had their say this phase: `${round}|${phase}|${id}`. */
+const botSpoken = new Set<string>();
+let talkTimers: number[] = [];
+/** When each seat last reacted, for the host's rate limit. */
+const lastReacted = new Map<string, number>();
+const resetTalk = (): void => {
+  mafTalk = [];
+  botSpoken.clear();
+  for (const id of talkTimers) window.clearTimeout(id);
+  talkTimers = [];
+};
 let walkTimer: number | null = null;
 let clockTimer: number | null = null;
 /** What the armed clock is timing (see clockKey), so an unrelated publish -
@@ -780,6 +808,34 @@ export const useStore = create<Store>((set, get) => {
 
   /* --------------------------- bot driver -------------------------- */
 
+  /** A bot line as the host reads it; each guest re-renders `say` itself. */
+  const botText = (s: MafiaState, line: BotLine): string => botLineText(tr(), s, line) ?? '…';
+
+  /** Give each Omertà bot its say, once a phase, a few seconds in. The line
+   *  is chosen when it is spoken, from the table as it is by then. */
+  const scheduleBotTalk = (s: MafiaState): void => {
+    if (mafTalk.some((t) => t.round > s.round)) resetTalk();
+    for (const id of s.seats) {
+      const p = s.players[id];
+      if (!p?.isBot || !p.alive) continue;
+      const key = `${s.round}|${s.phase}|${id}`;
+      if (botSpoken.has(key)) continue;
+      // In the vote a bot speaks after it has voted; until then, wait.
+      if (s.phase === 'vote' && !(id in s.votes)) continue;
+      botSpoken.add(key);
+      const timer = window.setTimeout(() => {
+        talkTimers = talkTimers.filter((x) => x !== timer);
+        const now = snapshot()?.mf;
+        if (!now || `${now.round}|${now.phase}|${id}` !== key) return;
+        const line = mfBotLine(now, id, mafTalk);
+        const seat = snapshot()?.seats.find((x) => x.playerId === id);
+        if (!line || !seat) return;
+        speak(id, seat.name, seat.color, botText(now, line), line);
+      }, mfBotTalkDelay(s, id));
+      talkTimers.push(timer);
+    }
+  };
+
   const scheduleBots = (): void => {
     if (botTimer) { window.clearTimeout(botTimer); botTimer = null; }
     const { role, room } = get();
@@ -788,9 +844,10 @@ export const useStore = create<Store>((set, get) => {
     if (room.mf) {
       const s = room.mf;
       if (s.phase === 'game_over' || s.phase === 'lobby') return;
+      scheduleBotTalk(s);
       for (const seat of room.seats) {
         if (!seat.isBot) continue;
-        const action = mfBotDecide(s, seat.playerId);
+        const action = mfBotDecide(s, seat.playerId, mafTalk);
         if (!action) continue;
         botTimer = window.setTimeout(() => {
           botTimer = null;
@@ -1060,6 +1117,10 @@ export const useStore = create<Store>((set, get) => {
         takeOverSeat(from, msg.target);
         return;
 
+      case 'REACT':
+        react(seatFor(from), msg.emoji);
+        return;
+
       case 'CHAT': {
         const text = cleanText(msg.text, 220);
         if (!text) return;
@@ -1075,18 +1136,52 @@ export const useStore = create<Store>((set, get) => {
     }
   };
 
+  /** A reaction this host has checked: everyone sees it, nobody keeps it. */
+  const react = (seat: string, emoji: unknown): void => {
+    const room = snapshot();
+    if (!isReaction(emoji) || !canReact(room, seat)) return;
+    const now = Date.now();
+    if (now - (lastReacted.get(seat) ?? 0) < REACT_GAP_MS) return;
+    lastReacted.set(seat, now);
+    const id = `r${logSeq++}`;
+    showReaction(id, seat, emoji);
+    host?.broadcast({ t: 'REACT', id, from: seat, emoji });
+  };
+
+  const showReaction = (id: string, from: string, emoji: Reaction): void => {
+    const shown: ReactionShown = { id, from, emoji, at: Date.now() };
+    set((s) => ({ reactions: [...s.reactions, shown].slice(-12) }));
+    window.setTimeout(() => set((s) => ({ reactions: s.reactions.filter((r) => r.id !== id) })), 2600);
+  };
+
   /**
    * Say something at the table, on the authority. Every table but a running
    * Omertà match hears everything; there, chat.ts decides who may speak and
    * who hears it, and the message goes only to those seats.
    */
-  const speak = (seat: string | null, name: string, color: string, text: string): void => {
+  const speak = (seat: string | null, name: string, color: string, text: string, say?: BotLine): void => {
     const room = snapshot();
     if (!room) return;
-    const base: ChatMessage = { id: `c${logSeq++}`, from: seat ?? '', name, color, text, at: Date.now() };
+    const base: ChatMessage = {
+      id: `c${logSeq++}`, from: seat ?? '', name, color, text, at: Date.now(), ...(say ? { say } : {}),
+    };
     const mf = room.mf;
     const route = mf ? routeMafChat(mf, seat, text) : null;
     if (mf && !route) return;
+    // What the bots will remember of it. A whisper is heard by two, so it
+    // is nobody's evidence.
+    if (mf && route && seat && route.channel !== 'whisper' && route.channel !== 'dead' && mf.phase !== 'lobby' && mf.phase !== 'game_over') {
+      const phase = mf.phase as TalkLine['phase'];
+      const family = route.channel === 'family' || undefined;
+      const kind = say ? talkKind(say) : null;
+      if (say && kind && say.target) mafTalk.push({ round: mf.round, phase, from: seat, target: say.target, kind, family });
+      else if (!say) {
+        for (const target of mentionsIn(mf, seat, route.text)) {
+          mafTalk.push({ round: mf.round, phase, from: seat, target, kind: 'mention', family });
+        }
+      }
+      if (mafTalk.length > 400) mafTalk = mafTalk.slice(-300);
+    }
     const message: ChatMessage = route
       ? {
         ...base,
@@ -1259,6 +1354,10 @@ export const useStore = create<Store>((set, get) => {
         set((s) => ({ chat: [...s.chat, msg.message].slice(-80) }));
         return;
 
+      case 'REACT':
+        if (isReaction(msg.emoji) && typeof msg.from === 'string') showReaction(String(msg.id), msg.from, msg.emoji);
+        return;
+
       case 'REJECT':
         set({ netError: msg.reason === 'seat_denied' ? tr().account.seatDenied : msg.reason });
         window.setTimeout(() => set({ netError: null }), 3000);
@@ -1390,6 +1489,7 @@ export const useStore = create<Store>((set, get) => {
 
   const teardown = (): void => {
     mafPrivateCache.clear();
+    resetTalk();
     host?.destroy();
     guest?.destroy();
     host = null;
@@ -1433,18 +1533,20 @@ export const useStore = create<Store>((set, get) => {
     // flag left over from the last one.
     let live: { openSeats: number; round: number } | undefined;
     if (inGame(room)) {
-      // Only a Monopoly game has bot seats a newcomer can take over; the
-      // other games come off the list the moment they start.
-      const g = room.kind === 'monopoly' ? room.game : undefined;
-      const bots = g
-        ? room.seats.filter((s) => s.isBot && g.players[s.playerId] && !g.players[s.playerId].bankrupt).length
-        : 0;
-      if (!g || g.phase === 'game_over' || bots === 0 || (room.settings.takeovers ?? 'ask') === 'off') {
+      // Any game with a bot a newcomer could take over (see mayTakeOver).
+      const g = room.game;
+      const c = room.cf;
+      const m = room.mf;
+      const takeable = (id: string): boolean => (g ? Boolean(g.players[id]) && !g.players[id].bankrupt
+        : m ? Boolean(m.players[id]?.alive) : Boolean(c?.players[id]));
+      const bots = room.seats.filter((x) => x.isBot && takeable(x.playerId)).length;
+      const over = (g ?? c ?? m)?.phase === 'game_over';
+      if (over || bots === 0 || (room.settings.takeovers ?? 'ask') === 'off') {
         stopListing();
         set({ listed: false });
         return;
       }
-      live = { openSeats: bots, round: g.round };
+      live = { openSeats: bots, round: g?.round ?? c?.round ?? m?.round ?? 0 };
     }
     listedSeats = room.seats.length;
     void announceRoom({
@@ -1492,6 +1594,7 @@ export const useStore = create<Store>((set, get) => {
     mafLog: [],
     mafPrivate: null,
     chat: [],
+    reactions: [],
     floats: [],
 
     netStatus: 'idle',
@@ -1704,6 +1807,11 @@ export const useStore = create<Store>((set, get) => {
       // Any game can be listed, but only by a host holding Party Hall Plus.
       // The directory checks the pass too; this just saves it the trip.
       if (on && (!room || !hasPlus(currentAccount()))) return;
+      // Strangers do not wait on each other the way friends do: a public
+      // table with no turn clock gets one. The host can still turn it off.
+      if (on && room && !inGame(room) && room.kind !== 'mafia' && !room.settings.turnTimer) {
+        get().updateSettings({ turnTimer: PUBLIC_TURN_TIMER });
+      }
       if (on) { set({ listed: true }); startListing(); }
       else { stopListing(); set({ listed: false }); }
     },
@@ -1777,6 +1885,20 @@ export const useStore = create<Store>((set, get) => {
       else endorseVote(seatFor(me.playerId), candidate);
     },
 
+    startWithBots: () => {
+      const { role, room } = get();
+      if (role !== 'host' || !room || inGame(room)) return;
+      const target = Math.min(seatLimit(room), room.kind === 'mafia' ? Math.max(MAF_MIN_PLAYERS, 6) : 4);
+      let seats = room.seats.length;
+      while (seats < target) {
+        addBotSeat();
+        const now = snapshot()?.seats.length ?? seats;
+        if (now === seats) break;
+        seats = now;
+      }
+      get().startGame();
+    },
+
     startGame: () => {
       const { role, room, me } = get();
       if (!room || inGame(room)) return;
@@ -1826,6 +1948,7 @@ export const useStore = create<Store>((set, get) => {
         };
         const started = mfReduce(createMafia(settings, specs), { type: 'START_GAME', playerId: me.playerId });
         mafPrivateCache.clear();
+        resetTalk();
         set({ screen: 'game', mafLog: [], mafPrivate: null, log: [], cfLog: [] });
         publish({ ...base, seats, mf: started.state }, [], [], started.events);
         return;
@@ -1862,6 +1985,12 @@ export const useStore = create<Store>((set, get) => {
       applyIntent(me.playerId, action);
     },
 
+    sendReaction: (emoji) => {
+      const { role, me } = get();
+      if (role === 'guest') { guest?.send({ t: 'REACT', playerId: me.playerId, emoji }); return; }
+      react(me.playerId, emoji);
+    },
+
     sendChat: (text) => {
       const clean = cleanText(text, 220);
       if (!clean) return;
@@ -1890,6 +2019,7 @@ export const useStore = create<Store>((set, get) => {
         seats.push(emptySeat(w.uid, w.name, token, seats.length, false));
       }
       mafPrivateCache.clear();
+      resetTalk();
       set({ screen: 'lobby', log: [], cfLog: [], mafLog: [], mafPrivate: null, animPos: {}, inspecting: null });
       // The listing ended with the game - and has to end here, before the
       // publish below announces a lobby: rematching inside one heartbeat

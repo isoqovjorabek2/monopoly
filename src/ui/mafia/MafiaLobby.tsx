@@ -17,6 +17,7 @@ import { seatLimit, useStore } from '../../store/store';
 import { AdBanner } from '../Ads';
 import { PlusBadge, PlusSheet } from '../Plus';
 import { useFullscreenKey } from '../Help';
+import { LonelyTable } from '../LonelyTable';
 import { LangSwitch } from '../LangSwitch';
 import { isAudioEnabled, onAudioChange, playAmbient, playSFX, stopAmbient, TRACKS } from './audio';
 import { SuspectCard } from './deck/SuspectCard';
@@ -254,6 +255,7 @@ export default function MafiaLobby() {
         </header>
 
         {netError && <div className="lb-alert" role="alert">{netError}</div>}
+        <LonelyTable className="lonely--om" />
 
         <section className="lb-sec" aria-labelledby="lb-table">
           <div className="lb-sec__head">

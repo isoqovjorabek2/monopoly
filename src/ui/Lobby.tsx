@@ -16,6 +16,7 @@ import { Avatar, Panel, Segmented, Slider, Toggle, fmt } from './bits';
 import { LangSwitch } from './LangSwitch';
 import { PlusBadge, PlusSheet } from './Plus';
 import { AdBanner, RewardedBoards } from './Ads';
+import { LonelyTable } from './LonelyTable';
 
 type Tab = 'seats' | 'rules' | 'economy' | 'pace';
 
@@ -116,6 +117,7 @@ export function Lobby() {
       </header>
 
       {netError && <div className="banner banner--bad" role="alert">{netError}</div>}
+      <LonelyTable />
 
       <div className="lobby__grid">
         {/* --------------------------- invite -------------------------- */}

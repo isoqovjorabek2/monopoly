@@ -1,5 +1,17 @@
 import type { Dict } from '../i18n/en';
 import type { MafiaDeath, MafiaEvent, MafiaRole, MafiaState } from './types';
+import type { BotLine } from './ai';
+
+/** A bot's line in this reader's language. Unknown keys (a newer host)
+ *  come back null, and the caller shows the host's own text instead. */
+export function botLineText(t: Dict, s: MafiaState | null, line: BotLine): string | null {
+  const variants = t.maf.ui.bot[line.k] as ((n: string) => string)[] | undefined;
+  if (!Array.isArray(variants) || variants.length === 0) return null;
+  const say = variants[Math.abs(Math.floor(Number(line.v) || 0)) % variants.length];
+  if (typeof say !== 'function') return null;
+  const name = (line.target && s?.players[line.target]?.name) || t.maf.ui.bot.someone;
+  return say(name);
+}
 
 /**
  * One line of the Omertà table log. Kept as the event, like the Cashflow

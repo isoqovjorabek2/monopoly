@@ -29,12 +29,14 @@ export function PublicRooms({ kind, onJoin }: { kind: ListedKind; onJoin: (code:
   const t = useT();
   const signedIn = useAccount((s) => s.account !== null);
   const [rooms, setRooms] = useState<PublicRoom[] | null>(null);
+  const [playing, setPlaying] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     setBusy(true);
     const list = await listRooms();
-    setRooms(list);
+    setRooms(list.rooms);
+    setPlaying(list.playing);
     setBusy(false);
   }, []);
 
@@ -60,6 +62,14 @@ export function PublicRooms({ kind, onJoin }: { kind: ListedKind; onJoin: (code:
     <section className="rooms" aria-labelledby="rooms-title">
       <header className="rooms__head">
         <h2 className="rooms__title" id="rooms-title">{t.rooms.title}</h2>
+        {/* Proof of life: a front door with an empty list still says the
+            place is not empty. Hidden until there is anyone to count. */}
+        {playing !== null && playing > 1 && (
+          <span className="rooms__live" title={t.rooms.playingNow(playing)}>
+            <span className="rooms__liveDot" aria-hidden />
+            {t.rooms.playingNow(playing)}
+          </span>
+        )}
         <button
           type="button"
           className="btn btn--ghost btn--sm"

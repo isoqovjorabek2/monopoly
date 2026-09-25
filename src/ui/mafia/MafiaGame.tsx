@@ -4,7 +4,7 @@ import { Home, MessageCircle, SkipForward, Volume2, VolumeX } from 'lucide-react
 import './omerta.css';
 import { useT } from '../../i18n';
 import type { Dict } from '../../i18n/en';
-import type { MFLogLine } from '../../mafia/describe';
+import { botLineText, type MFLogLine } from '../../mafia/describe';
 import { clockKey, clockSeconds } from '../../mafia/rules';
 import type { MafiaAction, MafiaDeath, MafiaState } from '../../mafia/types';
 import type { ChatMessage } from '../../net/protocol';
@@ -15,6 +15,8 @@ import { useFullscreenKey } from '../Help';
 import { useAlertsSwitch, useTableAlert } from '../alerts';
 import { useCountdown } from '../bits';
 import { useWakeLock } from '../wakeLock';
+import { Reactions } from '../Reactions';
+import { Coach, mafiaTips } from '../Coach';
 import { isAudioEnabled, onAudioChange, playAmbient, playSFX, setAudioEnabled, stopAmbient, TRACKS } from './audio';
 import { ChatPanel, type ChatItem } from './ChatPanel';
 import { PhaseTimer, SurvivorCounter } from './Hud';
@@ -189,11 +191,12 @@ export default function MafiaGame() {
     const said: ChatItem[] = chat.map((c: ChatMessage) => ({
       id: c.id,
       at: c.at,
-      type: c.channel === 'family' ? 'mafia' : c.channel === 'last' ? 'last_words' : 'player',
+      type: c.channel === 'family' ? 'mafia' : c.channel === 'last' ? 'last_words' : c.channel === 'dead' ? 'dead' : 'player',
       playerId: c.from,
       username: c.name,
       avatar: c.name,
-      content: c.text,
+      // A bot's line reads in this player's language, not the host's.
+      content: (c.say && botLineText(t, m, c.say)) || c.text,
       isWhisper: c.channel === 'whisper',
       whisperTargetName: c.toName,
     }));
@@ -232,6 +235,8 @@ export default function MafiaGame() {
 
   return (
     <div className="om tw:min-h-screen tw:overflow-hidden">
+      <Coach tips={mafiaTips(m, myId, priv)} />
+      <Reactions game="mafia" seat={room?.seats.some((x) => x.playerId === myId) ? myId : null} />
       <motion.div key={m.phase} className="tw:fixed tw:inset-0 tw:pointer-events-none" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
         transition={{ duration: 1.5 }} style={{ background: PHASE_BG[m.phase] ?? PHASE_BG.night }} />
       {m.phase === 'night' && (

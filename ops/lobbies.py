@@ -18,7 +18,8 @@ won. Those reports are kept live in memory and every change of shape
 (opened, started, joined, dropped, finished, closed) is appended to a
 day file, so the panel can answer "who is playing right now" and "what
 happened today". It is never read back by the game, and it is never public:
-nothing here serves it over HTTP. The panel reads the files directly.
+nothing here serves it over HTTP, bar one total - how many people are at
+a table right now - for the front door. The panel reads the files directly.
 
 A table exists here only while it keeps saying so: a report on every change
 and a beat every 20 seconds. One that falls quiet for 90 seconds - a closed
@@ -117,7 +118,7 @@ WRITE_EVERY = 5.0
 
 # A room code, or the id a solo game makes up for itself.
 TABLE_RE = re.compile(r"^(?:[A-Z]{3,10}-[A-Z]{3,10}-\d{1,3}|SOLO-[A-Z0-9]{6,12})$")
-KINDS = {"monopoly", "cashflow"}
+KINDS = {"monopoly", "cashflow", "mafia"}
 MODES = {"public", "private", "solo"}
 PHASES = {"lobby", "playing", "over"}
 COLOR_RE = re.compile(r"^#[0-9a-fA-F]{3,8}$")
@@ -225,6 +226,16 @@ def plus_host(body: dict, room_id: str, now: float | None = None, pass_key=None)
         return claims
     except Exception:  # noqa: BLE001 - anything malformed is simply "no"
         return None
+
+
+def playing_now() -> int:
+    """How many people are at a table right now, any game, public or not -
+    one number for the front door, and nothing about who or where."""
+    now = time.time()
+    return sum(
+        sum(1 for p in humans(t["players"]) if p["connected"])
+        for t in _tables.values() if now - t["seen"] <= TABLE_TTL
+    )
 
 
 def live_rooms() -> list[dict]:
@@ -352,7 +363,8 @@ def clean_report(body: dict) -> dict | None:
     if kind not in KINDS or mode not in MODES or phase not in PHASES:
         return None
     raw = body.get("players")
-    players = [p for p in (clean_player(x) for x in (raw if isinstance(raw, list) else [])[:8]) if p]
+    # Omertà seats up to sixteen; the board games stop at eight.
+    players = [p for p in (clean_player(x) for x in (raw if isinstance(raw, list) else [])[:16]) if p]
     return {
         "kind": kind,
         "mode": mode,
@@ -360,7 +372,7 @@ def clean_report(body: dict) -> dict | None:
         "round": clean_int(body.get("round"), 0, 10_000),
         "turn": clean_text(body.get("turn"), 18) or None,
         "winner": clean_text(body.get("winner"), 18) or None,
-        "maxSeats": clean_int(body.get("maxSeats"), 2, 8),
+        "maxSeats": clean_int(body.get("maxSeats"), 2, 16),
         "epoch": clean_int(body.get("epoch"), 0, 100),
         "device": "mobile" if body.get("device") == "mobile" else "desktop",
         "lang": clean_text(body.get("lang"), 16),
@@ -612,7 +624,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.rstrip("/").endswith("/rooms"):
             with _lock:
-                return self._send(200, {"rooms": live_rooms()})
+                return self._send(200, {"rooms": live_rooms(), "playing": playing_now()})
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):
@@ -682,13 +694,13 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(429, {"error": "too many rooms"})
 
             try:
-                seats = max(0, min(8, int(body.get("seats", 0))))
-                max_seats = max(2, min(8, int(body.get("maxSeats", 6))))
+                seats = max(0, min(16, int(body.get("seats", 0))))
+                max_seats = max(2, min(16, int(body.get("maxSeats", 6))))
                 deviations = max(0, min(30, int(body.get("deviations", 0))))
                 # A game already under way stays listed while it has bots a
                 # signed-in player could take over.
                 in_progress = body.get("inProgress") is True
-                open_seats = max(0, min(8, int(body.get("openSeats", 0)))) if in_progress else 0
+                open_seats = max(0, min(16, int(body.get("openSeats", 0)))) if in_progress else 0
                 round_ = max(0, min(9999, int(body.get("round", 0)))) if in_progress else 0
             except (TypeError, ValueError):
                 return self._send(400, {"error": "bad numbers"})

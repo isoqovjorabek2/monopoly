@@ -70,6 +70,7 @@ export function createMafia(settings: MafiaSettings, seats: SeatSpec[]): MafiaSt
     mvp: null,
     lastVoteMargin: null,
     finalEliminatedId: null,
+    voteHistory: [],
     secret: null,
   };
 }
@@ -257,6 +258,10 @@ function resolveVote(s: MafiaState, events: MafiaEvent[]): void {
   const counts = [...tally.values()].sort((a, b) => b - a);
   const top = counts[0] ?? 0;
   const leaders = [...tally.entries()].filter(([, n]) => n === top).map(([id]) => id);
+  s.voteHistory = [
+    ...(s.voteHistory ?? []),
+    { round: s.round, votes: { ...s.votes }, hanged: leaders.length === 1 ? leaders[0] : null },
+  ];
 
   if (leaders.length === 1) {
     const hanged = leaders[0];

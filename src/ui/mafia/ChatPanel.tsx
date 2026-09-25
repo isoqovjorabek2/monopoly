@@ -15,7 +15,7 @@ const crimson = "'Crimson Text', serif";
 export interface ChatItem {
   id: string;
   at: number;
-  type: 'player' | 'system' | 'mafia' | 'last_words';
+  type: 'player' | 'system' | 'mafia' | 'last_words' | 'dead';
   playerId: string;
   username: string;
   avatar: string;
@@ -64,6 +64,21 @@ function ChatBubble({ msg, isMe }: { msg: ChatItem; isMe: boolean }) {
           <p className="tw:text-sm tw:leading-relaxed" style={{ color: 'rgba(255,235,180,0.85)', fontFamily: crimson, fontStyle: 'italic', fontSize: '0.95rem' }}>
             “{msg.content}”
           </p>
+        </div>
+      </motion.div>
+    );
+  }
+
+  if (msg.type === 'dead') {
+    return (
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 0.85, y: 0 }}
+        className={`tw:flex tw:gap-2 ${isMe ? 'tw:flex-row-reverse' : 'tw:flex-row'}`}>
+        <div className={`tw:flex tw:flex-col tw:gap-0.5 tw:max-w-[80%] ${isMe ? 'tw:items-end' : 'tw:items-start'}`}>
+          <span className="tw:text-[10px]" style={{ color: '#9aa3b5', fontFamily: mono }}>👻 {msg.username}</span>
+          <div className="tw:px-3 tw:py-2 tw:rounded-lg tw:text-sm tw:leading-relaxed tw:break-words"
+            style={{ background: 'rgba(120,130,160,0.14)', border: '1px dashed rgba(170,180,210,0.35)', color: '#c9cfdc', fontFamily: crimson, fontSize: '0.9rem', fontStyle: 'italic' }}>
+            {msg.content}
+          </div>
         </div>
       </motion.div>
     );
@@ -148,7 +163,9 @@ export function ChatPanel({
   const isNight = phase === 'night';
   const nightSilent = running && isNight && !isFamily && !isDead;
   const canSpeakLastWords = running && isDead && !lastWordsUsed;
-  const canChat = !isSilenced && !nightSilent && (!isDead || !running);
+  // The dead keep talking after their last word - to each other only.
+  const canChat = !isSilenced && !nightSilent && (!isDead || !running || lastWordsUsed);
+  const ghost = running && isDead && lastWordsUsed;
 
   const prevCount = useRef(items.length);
   useEffect(() => {
@@ -162,7 +179,7 @@ export function ChatPanel({
 
   const onChange = (val: string) => {
     setInput(val);
-    if (val.startsWith('@') && !val.includes(' ') && !isNight) {
+    if (val.startsWith('@') && !val.includes(' ') && !isNight && !isDead) {
       const partial = val.slice(1).toLowerCase();
       setMentions(players
         .filter((p) => p.status === 'alive' && p.id !== myPlayerId)
@@ -280,10 +297,8 @@ export function ChatPanel({
           </motion.div>
         )}
 
-        {running && isDead && lastWordsUsed && (
-          <div className="tw:text-center tw:py-2">
-            <p className="tw:text-xs tw:text-[#8888aa]" style={{ fontFamily: crimson, fontStyle: 'italic' }}>{C.faded}</p>
-          </div>
+        {ghost && (
+          <p className="tw:text-[10px] tw:text-center tw:tracking-widest" style={{ color: '#9aa3b5', fontFamily: mono }}>{C.faded}</p>
         )}
 
         {!canSpeakLastWords && !(running && isDead) && !canChat && (
@@ -303,7 +318,7 @@ export function ChatPanel({
               onChange={(e) => onChange(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); send(); } if (e.key === 'Escape') setMentions([]); }}
               maxLength={220}
-              placeholder={isNight && isFamily ? C.mafiaPlaceholder : C.placeholder}
+              placeholder={ghost ? C.deadPlaceholder : isNight && isFamily ? C.mafiaPlaceholder : C.placeholder}
               aria-label={isNight && isFamily ? C.mafiaPlaceholder : C.placeholder}
               className="tw:flex-1 tw:min-w-0 tw:rounded-lg tw:px-3 tw:py-2.5 tw:text-sm tw:text-white tw:focus:outline-none"
               style={{

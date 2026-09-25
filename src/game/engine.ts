@@ -9,7 +9,7 @@ import {
 import { rollDice, shuffle } from './rng';
 import {
   autopilotAction, buildingSellValue, calculateRent, canBuildHouse, canMortgage,
-  canSellHouse, canTrade, canUnmortgage, currentPlayerId, isLegal, maxRaisable,
+  canSellHouse, canTrade, canUnmortgage, currentPlayerId, endVoters, isLegal, maxRaisable,
   netWorth, ownedBy, tradeKey, transferFee, unmortgageCost, waitingOn,
 } from './rules';
 import type {
@@ -131,6 +131,7 @@ export function reduce(prev: GameState, action: GameAction): Reduction {
     case 'DISMISS_CARD':    s.activeCard = null; break;
     case 'REPAY_LOAN':      doRepayLoan(s, events, action.playerId, action.contractId); break;
     case 'RELEASE_CONTRACT':doReleaseContract(s, events, action.playerId, action.contractId); break;
+    case 'VOTE_END':        doVoteEnd(s, events, action.playerId, action.on); break;
   }
 
   // Any action that raised enough cash settles an outstanding debt.
@@ -1300,15 +1301,37 @@ function checkWinCondition(s: GameState, events: GameEvent[]): void {
 
   if (s.settings.winCondition === 'networth') {
     const reached = alive.filter((id) => netWorth(s, id) >= s.settings.netWorthTarget);
-    if (reached.length > 0) finishGame(s, events, leaderByNetWorth(s, reached));
+    if (reached.length > 0) { finishGame(s, events, leaderByNetWorth(s, reached)); return; }
   }
+
+  // A human who went bust no longer has a say: the rest may all agree now.
+  settleEndVote(s, events);
 }
 
-function finishGame(s: GameState, events: GameEvent[], winnerId: string | null): void {
+function finishGame(s: GameState, events: GameEvent[], winnerId: string | null, called = false): void {
   s.winnerId = winnerId;
   recordHistory(s);
   s.phase = 'game_over';
-  events.push({ type: 'GAME_OVER', winnerId });
+  events.push({ type: 'GAME_OVER', winnerId, ...(called ? { called: true } : {}) });
+}
+
+/** A vote to end the game now. Once every human still playing agrees, the
+ *  richest player still in wins - the same count as a turn limit. */
+function doVoteEnd(s: GameState, events: GameEvent[], playerId: string, on: boolean): void {
+  const votes = new Set(s.endVotes ?? []);
+  if (on) votes.add(playerId); else votes.delete(playerId);
+  s.endVotes = [...votes];
+  events.push({ type: 'END_VOTED', playerId, on });
+  settleEndVote(s, events);
+}
+
+/** End the game if every human still playing has agreed to. */
+function settleEndVote(s: GameState, events: GameEvent[]): void {
+  const votes = new Set(s.endVotes ?? []);
+  const voters = endVoters(s);
+  if (votes.size === 0 || voters.length === 0 || !voters.every((id) => votes.has(id))) return;
+  const alive = s.seats.filter((id) => !s.players[id].bankrupt);
+  finishGame(s, events, leaderByNetWorth(s, alive), true);
 }
 
 /** One point on the closing chart. A second point for the same round (the
@@ -1371,7 +1394,12 @@ export function botifySeat(prev: GameState, playerId: string): Reduction {
   s.version = prev.version + 1;
   s.players[playerId].isBot = true;
   s.players[playerId].connected = false;
-  return { state: s, events: [] };
+  // A bot has no say in ending the game; if everyone left had already
+  // agreed, the one who walked away was all that stood in the way.
+  const events: GameEvent[] = [];
+  s.endVotes = (s.endVotes ?? []).filter((id) => id !== playerId);
+  settleEndVote(s, events);
+  return { state: s, events };
 }
 
 /* ------------------------- exported helpers ------------------------- */

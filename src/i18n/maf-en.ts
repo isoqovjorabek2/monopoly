@@ -367,11 +367,55 @@ export const mafEn = {
       lastWordsCall: '🕯️ SPEAK YOUR LAST WORDS',
       lastWordsPlaceholder: 'Your final words...',
       lastWordsTag: (name: string): string => `🕯️ LAST WORDS · ${name}`,
-      faded: '💀 Your voice fades into silence...',
+      faded: '👻 ONLY THE DEAD HEAR YOU NOW',
+      deadPlaceholder: 'Whisper to the other ghosts...',
       silencedNote: '🤫 You are silenced this round',
       nightNote: '🌙 Only Mafia speak at night',
       mafiaPlaceholder: 'Coordinate with your crew...',
       placeholder: 'Say something or @name to DM...',
+    },
+    bot: {
+      claim: [
+        (n: string): string => `I'm the detective. I checked ${n} last night - one of them.`,
+        (n: string): string => `Listen. Detective here. ${n} is mafia, I saw it myself.`,
+        (n: string): string => `I'll say it plainly: I investigated ${n}. Guilty.`,
+      ],
+      clear: [
+        (n: string): string => `I checked ${n}. They're clean - look elsewhere.`,
+        (n: string): string => `${n} is innocent. I'd stake my badge on it.`,
+        (n: string): string => `Leave ${n} alone, I've looked into them.`,
+      ],
+      accuse: [
+        (n: string): string => `I don't trust ${n}.`,
+        (n: string): string => `${n} has been awfully quiet. Too quiet.`,
+        (n: string): string => `My money's on ${n}.`,
+      ],
+      defend: [
+        (n: string): string => `Me? You've got the wrong one. Watch ${n} instead.`,
+        (n: string): string => `It wasn't me. Ask yourselves why ${n} is so calm.`,
+        (n: string): string => `Hang me and you'll lose a friend. ${n} is the one.`,
+      ],
+      unsure: [
+        (): string => `Too early to say. Nobody knows anything yet.`,
+        (): string => `First night's always a guess. Let's hear from everyone.`,
+        (): string => `I've got nothing yet. Who's got a feeling?`,
+      ],
+      dare: [
+        (): string => `Go on then, vote for me. I dare you.`,
+        (): string => `Maybe I'm mafia. Maybe I'm not. Only one way to find out.`,
+        (): string => `You all look at me like I did something.`,
+      ],
+      plan: [
+        (n: string): string => `Tonight: ${n}.`,
+        (n: string): string => `I say we take ${n}.`,
+        (n: string): string => `${n} is getting too close. They go tonight.`,
+      ],
+      vote: [
+        (n: string): string => `My vote's on ${n}.`,
+        (n: string): string => `${n}. Sorry.`,
+        (n: string): string => `I'm going with ${n}.`,
+      ],
+      someone: 'someone',
     },
     reveal: {
       crew: 'Your Mafia Crew',

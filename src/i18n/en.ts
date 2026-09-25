@@ -100,7 +100,39 @@ export const en = {
     },
   },
 
+  coach: {
+    gotIt: 'Got it',
+    off: 'No more tips',
+    tips: {
+      monoRoll: 'Your turn: roll the dice (or press Space). You move and deal with whatever square you land on.',
+      monoBuy: 'You can buy this. Pass, and it goes up for auction to everyone - sometimes for less.',
+      monoSet: 'You own a full colour set: its rent doubles, and you can now build houses on it. Tap one of its properties.',
+      monoJail: 'You are in jail. Pay the fine, use a card, or roll for doubles - three misses and you pay anyway.',
+      monoRaise: 'You owe more than you have. Mortgage property or sell houses to raise it, or trade - bankruptcy is the last resort.',
+      monoTrade: 'Someone sent you a trade. Look it over: accept, decline, or change it and send it back.',
+      mafNight: 'Night: pick a player’s card and play your move on them. Nobody sees who you chose.',
+      mafSleep: 'Night: your role sleeps. Wait for morning - and watch who dies.',
+      mafDay: 'Day: talk it out in the chat. Say who you suspect, and why - the bots are listening too.',
+      mafVote: 'Vote: tap the card of the one you want hanged. The most votes goes; a tie spares everyone.',
+      mafDead: 'You are out. You get one last word to the town - after that, you talk only with the other dead.',
+    },
+  },
+
+  lonely: {
+    title: 'Nobody here yet?',
+    body: 'Start now against bots. The table stays listed, and anyone who turns up can take a bot’s seat.',
+    start: 'Start with bots',
+  },
+
+  reactions: {
+    title: 'React',
+    aria: 'Reactions',
+    send: (e: string) => `React with ${e}`,
+    quiet: 'You cannot react right now',
+  },
+
   rooms: {
+    playingNow: (n: number) => `${n} playing now`,
     title: 'Open tables',
     looking: 'Looking…',
     refresh: 'Refresh',
@@ -235,6 +267,19 @@ export const en = {
     language: 'Language',
     view: 'Board',
     howToPlay: 'How to play',
+    endVote: {
+      button: 'End game',
+      title: 'End the game now? The highest net worth wins.',
+      menu: 'End the game early',
+      menuHint: 'Everyone still playing has to agree. Highest net worth wins.',
+      banner: (names: string, yes: number, of: number) =>
+        `${names} ${yes === 1 ? 'wants' : 'want'} to end the game now - highest net worth wins. ${yes} of ${of} agree.`,
+      mine: (yes: number, of: number) => `You asked to end the game - highest net worth wins. ${yes} of ${of} agree.`,
+      agree: 'Agree',
+      keep: 'Keep playing',
+      takeBack: 'Take it back',
+      soon: (round: number) => `Available from round ${round}.`,
+    },
     panelsAria: 'Panels',
     players: 'Players',
     board: 'Board',
@@ -337,6 +382,9 @@ export const en = {
     timedOut: (p: string) => `${p} ran out of time - the table moved on for them.`,
     wins: (p: string) => `${p} wins.`,
     draw: 'The game ended in a draw.',
+    endVoteOn: (p: string) => `${p} wants to end the game now.`,
+    endVoteOff: (p: string) => `${p} wants to keep playing.`,
+    calledWins: (p: string) => `The table called it. ${p} wins on net worth.`,
   },
 
   portfolio: {

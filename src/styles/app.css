@@ -3082,3 +3082,151 @@
 @media (prefers-reduced-motion: reduce) {
   .seat__remove, .seat__open { transition: none; }
 }
+
+/* Calling the game: the question, and its answers, in one line where it fits. */
+.endVote {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+  margin: var(--s-2) var(--s-3) 0;
+  border-color: color-mix(in oklab, var(--brass-500) 45%, transparent);
+}
+.endVote__text { flex: 1 1 16rem; min-width: 0; }
+.endVote__actions { display: flex; gap: var(--s-2); flex: 0 0 auto; }
+
+/* ---- reactions (Reactions.tsx) ------------------------------------ */
+/* The button lives in the table's empty bottom-left corner; on an upright
+   phone it rides just above the turn dock and the tab bar instead. */
+.react {
+  position: fixed;
+  left: max(var(--s-4), env(safe-area-inset-left));
+  bottom: calc(var(--s-4) + env(safe-area-inset-bottom));
+  z-index: 44;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-2);
+}
+.react__open {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-raised);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.react__open:hover:not(:disabled) { transform: scale(1.06); }
+.react__open[aria-expanded='true'] { border-color: var(--accent); }
+.react__open:disabled { opacity: 0.4; cursor: default; filter: grayscale(1); }
+.react__open:focus-visible, .react__pick:focus-visible { outline: none; box-shadow: var(--ring-focus); }
+.react__row {
+  display: flex;
+  flex-wrap: wrap;
+  max-width: min(92vw, 340px);
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-raised);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.45);
+}
+.react__pick {
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.react__pick:hover { background: rgb(255 255 255 / 0.08); }
+
+.reactFloat {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 60;
+  overflow: hidden;
+}
+.reactFloat__item {
+  position: absolute;
+  bottom: 18%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translateX(-50%);
+}
+.reactFloat__emoji { font-size: 44px; line-height: 1; filter: drop-shadow(0 4px 10px rgb(0 0 0 / 0.5)); }
+.reactFloat__name {
+  margin-top: 2px;
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
+  background: rgb(0 0 0 / 0.55);
+  color: #fff;
+  font-size: var(--t-xs);
+  white-space: nowrap;
+}
+
+@media (max-width: 780px) and (min-height: 541px) {
+  .react[data-game='monopoly'] { bottom: calc(54px + env(safe-area-inset-bottom) + var(--dock-h, 160px) + var(--s-3)); }
+}
+@media (max-width: 900px) and (min-height: 541px) {
+  .react[data-game='cashflow'] { bottom: calc(56px + env(safe-area-inset-bottom) + var(--dock-h, 160px) + var(--s-3)); }
+}
+
+/* ---- first-game tips (Coach.tsx) ---------------------------------- */
+.coach {
+  position: fixed;
+  top: calc(64px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 55;
+  width: min(440px, calc(100vw - 2 * var(--s-4)));
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--s-2) var(--s-3);
+  align-items: start;
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-md);
+  border: 1px solid color-mix(in oklab, var(--brass-500) 55%, transparent);
+  background: var(--bg-raised);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.45);
+}
+.coach__icon { font-size: 20px; line-height: 1.3; }
+.coach__text { margin: 0; font-size: var(--t-sm); line-height: 1.45; }
+.coach__actions { grid-column: 2; display: flex; gap: var(--s-2); flex-wrap: wrap; }
+
+/* ---- a public table still waiting (LonelyTable.tsx) --------------- */
+.lonely {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+  border-color: color-mix(in oklab, var(--brass-500) 45%, transparent);
+}
+.lonely__text { flex: 1 1 18rem; min-width: 0; }
+.lonely--om { margin: 0 0 12px; color: #e8e0c8; background: rgba(20, 15, 5, 0.7); }
+
+/* How many are playing right now, beside the open tables' title. */
+.rooms__live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.rooms__liveDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success-400);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--success-400) 25%, transparent);
+}

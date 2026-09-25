@@ -159,7 +159,7 @@ export interface TableSeatReport {
  *  private report, and solo games too - see telemetry.ts. */
 export interface TableReport {
   id: string;
-  kind: 'monopoly' | 'cashflow';
+  kind: 'monopoly' | 'cashflow' | 'mafia';
   mode: 'public' | 'private' | 'solo';
   phase: 'lobby' | 'playing' | 'over';
   round: number;
@@ -193,14 +193,19 @@ export function closeTable(id: string): Promise<boolean> {
   return post('report/close', { id });
 }
 
-export async function listRooms(): Promise<PublicRoom[]> {
-  if (!hasDirectory) return [];
+/** The public tables, and how many people are playing anywhere right now
+ *  (null from a directory too old to say, or one that did not answer). */
+export async function listRooms(): Promise<{ rooms: PublicRoom[]; playing: number | null }> {
+  if (!hasDirectory) return { rooms: [], playing: null };
   try {
     const res = await fetch(`${BASE}/rooms`, { signal: AbortSignal.timeout(6000) });
-    if (!res.ok) return [];
+    if (!res.ok) return { rooms: [], playing: null };
     const data = await res.json();
-    return Array.isArray(data?.rooms) ? (data.rooms as PublicRoom[]) : [];
+    return {
+      rooms: Array.isArray(data?.rooms) ? (data.rooms as PublicRoom[]) : [],
+      playing: typeof data?.playing === 'number' && Number.isFinite(data.playing) ? Math.max(0, Math.floor(data.playing)) : null,
+    };
   } catch {
-    return [];
+    return { rooms: [], playing: null };
   }
 }

@@ -59,7 +59,21 @@ describe('Omertà chat', () => {
     expect(r.lastWords).toBe(true);
     expect(r.to).toBeNull();
     s = spendLastWords(s, 'p5');
-    expect(chatBlock(s, 'p5')).toBe('spent');
-    expect(routeMafChat(s, 'p5', 'also')).toBeNull();
+    // After it, the dead talk among themselves - and only they hear it.
+    s = { ...s, players: { ...s.players, p4: { ...s.players.p4, alive: false } } };
+    expect(chatBlock(s, 'p5')).toBeNull();
+    const ghost = routeMafChat(s, 'p5', 'it really was Bo')!;
+    expect(ghost.channel).toBe('dead');
+    expect(ghost.lastWords).toBe(false);
+    expect(ghost.to!.sort()).toEqual(['p4', 'p5']);
+  });
+
+  it("keeps the dead's talk from the living, and from watchers", () => {
+    let s = day(night());
+    s = { ...s, players: { ...s.players, p5: { ...s.players.p5, alive: false } } };
+    s = spendLastWords(s, 'p5');
+    const r = routeMafChat(s, 'p5', 'psst')!;
+    expect(r.to).toEqual(['p5']);
+    expect(r.to).not.toContain('p0');
   });
 });

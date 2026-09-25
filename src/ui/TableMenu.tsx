@@ -69,7 +69,9 @@ export function TableMenu({ alerts, extra = [], footer }: {
             <span className="tmenu__label">{t.game.language}</span>
             <LangSwitch />
           </div>
-          {footer}
+          {/* A footer row does something elsewhere on the table: close the
+              menu so it can be seen. */}
+          {footer && <div onClick={() => setOpen(false)}>{footer}</div>}
         </div>
       </Modal>
     </>

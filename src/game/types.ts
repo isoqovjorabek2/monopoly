@@ -305,6 +305,9 @@ export interface GameState {
   history: HistoryPoint[];
   winnerId: string | null;
   startedAt: number;
+  /** Humans who want the game ended now, on net worth. Absent in a game
+   *  saved before the vote existed. */
+  endVotes?: string[];
 }
 
 /* ------------------------------------------------------------------ *
@@ -336,7 +339,10 @@ export type GameAction =
   | { type: 'RELEASE_CONTRACT'; playerId: string; contractId: string }
   /** Sent by the host when a player's clock runs out or they have left the
    *  table: the engine makes their pending decisions for them. */
-  | { type: 'TIME_OUT'; playerId: string };
+  | { type: 'TIME_OUT'; playerId: string }
+  /** Agree (or stop agreeing) to end the game now, on net worth. It ends
+   *  once every human still playing agrees. Never offered to bots. */
+  | { type: 'VOTE_END'; playerId: string; on: boolean };
 
 /* ------------------------------------------------------------------ *
  * Events - what happened, for the presentation layer to animate and
@@ -381,7 +387,9 @@ export type GameEvent =
   | { type: 'SHARE_PAID'; from: string; to: string; amount: number; spaceId: number }
   | { type: 'LOAN_REPAID'; borrower: string; lender: string; amount: number; early: boolean }
   | { type: 'CONTRACT_ENDED'; contract: Contract; reason: ContractEnd }
-  | { type: 'GAME_OVER'; winnerId: string | null };
+  | { type: 'END_VOTED'; playerId: string; on: boolean }
+  /** `called`: the table agreed to end it early, on net worth. */
+  | { type: 'GAME_OVER'; winnerId: string | null; called?: boolean };
 
 export interface Reduction {
   state: GameState;

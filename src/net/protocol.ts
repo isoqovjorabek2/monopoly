@@ -4,6 +4,7 @@ import { CHANCE, CHEST } from '../game/cards';
 import { shuffle } from '../game/rng';
 import type { BotLevel, GameAction, GameEvent, GameSettings, GameState, TokenId, SkinId } from '../game/types';
 import type { MafiaAction, MafiaPrivate, MafiaRules, MafiaState } from '../mafia/types';
+import type { BotLine } from '../mafia/ai';
 
 /** 2: a room carries which game it plays. A tab still on 1 cannot read a
  *  Cashflow table, so it is refused at the envelope rather than half-drawn.
@@ -112,10 +113,13 @@ export interface ChatMessage {
   at: number;
   /** Omertà's private channels: the family's night talk, a dead player's
    *  last word, a whisper between two. Absent for the whole table. */
-  channel?: 'family' | 'last' | 'whisper';
+  channel?: 'family' | 'last' | 'whisper' | 'dead';
   /** A whisper's other end. */
   to?: string;
   toName?: string;
+  /** An Omertà bot's line, for each reader to render in their own
+   *  language; `text` is the host's rendering, for anything older. */
+  say?: BotLine;
 }
 
 /* ----------------------------- guest -> host ----------------------------- */
@@ -142,6 +146,8 @@ export type Up =
   | { t: 'ELECT'; playerId: string; candidate: string }
   | { t: 'INTENT'; playerId: string; action: GameAction | CFAction | MafiaAction }
   | { t: 'CHAT'; playerId: string; text: string }
+  /** An emoji reaction (net/reactions.ts): checked by the host, never kept. */
+  | { t: 'REACT'; playerId: string; emoji: string }
   | { t: 'PONG'; playerId: string; seq: number }
   /** A signed-in watcher takes over a bot's seat in a game in progress. */
   | { t: 'TAKE_SEAT'; playerId: string; target: string }
@@ -160,6 +166,7 @@ export type Down =
    *  results. Sent to that connection only, never broadcast. */
   | { t: 'MF_PRIVATE'; private: MafiaPrivate }
   | { t: 'CHAT'; message: ChatMessage }
+  | { t: 'REACT'; id: string; from: string; emoji: string }
   | { t: 'REJECT'; reason: string }
   | { t: 'PING'; seq: number }
   /** Prove the pass you just showed is yours: sign this for this room. */

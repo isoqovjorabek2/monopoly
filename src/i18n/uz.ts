@@ -97,7 +97,39 @@ export const uz: Dict = {
     },
   },
 
+  coach: {
+    gotIt: 'Tushunarli',
+    off: 'Maslahatlar kerak emas',
+    tips: {
+      monoRoll: 'Navbatingiz: zarlarni tashlang (yoki Space tugmasini bosing). Yurasiz va tushgan katakda qaror qilasiz.',
+      monoBuy: 'Buni sotib olishingiz mumkin. Voz kechsangiz, hamma uchun kim oshdi savdosiga chiqadi — ba’zan arzonroq.',
+      monoSet: 'Sizda butun rang to‘plami bor: ijara ikki baravar, endi uy qura olasiz. Uning mulklaridan birini bosing.',
+      monoJail: 'Siz qamoqdasiz. Jarima to‘lang, kartadan foydalaning yoki dubl uchun tashlang — uch marta chiqmasa, baribir to‘laysiz.',
+      monoRaise: 'Qarzingiz pulingizdan ko‘p. Mulkni garovga qo‘ying, uylarni soting yoki almashing — bankrotlik oxirgi chora.',
+      monoTrade: 'Sizga almashuv taklif qilishdi. Ko‘rib chiqing: qabul qiling, rad eting yoki o‘zgartirib qaytaring.',
+      mafNight: 'Tun: o‘yinchi kartasini tanlang va unga yurishingizni qiling. Tanlovingizni hech kim ko‘rmaydi.',
+      mafSleep: 'Tun: rolingiz uxlaydi. Tongni kuting — va kim o‘lganini ko‘ring.',
+      mafDay: 'Kun: chatda muhokama qiling. Kimdan shubhalanayotganingizni va nega ekanini ayting — botlar ham tinglaydi.',
+      mafVote: 'Ovoz berish: osilishini xohlagan odamning kartasini bosing. Eng ko‘p ovoz olgan ketadi; teng bo‘lsa, hech kim.',
+      mafDead: 'Siz o‘yindan chiqdingiz. Shaharga oxirgi so‘zingiz bor — undan keyin faqat boshqa o‘liklar bilan gaplashasiz.',
+    },
+  },
+
+  lonely: {
+    title: 'Hali hech kim yo‘qmi?',
+    body: 'Botlar bilan boshlang. Stol ro‘yxatda qoladi va kelgan har kim botning o‘rnini egallay oladi.',
+    start: 'Botlar bilan boshlash',
+  },
+
+  reactions: {
+    title: 'Munosabat',
+    aria: 'Munosabatlar',
+    send: (e) => `${e} bilan munosabat bildirish`,
+    quiet: 'Hozir munosabat bildira olmaysiz',
+  },
+
   rooms: {
+    playingNow: (n) => `Hozir ${n} kishi o‘ynamoqda`,
     title: 'Ochiq stollar',
     looking: 'Qidirilmoqda…',
     refresh: 'Yangilash',
@@ -231,6 +263,18 @@ export const uz: Dict = {
     language: 'Til',
     view: 'Taxta',
     howToPlay: 'Qanday o‘ynaladi',
+    endVote: {
+      button: 'Tugatish',
+      title: 'O‘yinni hozir tugatasizmi? Eng katta boylik egasi g‘olib.',
+      menu: 'O‘yinni muddatidan oldin tugatish',
+      menuHint: 'O‘ynayotgan hamma rozi bo‘lishi kerak. Eng katta boylik egasi g‘olib.',
+      banner: (names, yes, of) => `${names} o‘yinni hozir tugatishni taklif qilmoqda — eng katta boylik egasi g‘olib. ${of} tadan ${yes} tasi rozi.`,
+      mine: (yes, of) => `Siz o‘yinni tugatishni taklif qildingiz — eng katta boylik egasi g‘olib. ${of} tadan ${yes} tasi rozi.`,
+      agree: 'Roziman',
+      keep: 'Davom etish',
+      takeBack: 'Bekor qilish',
+      soon: (round) => `${round}-aylanadan boshlab mavjud.`,
+    },
     panelsAria: 'Panellar',
     players: 'O‘yinchilar',
     board: 'Maydon',
@@ -331,6 +375,9 @@ export const uz: Dict = {
     timedOut: (p) => `${p}ning vaqti tugadi — yurish uning o‘rniga qilindi.`,
     wins: (p) => `${p} g‘olib.`,
     draw: 'O‘yin durang bilan tugadi.',
+    endVoteOn: (p) => `${p} o‘yinni hozir tugatishni taklif qilmoqda.`,
+    endVoteOff: (p) => `${p} o‘ynashni davom ettirmoqchi.`,
+    calledWins: (p) => `Stol o‘yinni tugatishga kelishdi. ${p} boylik bo‘yicha g‘olib.`,
   },
 
   portfolio: {

@@ -110,6 +110,15 @@ export interface MafiaSecret {
   stats: Record<string, MatchStats>;
 }
 
+/** One day's vote, as the table saw it close. */
+export interface VoteRecord {
+  round: number;
+  /** Voter -> target. */
+  votes: Record<string, string>;
+  /** Who it hanged, or null for a tie or an empty vote. */
+  hanged: string | null;
+}
+
 export interface MafiaMvp { id: string; stats: MatchStats; survived: boolean }
 
 export interface MafiaState {
@@ -149,6 +158,10 @@ export interface MafiaState {
   /** The last hanging's margin over the runner-up, and who it took. */
   lastVoteMargin: number | null;
   finalEliminatedId: string | null;
+  /** Every closed vote, oldest first: public, as the votes were. What the
+   *  bots (and a sharp player) read suspicion from. Absent in a match
+   *  saved before it existed. */
+  voteHistory?: VoteRecord[];
 
   /** Host-only; null in every guest copy. */
   secret: MafiaSecret | null;

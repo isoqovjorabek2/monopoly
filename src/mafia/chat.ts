@@ -9,11 +9,13 @@ import type { MafiaState } from './types';
  *   night  - only the family talks, and only the family hears.
  *   day    - everyone alive, except the silenced.
  *   vote   - everyone alive.
- *   dead   - one last word, heard by all.
+ *   dead   - one last word, heard by all; after it, the dead talk among
+ *            themselves, heard by the dead alone (not even watchers, who
+ *            could carry it back to the living).
  *   @name  - by day or vote, a whisper heard by two.
  * ------------------------------------------------------------------ */
 
-export type ChatBlock = 'night' | 'silenced' | 'spent';
+export type ChatBlock = 'night' | 'silenced';
 
 /** Why this seat cannot speak right now, or null when it can. Watchers,
  *  who hold no seat, keep quiet only at night. */
@@ -21,14 +23,14 @@ export function chatBlock(s: MafiaState, seat: string | null): ChatBlock | null 
   if (s.phase === 'lobby' || s.phase === 'game_over') return null;
   const p = seat ? s.players[seat] : undefined;
   if (!p) return s.phase === 'night' ? 'night' : null;
-  if (!p.alive) return s.lastWords.includes(seat!) ? 'spent' : null;
+  if (!p.alive) return null;
   if (s.phase === 'night' && !(s.secret && isFamily(s.secret.roles[seat!]))) return 'night';
   if (s.phase === 'day' && s.silencedToday.includes(seat!)) return 'silenced';
   return null;
 }
 
 export interface MafChatRoute {
-  channel: 'family' | 'last' | 'whisper' | null;
+  channel: 'family' | 'last' | 'whisper' | 'dead' | null;
   text: string;
   /** Seat ids that hear it, or null for everyone at the table. */
   to: string[] | null;
@@ -46,7 +48,10 @@ export function routeMafChat(s: MafiaState, seat: string | null, text: string): 
   if (chatBlock(s, seat)) return null;
   const p = seat ? s.players[seat] : undefined;
 
-  if (p && !p.alive) return { channel: 'last', text, to: null, lastWords: true };
+  if (p && !p.alive) {
+    if (!s.lastWords.includes(seat!)) return { channel: 'last', text, to: null, lastWords: true };
+    return { channel: 'dead', text, to: s.seats.filter((id) => !s.players[id]?.alive), lastWords: false };
+  }
 
   if (s.phase === 'night') {
     const sec = s.secret;

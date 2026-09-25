@@ -1,9 +1,8 @@
-import { passiveIncome } from '../cashflow/rules';
-import { netWorth } from '../game/rules';
-import { tr } from '../i18n';
 import { useStore } from '../store/store';
+import { buildReport } from './tableReport';
 import { closeTable, hasDirectory, reportTable, type TableReport } from './directory';
-import type { RoomSnapshot } from './protocol';
+
+export { buildReport };
 
 /* ------------------------------------------------------------------ *
  * Table reports for the operator's panel.
@@ -49,75 +48,6 @@ const soloId = (): string => {
   return id;
 };
 
-export function buildReport(
-  id: string, room: RoomSnapshot & { kind: 'monopoly' | 'cashflow' }, role: 'host' | 'local', listed: boolean,
-): TableReport {
-  const hostIds = new Set(room.seats.filter((s) => s.isHost).map((s) => s.playerId));
-  const base = {
-    id,
-    kind: room.kind,
-    mode: role === 'local' ? 'solo' : listed ? 'public' : 'private',
-    maxSeats: room.settings.maxPlayers,
-    epoch: room.epoch,
-    device: typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches ? 'mobile' : 'desktop',
-    lang: tr().langName,
-  } as const;
-
-  if (room.game) {
-    const g = room.game;
-    const current = g.players[g.seats[g.seatIndex]];
-    return {
-      ...base,
-      phase: g.phase === 'game_over' ? 'over' : 'playing',
-      round: g.round,
-      turn: g.phase === 'game_over' ? null : current?.name ?? null,
-      winner: g.winnerId ? g.players[g.winnerId]?.name ?? null : null,
-      players: g.seats.map((pid) => {
-        const p = g.players[pid];
-        return {
-          id: pid, name: p.name, color: p.color, token: p.token,
-          bot: p.isBot, host: hostIds.has(pid), connected: p.isBot || p.connected,
-          cash: p.cash, worth: netWorth(g, pid), out: p.bankrupt,
-        };
-      }),
-    };
-  }
-
-  if (room.cf) {
-    const s = room.cf;
-    const current = s.players[s.seats[s.seatIndex]];
-    return {
-      ...base,
-      phase: s.phase === 'game_over' ? 'over' : 'playing',
-      round: s.round,
-      turn: s.phase === 'game_over' ? null : current?.name ?? null,
-      winner: s.winnerId ? s.players[s.winnerId]?.name ?? null : null,
-      players: s.seats.map((pid) => {
-        const p = s.players[pid];
-        return {
-          id: pid, name: p.name, color: p.color, token: p.token,
-          bot: p.isBot, host: hostIds.has(pid), connected: p.isBot || p.connected,
-          // Cashflow's score is passive income against the way out, not a pile.
-          cash: p.cash, worth: passiveIncome(p), out: p.out, track: p.track,
-        };
-      }),
-    };
-  }
-
-  return {
-    ...base,
-    phase: 'lobby',
-    round: 0,
-    turn: null,
-    winner: null,
-    players: room.seats.map((s) => ({
-      id: s.playerId, name: s.name, color: s.color, token: s.token,
-      bot: s.isBot, host: s.isHost, connected: s.isBot || s.connected,
-      cash: 0, worth: 0, out: false,
-    })),
-  };
-}
-
 /** What makes a report worth sending before the next beat. */
 const signature = (r: TableReport): string => [
   r.id, r.mode, r.phase, r.round, r.winner ?? '',
@@ -126,10 +56,8 @@ const signature = (r: TableReport): string => [
 
 const current = (): TableReport | null => {
   const { room, role, listed } = useStore.getState();
-  // The lobby server knows the two older games; an Omertà table reports
-  // nothing rather than being rejected on every beat.
-  if (!room || role === 'guest' || !tableId || room.kind === 'mafia') return null;
-  return buildReport(tableId, room as RoomSnapshot & { kind: 'monopoly' | 'cashflow' }, role, listed);
+  if (!room || role === 'guest' || !tableId) return null;
+  return buildReport(tableId, room, role, listed);
 };
 
 const sendNow = (): void => {

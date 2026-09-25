@@ -54,6 +54,7 @@ export function logLine(e: GameEvent, seq: number): LogLine | null {
     case 'FREE_PARKING': return line(e.playerId, 'good');
     case 'TIMED_OUT': return line(e.playerId, 'bad');
     case 'GAME_OVER': return line(e.winnerId, 'big');
+    case 'END_VOTED': return line(e.playerId);
     case 'SEAT_TAKEN': return line(e.playerId, 'big');
     case 'CONTRACT_SIGNED': return line(e.contract.kind === 'loan' ? e.contract.lender : e.contract.grantor, 'big');
     case 'PASS_USED': return line(e.playerId, 'good');
@@ -111,7 +112,10 @@ export function describe(s: GameState, e: GameEvent, t: Dict): string {
     case 'TRADE_EXPIRED': return L.tradeExpired(name(e.offer.from), name(e.offer.to));
     case 'FREE_PARKING': return L.freeParking(name(e.playerId), money(e.amount));
     case 'TIMED_OUT': return L.timedOut(name(e.playerId));
-    case 'GAME_OVER': return e.winnerId ? L.wins(name(e.winnerId)) : L.draw;
+    case 'GAME_OVER':
+      if (!e.winnerId) return L.draw;
+      return e.called ? L.calledWins(name(e.winnerId)) : L.wins(name(e.winnerId));
+    case 'END_VOTED': return e.on ? L.endVoteOn(name(e.playerId)) : L.endVoteOff(name(e.playerId));
     case 'SEAT_TAKEN': return t.account.log.seatTaken(e.name, e.previous);
     case 'CONTRACT_SIGNED': {
       const c = e.contract;

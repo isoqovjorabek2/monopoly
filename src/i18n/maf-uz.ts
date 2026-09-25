@@ -365,11 +365,55 @@ export const mafUz: MafDict = {
       lastWordsCall: '🕯️ OXIRGI SO‘ZINGIZNI AYTING',
       lastWordsPlaceholder: 'Oxirgi so‘zlaringiz...',
       lastWordsTag: (name) => `🕯️ OXIRGI SO‘Z · ${name}`,
-      faded: '💀 Ovozingiz sukunatga singib ketdi...',
+      faded: '👻 ENDI SIZNI FAQAT O‘LIKLAR ESHITADI',
+      deadPlaceholder: 'Boshqa arvohlarga pichirlang...',
       silencedNote: '🤫 Bu raundda og‘zingiz yopiq',
       nightNote: '🌙 Tunda faqat mafiya gapiradi',
       mafiaPlaceholder: 'Oilangiz bilan kelishib oling...',
       placeholder: 'Biror narsa yozing yoki SHX uchun @ism...',
+    },
+    bot: {
+      claim: [
+        (n) => `Men detektivman. Kecha ${n}ni tekshirdim — mafiyadan.`,
+        (n) => `Quloq soling. Men detektivman. ${n} — mafiya, o‘zim ko‘rdim.`,
+        (n) => `Ochiq aytaman: ${n}ni tekshirdim. Aybdor.`,
+      ],
+      clear: [
+        (n) => `${n}ni tekshirdim. Toza — boshqa joydan qidiring.`,
+        (n) => `${n} aybsiz, kafolat beraman.`,
+        (n) => `${n}ga tegmang, men tekshirganman.`,
+      ],
+      accuse: [
+        (n) => `${n}ga ishonmayman.`,
+        (n) => `${n} juda jim yuribdi. Haddan tashqari jim.`,
+        (n) => `Men ${n} deb o‘ylayman.`,
+      ],
+      defend: [
+        (n) => `Menmi? Adashyapsiz. ${n}ga qarang.`,
+        (n) => `Men emasman. Nega ${n} buncha xotirjam, o‘ylab ko‘ring.`,
+        (n) => `Meni osib, do‘stingizni yo‘qotasiz. Gap ${n}da.`,
+      ],
+      unsure: [
+        () => `Hali erta. Hech kim hech narsa bilmaydi.`,
+        () => `Birinchi tun doim taxmin. Hammani eshitaylik.`,
+        () => `Menda hozircha hech narsa yo‘q. Kimda sezgi bor?`,
+      ],
+      dare: [
+        () => `Qani, menga ovoz beringlar. Jur’atingiz yetadimi?`,
+        () => `Balki men mafiyadirman. Balki yo‘q. Tekshirib ko‘ring.`,
+        () => `Nega hammangiz menga shunday qarayapsiz?`,
+      ],
+      plan: [
+        (n) => `Bugun tunda: ${n}.`,
+        (n) => `${n}ni olib tashlaylik.`,
+        (n) => `${n} juda yaqinlashib qoldi. Bugun uning navbati.`,
+      ],
+      vote: [
+        (n) => `Mening ovozim — ${n}ga.`,
+        (n) => `${n}. Kechirasan.`,
+        (n) => `${n}ga ovoz beraman.`,
+      ],
+      someone: 'kimdir',
     },
     reveal: {
       crew: 'Sizning oilangiz',

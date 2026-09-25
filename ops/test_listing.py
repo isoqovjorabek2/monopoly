@@ -111,6 +111,19 @@ lobbies._rooms[ROOM].pop("kind")
 check("a room without a kind is Monopoly", lobbies.live_rooms()[0]["kind"] == "monopoly")
 check("the host's account id never reaches the list", "uid" not in lobbies.live_rooms()[0])
 
+print("lobbies: the front door's head count")
+lobbies._tables.clear()
+now = time.time()
+lobbies._tables["A"] = {"seen": now, "players": [
+    {"bot": False, "connected": True}, {"bot": True, "connected": True}, {"bot": False, "connected": False}]}
+lobbies._tables["B"] = {"seen": now, "players": [{"bot": False, "connected": True}]}
+lobbies._tables["C"] = {"seen": now - 3600, "players": [{"bot": False, "connected": True}]}
+check("counts connected humans at live tables only", lobbies.playing_now() == 2)
+report = lobbies.clean_report({"kind": "mafia", "mode": "private", "phase": "playing", "maxSeats": 12,
+                               "players": [{"id": f"p{i}", "name": f"P{i}", "bot": i > 0} for i in range(12)]})
+check("an Omertà table's report is taken, all twelve seats of it",
+      report is not None and len(report["players"]) == 12 and report["maxSeats"] == 12)
+
 if FAILED:
     print(f"\n{len(FAILED)} failed")
     sys.exit(1)

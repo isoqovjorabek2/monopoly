@@ -380,7 +380,35 @@ export function canTrade(s: GameState, o: TradeBody): boolean {
 }
 
 /** Cheap membership test used by the reducer to reject spoofed intents. */
+/** The first round the table may agree to end the game in. Earlier, net
+ *  worth says little about who was winning. */
+export const END_VOTE_FROM_ROUND = 5;
+
+/** The humans whose agreement ends the game: everyone still playing. One
+ *  who leaves for good becomes a bot and drops out of the count. */
+export function endVoters(s: GameState): string[] {
+  return s.seats.filter((id) => {
+    const p = s.players[id];
+    return p && !p.bankrupt && !p.isBot;
+  });
+}
+
+/** Whether this player may vote to end the game now. Kept out of
+ *  legalActions on purpose: bots pick from that list, and ending a game
+ *  is the humans' call. */
+export function canVoteEnd(s: GameState, playerId: string): boolean {
+  const p = s.players[playerId];
+  return s.phase !== 'lobby' && s.phase !== 'game_over' && s.round >= END_VOTE_FROM_ROUND
+    && Boolean(p) && !p.bankrupt && !p.isBot;
+}
+
 export function isLegal(s: GameState, action: GameAction): boolean {
+  if (action.type === 'VOTE_END') {
+    if (!canVoteEnd(s, action.playerId)) return false;
+    // Taking back a vote you have not cast, or casting it twice, changes
+    // nothing - refused, so it does not bump the version for no reason.
+    return (s.endVotes ?? []).includes(action.playerId) !== action.on;
+  }
   // Trades are validated in depth by the reducer; proposing is allowed for a
   // solvent player when trading is on - but the offer must be from that same
   // player. Without this last check a guest could send an offer that gives

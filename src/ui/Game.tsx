@@ -23,6 +23,9 @@ import { tableNeed, useAlertsSwitch, useTableAlert } from './alerts';
 import { useWakeLock } from './wakeLock';
 import { LangSwitch } from './LangSwitch';
 import { TableMenu } from './TableMenu';
+import { Reactions } from './Reactions';
+import { Coach, monopolyTips } from './Coach';
+import { EndVoteBanner, EndVoteButton, EndVoteMenuRow, useEndVote } from './EndVote';
 import { useDockInset } from './dockInset';
 import { canKick } from '../net/moderation';
 import { useBreakBefore } from './Ads';
@@ -117,6 +120,8 @@ export function Game() {
   const role = useStore((s) => s.role);
   // The seat I actually play: my own id, or a bot seat I took over.
   const mySeatId = room?.seats.find((s) => s.playerId === myId || room.owners?.[s.playerId] === myId)?.playerId ?? myId;
+
+  const endVote = useEndVote(state, myId);
 
   const alerts = useAlertsSwitch();
   const need = useMemo(() => tableNeed(t, room, myId, role === 'host'), [t, room, myId, role]);
@@ -254,6 +259,7 @@ export function Game() {
           <span className="btn__label">{alerts.on ? t.table.alerts.on : t.table.alerts.off}</span>
         </button>
         <span data-hdr="wide"><LangSwitch /></span>
+        <EndVoteButton vote={endVote} state={state} myId={myId} />
         <button
           type="button"
           className="btn btn--ghost btn--sm"
@@ -267,10 +273,14 @@ export function Game() {
         <TableMenu
           alerts={alerts}
           extra={[{ key: 'view', label: t.game.board3d, hint: t.game.to3d, on: renderMode === '3d', onToggle: toggleRender }]}
+          footer={<EndVoteMenuRow vote={endVote} state={state} myId={myId} />}
         />
       </header>
 
       {netError && <div className="banner banner--bad" role="alert">{netError}</div>}
+      <EndVoteBanner vote={endVote} state={state} myId={myId} dispatch={dispatch} />
+      <Coach tips={monopolyTips(state, mySeatId)} />
+      <Reactions game="monopoly" seat={room.seats.some((x) => x.playerId === mySeatId) ? mySeatId : null} />
 
       <div className="game__layout">
         <aside className="game__rail" data-open={sheet === 'players' || undefined}>

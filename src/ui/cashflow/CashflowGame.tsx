@@ -11,6 +11,7 @@ import { FxLayer, useFx } from '../Fx';
 import { useGameKeys } from '../Help';
 import { LangSwitch } from '../LangSwitch';
 import { TableMenu } from '../TableMenu';
+import { Reactions } from '../Reactions';
 import { useDockInset } from '../dockInset';
 import { FeedView, type FeedLine } from '../Panels';
 import { CFActions } from './CFActions';
@@ -102,6 +103,7 @@ export default function CashflowGame() {
 
   return (
     <div className="cfGame" ref={gameRef}>
+      <Reactions game="cashflow" seat={room.seats.some((x) => x.playerId === mySeatId) ? mySeatId : null} />
       <header className="cfGame__top">
         <button type="button" className="btn btn--ghost btn--sm" onClick={leave}>{t.common.leave}</button>
         <span className="overline cfGame__title">
