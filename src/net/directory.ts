@@ -1,5 +1,7 @@
 import { CLASSIC, PRESETS } from '../game/settings';
 import type { GameSettings } from '../game/types';
+import { currentAccount } from './account';
+import { signProof } from './deviceKey';
 
 /* ------------------------------------------------------------------ *
  * The public lobby directory, from the client's side.
@@ -23,8 +25,13 @@ const BASE = (import.meta.env.VITE_LOBBY_URL ?? 'https://partyhall.io/lobbies')
  *  serverless build possible. */
 export const hasDirectory = BASE.length > 0;
 
+/** The games a public table can be. */
+export type ListedKind = 'monopoly' | 'cashflow' | 'mafia';
+
 export interface PublicRoom {
   id: string;
+  /** Missing from a directory that predates the other games: Monopoly. */
+  kind?: ListedKind;
   host: string;
   seats: number;
   maxSeats: number;
@@ -77,26 +84,46 @@ async function post(path: string, body: unknown): Promise<boolean> {
   return (await postJson(path, body)) !== null;
 }
 
+/** What a host signs to list a table: bound to the room and the minute, so
+ *  a proof seen once is no use for any other room or any later hour. */
+export const listProofMessage = (id: string, ts: string): string => `mply-list|${id}|${ts}`;
+
 /** Say this room exists, and keep saying it. Also the heartbeat. The answer
  *  can carry `expired`: the room has been open longer than the directory
  *  keeps them, and beating further only re-asks a settled question. And it
  *  can carry the operator's word: `closed` (this code is off the list for a
- *  day) or `banned` (this host may not host publicly at all). */
+ *  day) or `banned` (this host may not host publicly at all). Opening a
+ *  public table is a Party Hall Plus feature, so the host's pass and a
+ *  proof it holds that pass's key go along; `plus` comes back when the
+ *  directory would not take it (no pass, no Plus, or a bad proof). */
 export async function announce(room: {
-  id: string; host: string; seats: number; maxSeats: number; settings: GameSettings;
+  id: string; kind: ListedKind; host: string; seats: number; maxSeats: number; settings: GameSettings;
   live?: { openSeats: number; round: number };
-}): Promise<{ expired: boolean; banned: boolean; closed: boolean }> {
-  const { preset, deviations } = describeRules(room.settings);
+}): Promise<{ expired: boolean; banned: boolean; closed: boolean; plus: boolean }> {
+  // Only Monopoly's rules have presets worth naming; the others are listed plain.
+  const { preset, deviations } = room.kind === 'monopoly'
+    ? describeRules(room.settings)
+    : { preset: 'classic', deviations: 0 };
+  const account = currentAccount();
+  const ts = String(Math.floor(Date.now() / 1000));
+  const proof = account ? await signProof(listProofMessage(room.id, ts)) : null;
   const res = await postJson('announce', {
     id: room.id,
+    kind: room.kind,
     host: room.host,
     seats: room.seats,
     maxSeats: room.maxSeats,
     preset,
     deviations,
+    ...(account && proof ? { pass: account.pass, proof, ts } : {}),
     ...(room.live ? { inProgress: true, openSeats: room.live.openSeats, round: room.live.round } : {}),
   });
-  return { expired: res?.expired === true, banned: res?.banned === true, closed: res?.closed === true };
+  return {
+    expired: res?.expired === true,
+    banned: res?.banned === true,
+    closed: res?.closed === true,
+    plus: res?.plus === true,
+  };
 }
 
 /** Take it off the list. Best effort - the expiry is the real cleanup. */

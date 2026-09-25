@@ -143,6 +143,7 @@ export const uz: Dict = {
     listPublicly: 'Stolni hammaga ko‘rsatish',
     listedOn: 'O‘yin boshlanguncha har kim bu stolni topib, qo‘shilishi mumkin.',
     listedOff: 'Faqat kod yoki havolasi borlar kira oladi.',
+    listPlusOnly: 'Ommaviy stollar Party Hall Plus imkoniyati. Hozircha faqat kod yoki havolasi borlar kira oladi.',
     seats: (n, max) => `Joylar (${n}/${max})`,
     tableFull: 'Stol to‘la',
     addBot: 'Bot qo‘shish',

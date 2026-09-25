@@ -18,7 +18,7 @@ export const entryEn = {
     who: 'Who can join?',
     private: ['Private', 'Only people you send the link or code to'] as [string, string],
     public: ['Public', 'Anyone can find it on this page and take a seat until it starts'] as [string, string],
-    publicCashflow: 'Nest Egg tables are invite-only for now.',
+    publicPlus: 'Party Hall Plus members only. Tap to see Plus.',
     create: (visibility: 'private' | 'public', game: string) =>
       `Create a ${visibility} ${game} table`,
     after: 'You get a link to share, and set the rules before anyone rolls.',

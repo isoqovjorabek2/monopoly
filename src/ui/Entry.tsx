@@ -11,6 +11,7 @@ import { useStore } from '../store/store';
 import { Avatar } from './bits';
 import { PlusBadge, PlusSheet } from './Plus';
 import { PublicRooms } from './PublicRooms';
+import { hasDirectory } from '../net/directory';
 import { forgetTable, listTables, type SavedTable } from '../net/saves';
 import { MAF_PRACTICE_BOTS } from '../mafia/data';
 
@@ -80,8 +81,9 @@ export function EntryCard({ pick, urlCode }: { pick: GameKind; urlCode: string }
   useEffect(() => { setName(me.name); }, [me.name]);
 
   const gameName = t.cf.picker[pick].name;
-  const publicOk = pick === 'monopoly';
-  // Only Bazaar Barons tables can be listed, so for the others the choice is made.
+  // Any game can be opened publicly, by a Party Hall Plus member. Everyone
+  // else still sees the option: tapping it explains Plus instead.
+  const publicOk = hasDirectory && plus;
   const chosen = publicOk ? visibility : 'private';
   const listed = chosen === 'public';
 
@@ -208,7 +210,8 @@ export function EntryCard({ pick, urlCode }: { pick: GameKind; urlCode: string }
               <span className="switch__label">{E.host.who}</span>
               <div className="visibility" role="radiogroup" aria-label={E.host.who}>
                 {(['private', 'public'] as const).map((v) => {
-                  const disabled = v === 'public' && !publicOk;
+                  if (v === 'public' && !hasDirectory) return null;
+                  const locked = v === 'public' && !publicOk;
                   const [label, hint] = E.host[v];
                   return (
                     <button
@@ -216,17 +219,17 @@ export function EntryCard({ pick, urlCode }: { pick: GameKind; urlCode: string }
                       type="button"
                       role="radio"
                       aria-checked={chosen === v}
-                      disabled={disabled}
                       className="visibility__option"
                       data-on={chosen === v || undefined}
-                      onClick={() => setVisibility(v)}
+                      data-locked={locked || undefined}
+                      onClick={() => (locked ? setPlusOpen(true) : setVisibility(v))}
                     >
                       <span className="visibility__head">
                         <VisibilityIcon kind={v} />
                         <span className="visibility__label">{label}</span>
-                        <span className="visibility__dot" aria-hidden />
+                        {locked ? <PlusBadge small /> : <span className="visibility__dot" aria-hidden />}
                       </span>
-                      <span className="visibility__hint">{disabled ? (pick === 'mafia' ? t.maf.lobby.publicSoon : E.host.publicCashflow) : hint}</span>
+                      <span className="visibility__hint">{locked ? E.host.publicPlus : hint}</span>
                     </button>
                   );
                 })}
@@ -269,7 +272,7 @@ export function EntryCard({ pick, urlCode }: { pick: GameKind; urlCode: string }
                 </span>
               </form>
               {account && <YourGames onResume={(code, epoch) => go(() => resumeTable(code, epoch))} />}
-              <PublicRooms onJoin={(id) => go(() => joinRoom(id))} />
+              <PublicRooms kind={pick} onJoin={(id) => go(() => joinRoom(id))} />
             </>
           )}
 

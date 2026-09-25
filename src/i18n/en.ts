@@ -147,6 +147,7 @@ export const en = {
     listPublicly: 'List this table publicly',
     listedOn: 'Anyone can find and join this table until the game starts.',
     listedOff: 'Only people with the code or link can get in.',
+    listPlusOnly: 'Public tables are a Party Hall Plus feature. For now, only people with the code or link can get in.',
     seats: (n: number, max: number) => `Seats (${n}/${max})`,
     tableFull: 'The table is full',
     addBot: 'Add bot',

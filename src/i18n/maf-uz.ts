@@ -99,7 +99,6 @@ export const mafUz: MafDict = {
     tableSize: 'Stoldagi o‘yinchilar',
     needPlayers: (n) => `Omertà uchun kamida ${n} o‘yinchi kerak — bot qo‘shing yoki stolni botlar bilan to‘ldirishni yoqing.`,
     fillNote: 'O‘yin boshlanganda to‘rttagacha bo‘sh o‘rinlarni botlar egallaydi.',
-    publicSoon: 'Omertà stollari hozircha faqat taklif bilan: havolani ulashing.',
   },
 
   reveal: {
@@ -423,7 +422,6 @@ export const mafUz: MafDict = {
       host: 'Mezbon',
       bot: 'Bot',
       kick: (name) => `${name}ni chiqarish`,
-      inviteOnly: 'Omertà stollari faqat taklif bilan: havolani ulashing.',
       tableTitle2: 'Stol',
       seats: (n: number, of: number): string => `${of} ta joydan ${n} tasi band`,
       openSeat: 'Bo‘sh joy',

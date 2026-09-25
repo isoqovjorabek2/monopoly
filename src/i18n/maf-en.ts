@@ -100,7 +100,6 @@ export const mafEn = {
     tableSize: 'Players at the table',
     needPlayers: (n: number): string => `Omertà needs at least ${n} players - add bots, or let bots fill the table.`,
     fillNote: 'Empty chairs up to four are filled with bots when the game starts.',
-    publicSoon: 'Omertà tables are invite-only for now: share the link.',
   },
 
   reveal: {
@@ -426,7 +425,6 @@ export const mafEn = {
       host: 'Host',
       bot: 'Bot',
       kick: (name: string): string => `Kick ${name}`,
-      inviteOnly: 'Omertà tables are invite-only: share the link.',
       tableTitle2: 'The table',
       seats: (n: number, of: number): string => `${n} of ${of} chairs taken`,
       openSeat: 'Open chair',

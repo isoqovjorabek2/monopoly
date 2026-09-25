@@ -109,7 +109,6 @@ export const mafRu: MafDict = {
     tableSize: 'Игроков за столом',
     needPlayers: (n) => `Для Omertà нужно минимум ${n} ${pl(n, 'игрок', 'игрока', 'игроков')} — добавьте ботов или включите заполнение ботами.`,
     fillNote: 'При старте пустые места до четырёх займут боты.',
-    publicSoon: 'Столы Omertà пока только по приглашению: поделитесь ссылкой.',
   },
 
   reveal: {
@@ -433,7 +432,6 @@ export const mafRu: MafDict = {
       host: 'Хозяин',
       bot: 'Бот',
       kick: (name) => `Выгнать ${name}`,
-      inviteOnly: 'Столы Omertà — только по приглашению: поделитесь ссылкой.',
       tableTitle2: 'Стол',
       seats: (n: number, of: number): string => `Занято мест: ${n} из ${of}`,
       openSeat: 'Свободный стул',

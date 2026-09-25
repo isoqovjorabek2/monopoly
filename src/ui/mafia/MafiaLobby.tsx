@@ -11,8 +11,12 @@ import {
 } from '../../mafia/data';
 import type { MafiaRole, RoleCount } from '../../mafia/types';
 import { roomLink } from '../../net/protocol';
+import { hasPlus, useAccount } from '../../net/account';
+import { hasDirectory } from '../../net/directory';
 import { seatLimit, useStore } from '../../store/store';
 import { AdBanner } from '../Ads';
+import { PlusBadge, PlusSheet } from '../Plus';
+import { useFullscreenKey } from '../Help';
 import { LangSwitch } from '../LangSwitch';
 import { isAudioEnabled, onAudioChange, playAmbient, playSFX, stopAmbient, TRACKS } from './audio';
 import { SuspectCard } from './deck/SuspectCard';
@@ -145,7 +149,12 @@ export default function MafiaLobby() {
   const updateSettings = useStore((s) => s.updateSettings);
   const updateMafRules = useStore((s) => s.updateMafRules);
   const startGame = useStore((s) => s.startGame);
+  const listed = useStore((s) => s.listed);
+  const setListed = useStore((s) => s.setListed);
+  const plus = useAccount((s) => hasPlus(s.account));
+  const [plusOffer, setPlusOffer] = useState(false);
   const [copied, setCopied] = useState(false);
+  useFullscreenKey();
 
   /* The lobby has its own music, like the app's waiting room. */
   const [audioOn, setAudioOn] = useState(isAudioEnabled);
@@ -188,6 +197,20 @@ export default function MafiaLobby() {
     { key: 'reveal', label: L.reveal, node: <Switch on={r.revealRolesOnDeath} label={L.reveal} onChange={(v) => updateMafRules({ revealRolesOnDeath: v })} />, value: r.revealRolesOnDeath ? '✓' : '—' },
     { key: 'max', label: L.maxPlayers, node: <Stepper value={maxSeats} min={MAF_MIN_PLAYERS} max={MAF_MAX_SEATS} label={L.maxPlayers} onChange={(v) => updateSettings({ maxPlayers: v })} />, value: String(maxSeats) },
     { key: 'fill', label: L.fillBots, node: <Switch on={s.fillWithBots} label={L.fillBots} onChange={(v) => updateSettings({ fillWithBots: v })} />, value: s.fillWithBots ? '✓' : '—' },
+    // Listing the table publicly is Party Hall Plus; without it the switch
+    // opens the Plus offer instead.
+    ...(!local && hasDirectory ? [{
+      key: 'public',
+      label: t.lobby.listPublicly,
+      node: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          {!plus && <PlusBadge small />}
+          <Switch on={listed} label={t.lobby.listPublicly}
+            onChange={(v) => (plus || !v ? setListed(v) : setPlusOffer(true))} />
+        </span>
+      ),
+      value: listed ? '✓' : '—',
+    }] : []),
     {
       key: 'level', label: L.botLevel,
       node: (
@@ -346,7 +369,11 @@ export default function MafiaLobby() {
               })}
             </div>
             {isHost && (!canStart || !local) && (
-              <p className="lb-bar__hint">{!canStart ? L.needMore(MAF_MIN_PLAYERS - seats.length) : L.inviteOnly}</p>
+              <p className="lb-bar__hint">
+                {!canStart ? L.needMore(MAF_MIN_PLAYERS - seats.length)
+                  : listed ? t.lobby.listedOn
+                  : plus || !hasDirectory ? t.lobby.listedOff : t.lobby.listPlusOnly}
+              </p>
             )}
           </div>
           {isHost ? (
@@ -358,6 +385,7 @@ export default function MafiaLobby() {
           )}
         </div>
       </div>
+      <PlusSheet open={plusOffer} onClose={() => setPlusOffer(false)} />
      </div>
     </div>
   );

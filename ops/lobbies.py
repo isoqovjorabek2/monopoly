@@ -35,11 +35,21 @@ banned (so the host's client removes them), whether its own host is banned,
 whether the room code was closed. Reports themselves are never refused -
 the panel staying able to see a table matters more than turning it away.
 
+Opening a public room is a Party Hall Plus feature, for every game. A new
+room is only listed with its host's pass (the one the accounts service signs)
+carrying a running Plus date, and a signature from the browser key that pass
+names over the room code and the time - so a pass a host has seen at their
+table is no use to them here. Beats for a room already listed are not
+checked again; a room that stops beating is gone in 90 seconds anyway.
+
 Binds 127.0.0.1; nginx puts it on the internet at /lobbies/.
-Python 3 standard library only, same as the status panel.
+Python 3 standard library, plus ``cryptography`` to check passes - the
+accounts service already needs it on the same machine. Without it the
+directory still runs, but lists no new rooms.
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -47,6 +57,14 @@ import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+try:
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
+except ImportError:  # pragma: no cover - present wherever accounts.py runs
+    ec = None
 
 HOST, PORT = "127.0.0.1", int(os.environ.get("LOBBIES_PORT", "9100"))
 
@@ -70,6 +88,19 @@ GLOBAL_ANNOUNCE_PER_MIN = 900
 ROOM_RE = re.compile(r"^[A-Z]{3,10}-[A-Z]{3,10}-\d{1,3}$")
 # Must match the ids in src/game/settings.ts; anything else is "custom".
 PRESETS = {"classic", "speed", "friendly", "dealmaker", "tycoon", "custom"}
+# The games a public room can be; an announce without one is from a client
+# that only ever listed Monopoly.
+ROOM_KINDS = {"monopoly", "cashflow", "mafia"}
+
+# ------------------------------------------------------------------ plus --
+# The public half of the accounts service's signing key, as in
+# src/net/accountKey.ts (`accounts.py pubkey` prints it). Overridable so a
+# rotated key does not need a code change here.
+PASS_KEY_X = os.environ.get("ACCOUNTS_KEY_X", "xo89N6EkWGdDIjQFvC0hJcE4WX9biojjX29gR3131j8")
+PASS_KEY_Y = os.environ.get("ACCOUNTS_KEY_Y", "na7yvxWWt1UzHNT1wTQbvdTi3eTUtR3EX5DnrjFic1c")
+PASS_ISSUERS = {"https://partyhall.io/auth", "https://aytingchi.uz/auth"}
+PASS_AUDIENCE = "monopoly"
+PROOF_WINDOW = 300.0      # seconds either side of now a listing proof is good for
 
 # -------------------------------------------------------------- table log --
 
@@ -131,6 +162,71 @@ def rate_ok(key: str, limit: int) -> bool:
     return len(hits) <= limit
 
 
+def _unb64u(text: str) -> bytes:
+    return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+
+
+def _point_key(x: str, y: str):
+    return ec.EllipticCurvePublicNumbers(
+        int.from_bytes(_unb64u(x), "big"), int.from_bytes(_unb64u(y), "big"), ec.SECP256R1(),
+    ).public_key()
+
+
+def _es256_ok(key, raw_sig: bytes, message: bytes) -> bool:
+    if len(raw_sig) != 64:
+        return False
+    der = encode_dss_signature(int.from_bytes(raw_sig[:32], "big"), int.from_bytes(raw_sig[32:], "big"))
+    try:
+        key.verify(der, message, ec.ECDSA(hashes.SHA256()))
+        return True
+    except InvalidSignature:
+        return False
+
+
+def list_proof_message(room_id: str, ts: str) -> str:
+    """Must match listProofMessage in src/net/directory.ts."""
+    return f"mply-list|{room_id}|{ts}"
+
+
+def plus_host(body: dict, room_id: str, now: float | None = None, pass_key=None) -> dict | None:
+    """The claims of the host's pass if it may open a public room: a valid,
+    unexpired pass with Plus still running, and a fresh signature over this
+    room code from the browser key the pass is bound to. Otherwise None."""
+    if ec is None:
+        return None
+    t = now if now is not None else time.time()
+    try:
+        token, proof, ts = body.get("pass"), body.get("proof"), body.get("ts")
+        if not (isinstance(token, str) and isinstance(proof, str) and isinstance(ts, str)):
+            return None
+        if len(token) > 2048 or len(proof) > 200 or not ts.isdigit() or abs(int(ts) - t) > PROOF_WINDOW:
+            return None
+        head, payload, sig = token.split(".")
+        if json.loads(_unb64u(head)).get("alg") != "ES256":
+            return None
+        key = pass_key or _point_key(PASS_KEY_X, PASS_KEY_Y)
+        if not _es256_ok(key, _unb64u(sig), f"{head}.{payload}".encode()):
+            return None
+        claims = json.loads(_unb64u(payload))
+        if claims.get("iss") not in PASS_ISSUERS or claims.get("aud") != PASS_AUDIENCE:
+            return None
+        if not isinstance(claims.get("exp"), int) or claims["exp"] <= t:
+            return None
+        if not isinstance(claims.get("sub"), str) or not claims["sub"].startswith("u_"):
+            return None
+        if not isinstance(claims.get("plus"), int) or claims["plus"] <= t:
+            return None
+        cnf = claims.get("cnf")
+        if not isinstance(cnf, dict):
+            return None
+        device = _point_key(str(cnf.get("x", "")), str(cnf.get("y", "")))
+        if not _es256_ok(device, _unb64u(proof), list_proof_message(room_id, ts).encode()):
+            return None
+        return claims
+    except Exception:  # noqa: BLE001 - anything malformed is simply "no"
+        return None
+
+
 def live_rooms() -> list[dict]:
     now = time.time()
     out = []
@@ -140,6 +236,7 @@ def live_rooms() -> list[dict]:
             continue
         out.append({
             "id": room["id"],
+            "kind": room.get("kind", "monopoly"),
             "host": room["host"],
             "seats": room["seats"],
             "maxSeats": room["maxSeats"],
@@ -568,7 +665,16 @@ class Handler(BaseHTTPRequestHandler):
                 # expired so it stops beating instead of re-creating it.
                 _rooms.pop(room_id, None)
                 return self._send(200, {"ok": True, "expired": True})
+            uid = existing.get("uid") if existing else None
             if existing is None:
+                # A new public room needs a Plus host. 200, not an error: the
+                # client acts on the flag and keeps the room private.
+                claims = plus_host(body, room_id)
+                if claims is None:
+                    return self._send(200, {"ok": True, "plus": True})
+                uid = claims["sub"]
+                if account_banned(uid):
+                    return self._send(200, {"ok": True, "banned": True})
                 if len(_rooms) >= MAX_ROOMS:
                     return self._send(503, {"error": "directory full"})
                 mine = sum(1 for r in _rooms.values() if r["ip"] == ip)
@@ -590,10 +696,15 @@ class Handler(BaseHTTPRequestHandler):
             preset = clean_text(body.get("preset"), 12).lower()
             if preset not in PRESETS:
                 preset = "custom"
+            kind = clean_text(body.get("kind"), 10).lower() or "monopoly"
+            if kind not in ROOM_KINDS:
+                return self._send(400, {"error": "bad kind"})
 
             now = time.time()
             _rooms[room_id] = {
                 "id": room_id,
+                "kind": kind,
+                "uid": uid,
                 "host": host_name,
                 "seats": seats,
                 "maxSeats": max_seats,

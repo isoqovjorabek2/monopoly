@@ -6,6 +6,7 @@ import type { CFRules } from '../cashflow/types';
 import { MAF_MIN_PLAYERS } from '../mafia/data';
 import { useT, useBoardTheme } from '../i18n';
 import { hasDirectory } from '../net/directory';
+import { hasPlus, useAccount } from '../net/account';
 import { boardsOpen, roomTheme, tablePlus } from '../net/plus';
 import { BOARD_THEMES } from '../i18n/themes';
 import { themedFelt, themedMedal } from '../art/art';
@@ -33,6 +34,8 @@ export function Lobby() {
   const startGame = useStore((s) => s.startGame);
   const listed = useStore((s) => s.listed);
   const setListed = useStore((s) => s.setListed);
+  const plus = useAccount((s) => hasPlus(s.account));
+  const [plusOffer, setPlusOffer] = useState(false);
 
   const [copied, setCopied] = useState<'code' | 'link' | null>(null);
   /* The room before the game, dressed in the cloth the board will wear. */
@@ -133,21 +136,21 @@ export function Lobby() {
               {roomLink(room.roomId)}
             </div>
 
-            {isHost && hasDirectory && !cashflow && !mafia && (
+            {isHost && hasDirectory && (
               <label className="invite__public">
+                {/* Listing is Party Hall Plus; without it the box explains Plus. */}
                 <input
                   type="checkbox"
                   checked={listed}
-                  onChange={(e) => setListed(e.target.checked)}
+                  onChange={(e) => (plus || !e.target.checked ? setListed(e.target.checked) : setPlusOffer(true))}
                 />
                 <span>
-                  <span className="switch__label">{L.listPublicly}</span>
-                  <span className="switch__hint">{listed ? L.listedOn : L.listedOff}</span>
+                  <span className="switch__label">{L.listPublicly} {!plus && <PlusBadge small />}</span>
+                  <span className="switch__hint">{!plus && !listed ? L.listPlusOnly : listed ? L.listedOn : L.listedOff}</span>
                 </span>
               </label>
             )}
-            {isHost && cashflow && <p className="muted small">{t.cf.lobby.inviteOnly}</p>}
-            {isHost && mafia && <p className="muted small">{t.maf.lobby.publicSoon}</p>}
+            <PlusSheet open={plusOffer} onClose={() => setPlusOffer(false)} />
           </section>
         )}
 

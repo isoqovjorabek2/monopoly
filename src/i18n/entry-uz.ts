@@ -14,7 +14,7 @@ export const entryUz: EntryDict = {
     who: 'Kim qo‘shila oladi?',
     private: ['Yopiq', 'Faqat siz havola yoki kod yuborgan odamlar'],
     public: ['Ommaviy', 'Istalgan kishi uni shu sahifada topib, o‘yin boshlanguncha o‘tira oladi'],
-    publicCashflow: 'Nest Egg stollari hozircha faqat taklif bilan.',
+    publicPlus: 'Faqat Party Hall Plus a’zolari uchun. Plus haqida bilish uchun bosing.',
     create: (visibility, game) => `${visibility === 'public' ? 'Ommaviy' : 'Yopiq'} ${game} stolini ochish`,
     after: 'Ulashish uchun havola olasiz va birinchi zar tashlanishidan oldin qoidalarni belgilaysiz.',
   },

@@ -397,7 +397,6 @@ export const cfEn = {
     open: 'Open loans',
     chipRounds: (n: number) => `${n} rounds`,
     noLimit: 'No limit',
-    inviteOnly: 'Nest Egg tables are invite-only for now: share the code or the link.',
   },
 
   gameOver: {

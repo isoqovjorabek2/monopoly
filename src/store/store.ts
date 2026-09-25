@@ -1433,7 +1433,9 @@ export const useStore = create<Store>((set, get) => {
     // flag left over from the last one.
     let live: { openSeats: number; round: number } | undefined;
     if (inGame(room)) {
-      const g = room.game;
+      // Only a Monopoly game has bot seats a newcomer can take over; the
+      // other games come off the list the moment they start.
+      const g = room.kind === 'monopoly' ? room.game : undefined;
       const bots = g
         ? room.seats.filter((s) => s.isBot && g.players[s.playerId] && !g.players[s.playerId].bankrupt).length
         : 0;
@@ -1447,12 +1449,13 @@ export const useStore = create<Store>((set, get) => {
     listedSeats = room.seats.length;
     void announceRoom({
       id: room.roomId,
+      kind: room.kind,
       host: get().me.name || tr().defaults.someone,
       seats: room.seats.length,
       maxSeats: room.settings.maxPlayers,
       settings: room.settings,
       live,
-    }).then(({ expired, banned, closed }) => {
+    }).then(({ expired, banned, closed, plus }) => {
       // The operator banned this player outright: leave the table entirely.
       if (banned) { get().moderationLeave('banned'); return; }
       // The directory declines to keep a room that has been open for hours:
@@ -1460,6 +1463,9 @@ export const useStore = create<Store>((set, get) => {
       // A closed room is the operator's word: off the list, and it stays off.
       if (expired || closed) { stopListing(); set({ listed: false }); }
       if (closed) set({ netError: tr().net.delisted });
+      // The directory would not take it as a Plus table (the pass lapsed, or
+      // was never there): it goes on as a private room, its code unchanged.
+      if (plus) { stopListing(); set({ listed: false }); }
     });
   };
 
@@ -1586,9 +1592,8 @@ export const useStore = create<Store>((set, get) => {
       });
 
       startHost(code, 0);
-      // The directory only knows Monopoly's presets, so a Cashflow table
-      // stays invite-only whatever was asked for.
-      if (opts.listed && kind === 'monopoly') get().setListed(true);
+      // Public tables are a Plus feature; setListed says no to anyone else.
+      if (opts.listed) get().setListed(true);
     },
 
     joinRoom: (rawCode, epoch = 0) => {
@@ -1696,9 +1701,9 @@ export const useStore = create<Store>((set, get) => {
     setListed: (on) => {
       const { role, room } = get();
       if (role !== 'host') return;
-      // The directory only knows Monopoly's presets; a Cashflow table on it
-      // would be listed as a Monopoly one. Invite-only until it learns.
-      if (on && room?.kind !== 'monopoly') return;
+      // Any game can be listed, but only by a host holding Party Hall Plus.
+      // The directory checks the pass too; this just saves it the trip.
+      if (on && (!room || !hasPlus(currentAccount()))) return;
       if (on) { set({ listed: true }); startListing(); }
       else { stopListing(); set({ listed: false }); }
     },

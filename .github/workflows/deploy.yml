@@ -39,10 +39,11 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install cryptography
-      - name: Account and panel auth tests
+      - name: Account, panel auth and listing tests
         run: |
           python ops/test_accounts.py
           python ops/test_auth.py
+          python ops/test_listing.py
 
   build:
     needs: test

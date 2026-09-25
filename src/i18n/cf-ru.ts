@@ -402,7 +402,6 @@ export const cfRu: CFDict = {
     open: 'Свободные кредиты',
     chipRounds: (n) => `${n} ${pl(n, 'круг', 'круга', 'кругов')}`,
     noLimit: 'Без лимита',
-    inviteOnly: 'Столы Nest Egg пока только по приглашению: поделитесь кодом или ссылкой.',
   },
 
   gameOver: {

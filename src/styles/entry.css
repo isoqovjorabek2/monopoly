@@ -177,6 +177,9 @@
   background: radial-gradient(circle, var(--accent) 0 38%, transparent 42%);
 }
 .visibility__hint { font-size: var(--t-xs); color: var(--text-muted); line-height: 1.4; }
+/* Public without Plus: still a card to tap, but it opens the Plus offer. */
+.visibility__option[data-locked] .visibility__head .plusBadge { margin-left: auto; }
+.visibility__option[data-locked] .visibility__label { color: var(--text-muted); }
 
 @media (max-width: 380px) {
   .visibility { grid-template-columns: minmax(0, 1fr); }

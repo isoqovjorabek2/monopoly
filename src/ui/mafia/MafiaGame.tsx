@@ -11,6 +11,7 @@ import type { ChatMessage } from '../../net/protocol';
 import { useStore } from '../../store/store';
 import { TakeSeatPanel } from '../Account';
 import { useBreakBefore } from '../Ads';
+import { useFullscreenKey } from '../Help';
 import { useAlertsSwitch, useTableAlert } from '../alerts';
 import { useCountdown } from '../bits';
 import { useWakeLock } from '../wakeLock';
@@ -87,6 +88,7 @@ export default function MafiaGame() {
   const leaveAfterBreak = useBreakBefore(leave);
 
   useWakeLock(true);
+  useFullscreenKey();
 
   const m = room?.mf ?? null;
   const myId = me.playerId;

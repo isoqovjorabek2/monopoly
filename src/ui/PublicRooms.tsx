@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useT, type Dict } from '../i18n';
 import { useAccount } from '../net/account';
-import { hasDirectory, listRooms, type PublicRoom } from '../net/directory';
+import { hasDirectory, listRooms, type ListedKind, type PublicRoom } from '../net/directory';
 
 /* ------------------------------------------------------------------ *
  * Tables anyone can walk up to.
@@ -24,7 +24,8 @@ function ago(t: Dict, seconds: number): string {
   return m < 60 ? t.rooms.minAgo(m) : t.rooms.hoursAgo(Math.floor(m / 60));
 }
 
-export function PublicRooms({ onJoin }: { onJoin: (code: string) => void }) {
+/** Public tables of one game: the one picked on the front door. */
+export function PublicRooms({ kind, onJoin }: { kind: ListedKind; onJoin: (code: string) => void }) {
   const t = useT();
   const signedIn = useAccount((s) => s.account !== null);
   const [rooms, setRooms] = useState<PublicRoom[] | null>(null);
@@ -51,7 +52,9 @@ export function PublicRooms({ onJoin }: { onJoin: (code: string) => void }) {
   const [emptyBefore, emptyStrong, emptyAfter] = t.rooms.empty;
   // A running game is a door only for a signed-in player, who can take a
   // bot's seat over; to anyone else the row is a promise the join refuses.
-  const visible = signedIn ? rooms : rooms?.filter((r) => !r.inProgress) ?? null;
+  // A directory older than the other games lists only Monopoly, unlabelled.
+  const ofKind = rooms?.filter((r) => (r.kind ?? 'monopoly') === kind) ?? null;
+  const visible = signedIn ? ofKind : ofKind?.filter((r) => !r.inProgress) ?? null;
 
   return (
     <section className="rooms" aria-labelledby="rooms-title">
@@ -102,13 +105,18 @@ export function PublicRooms({ onJoin }: { onJoin: (code: string) => void }) {
                         <><span className="roomRow__live">{t.table.live.inProgress(room.round ?? 0)}</span>{' · '}</>
                       )}
                       {room.inProgress && <>{t.table.live.openSeats(room.openSeats ?? 0)} · </>}
-                      {t.presets[room.preset]?.name ?? t.rooms.custom}
-                      {room.deviations > 0 && (
-                        <> · <span title={t.rooms.changedRules}>
-                          {t.rooms.houseRules(room.deviations)}
-                        </span></>
+                      {kind === 'monopoly' && (
+                        <>
+                          {t.presets[room.preset]?.name ?? t.rooms.custom}
+                          {room.deviations > 0 && (
+                            <> · <span title={t.rooms.changedRules}>
+                              {t.rooms.houseRules(room.deviations)}
+                            </span></>
+                          )}
+                          {' · '}
+                        </>
                       )}
-                      {' · '}{ago(t, room.age)}
+                      {ago(t, room.age)}
                     </span>
                   </span>
 

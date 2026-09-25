@@ -70,6 +70,25 @@ export function useGameKeys(onHelp: () => void, onFocusMode?: () => void): void 
   }, [onHelp, onFocusMode]);
 }
 
+/**
+ * F toggles the browser's own fullscreen, for a table with no rails to fold
+ * away (Omertà). The board games use useGameKeys' focus mode instead, which
+ * does this and more. A refused request (iOS Safari) simply does nothing.
+ */
+export function useFullscreenKey(): void {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (isTyping(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key !== 'f' && e.key !== 'F') return;
+      e.preventDefault();
+      if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => {});
+      else void document.documentElement.requestFullscreen?.().catch(() => {});
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+}
+
 export function HelpModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useT();
   if (!open) return null;

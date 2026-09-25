@@ -398,7 +398,6 @@ export const cfUz: CFDict = {
     open: 'Erkin kreditlar',
     chipRounds: (n) => `${n} aylana`,
     noLimit: 'Cheklovsiz',
-    inviteOnly: 'Nest Egg stollari hozircha faqat taklif bilan: kod yoki havolani ulashing.',
   },
 
   gameOver: {
