@@ -3124,28 +3124,47 @@
 .react__open[aria-expanded='true'] { border-color: var(--accent); }
 .react__open:disabled { opacity: 0.4; cursor: default; filter: grayscale(1); }
 .react__open:focus-visible, .react__pick:focus-visible { outline: none; box-shadow: var(--ring-focus); }
+/* One row of eight, sized to its faces - never a wrapped straggler. A
+   phone too narrow for the row gets a tidy four-by-two tray instead. */
 .react__row {
-  display: flex;
-  flex-wrap: wrap;
-  max-width: min(92vw, 340px);
+  display: grid;
+  grid-template-columns: repeat(8, 40px);
   gap: 2px;
   padding: 4px;
   border-radius: var(--r-pill);
   border: 1px solid var(--border-strong);
   background: var(--bg-raised);
   box-shadow: 0 10px 28px rgb(0 0 0 / 0.45);
+  transform-origin: bottom left;
 }
 .react__pick {
+  display: grid;
+  place-items: center;
   width: 40px;
   height: 40px;
+  padding: 0;
   border: 0;
   border-radius: 50%;
   background: transparent;
-  font-size: 22px;
+  font-size: 24px;
   line-height: 1;
   cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
 }
-.react__pick:hover { background: rgb(255 255 255 / 0.08); }
+.react__pick:hover { background: rgb(255 255 255 / 0.08); transform: translateY(-2px) scale(1.18); }
+.react__pick:active { transform: scale(0.92); }
+@media (max-width: 400px) {
+  .react__row {
+    grid-template-columns: repeat(4, 44px);
+    gap: 4px;
+    padding: 6px;
+    border-radius: var(--r-lg);
+  }
+  .react__pick { width: 44px; height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .react__pick:hover, .react__pick:active { transform: none; }
+}
 
 .reactFloat {
   position: fixed;
