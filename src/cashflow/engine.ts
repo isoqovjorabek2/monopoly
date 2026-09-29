@@ -1,13 +1,13 @@
 import { randInt, shuffle } from '../game/rng';
 import type { SeatSpec } from '../game/engine';
 import {
-  BUYOUT_MULTIPLE, DEBT_KEYS, DECK_CARDS, FAST_BOARD, FAST_SIZE, LOAN_UNIT,
+  BRISK_PAY, BUYOUT_MULTIPLE, DEBT_KEYS, DECK_CARDS, FAST_BOARD, FAST_SIZE, LOAN_UNIT,
   MAX_CHILDREN, PROFESSIONS, RAT_BOARD, RAT_SIZE, cfCard, professionById,
 } from './data';
 import {
-  autopilotAction, canEscape, charityCost, currentId, currentPlayer, dreamPrice,
-  isLegal, monthlyCashflow, ownsRental, passiveIncome, progress, settlement,
-  tableCard, totalExpenses, waitingOn,
+  autopilotAction, canEscape, charityCost, currentId, currentPlayer, defaultDice, dreamPrice,
+  holdingCard, isBrisk, isLegal, monthlyCashflow, ownsRental, passiveIncome, progress, settlement,
+  tableCard, totalExpenses, waitingOn, type HoldingCard,
 } from './rules';
 import type {
   CFAction, CFDeck, CFEvent, CFPlayer, CFReduction, CFSettings, CFState, DebtKey,
@@ -26,6 +26,7 @@ export const CF_DEFAULTS: Omit<CFSettings, 'seed'> = {
   turnLimit: 0,
   fastGoal: 50000,
   turnTimer: 0,
+  pace: 'classic',
 };
 
 export function createCashflow(settings: CFSettings, seats: SeatSpec[]): CFState {
@@ -120,6 +121,8 @@ export function reduce(prev: CFState, action: CFAction): CFReduction {
     case 'BUY_STOCK': buyStock(s, events, me, action.shares); break;
     case 'SELL_STOCK': sellStock(s, events, me, action.shares); break;
     case 'BUY_DEAL': buyDeal(s, events, me); break;
+    case 'OFFER_DEAL': offerDeal(s, events, me, action.fee); break;
+    case 'TAKE_DEAL': takeDeal(s, events, me); break;
     case 'SELL_HOLDING': sellHolding(s, events, me, action.holdingId); break;
     case 'DONATE': donate(s, events, me); break;
     case 'TAKE_LOAN': borrow(events, me, action.amount, false); break;
@@ -248,7 +251,7 @@ function escape(events: CFEvent[], p: CFPlayer, goalBonus: number): void {
 /* ----------------------------- movement ---------------------------- */
 
 function doRoll(s: CFState, events: CFEvent[], me: CFPlayer, requested: number | undefined): void {
-  const n = requested ?? (me.track === 'rat' ? 1 : 2);
+  const n = requested ?? defaultDice(s, me);
   const dice: number[] = [];
   for (let i = 0; i < n; i++) dice.push(randInt(s.settings.seed, s.rngCursor + i, 1, 6));
   s.rngCursor += n;
@@ -355,7 +358,9 @@ function moveFast(s: CFState, events: CFEvent[], me: CFPlayer, steps: number): v
 /* ------------------------------- money ------------------------------ */
 
 function payday(s: CFState, events: CFEvent[], me: CFPlayer): void {
-  const cf = monthlyCashflow(me);
+  const month = monthlyCashflow(me);
+  // A brisk game pays a good month twice over; a bad one is charged once.
+  const cf = month > 0 && isBrisk(s) ? month * BRISK_PAY : month;
   if (cf >= 0 || me.cash >= -cf) {
     me.cash += cf;
     events.push({ type: 'PAYDAY', playerId: me.id, amount: cf });
@@ -567,9 +572,15 @@ function sellStock(s: CFState, events: CFEvent[], me: CFPlayer, shares: number):
 }
 
 function buyDeal(s: CFState, events: CFEvent[], me: CFPlayer): void {
-  const card = tableCard(s);
-  if (!card || !s.card || card.deck === 'market' || card.deck === 'doodad' || card.kind !== 'holding') return;
+  const card = holdingCard(s);
+  if (!card || !s.card) return;
   me.cash -= card.down;
+  addHolding(s, me, card);
+  s.card.used = true;
+  events.push({ type: 'BOUGHT_HOLDING', playerId: me.id, tag: card.tag, down: card.down, cashflow: card.cashflow });
+}
+
+function addHolding(s: CFState, me: CFPlayer, card: HoldingCard): void {
   me.holdings.push({
     id: `h${s.nextId++}`,
     tag: card.tag,
@@ -579,8 +590,36 @@ function buyDeal(s: CFState, events: CFEvent[], me: CFPlayer): void {
     mortgage: card.cost - card.down,
     cashflow: card.cashflow,
   });
+}
+
+/**
+ * A deal the drawer cannot use or does not want goes up for grabs. The
+ * drawer names a finder's fee; it stays open to the rest of the Grind
+ * until the drawer ends the turn - or buys it after all.
+ */
+function offerDeal(s: CFState, events: CFEvent[], me: CFPlayer, fee: number): void {
+  const card = holdingCard(s);
+  if (!card || !s.card) return;
+  s.card.fee = fee;
+  events.push({ type: 'DEAL_OFFERED', playerId: me.id, tag: card.tag, fee });
+}
+
+/** First to take it has it: the fee to the drawer, the down payment to the seller. */
+function takeDeal(s: CFState, events: CFEvent[], me: CFPlayer): void {
+  const card = holdingCard(s);
+  if (!card || !s.card || s.card.fee === undefined) return;
+  const fee = s.card.fee;
+  const drawer = s.players[s.card.by];
+  me.cash -= card.down + fee;
+  if (drawer) drawer.cash += fee;
+  // On the Free Lane there is no statement to put it on: what it earns a
+  // month is paid every Dividend Day instead.
+  if (me.track === 'fast') me.fastIncome += card.cashflow;
+  else addHolding(s, me, card);
   s.card.used = true;
-  events.push({ type: 'BOUGHT_HOLDING', playerId: me.id, tag: card.tag, down: card.down, cashflow: card.cashflow });
+  events.push({
+    type: 'DEAL_PASSED', playerId: me.id, from: s.card.by, tag: card.tag, fee, down: card.down, cashflow: card.cashflow,
+  });
 }
 
 function sellHolding(s: CFState, events: CFEvent[], me: CFPlayer, holdingId: string): void {

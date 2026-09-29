@@ -169,7 +169,12 @@ export default function CashflowGame() {
         <aside className="cfGame__side" data-open={sheet === 'log' || undefined}>
           <SeatRequestsDock />
           <CoownerDock />
-          <CFActions s={s} myId={myId} dispatch={dispatch} />
+          <CFActions
+            s={s}
+            myId={myId}
+            dispatch={dispatch}
+            away={(id) => room.seats.find((x) => x.playerId === id)?.connected === false}
+          />
           {mine && <CFStatement s={s} p={mine} interactive dispatch={dispatch} />}
           <FeedView lines={lines} chat={chat} onSend={sendChat} />
         </aside>

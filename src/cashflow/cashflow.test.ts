@@ -7,7 +7,7 @@ import {
 } from './data';
 import { CF_DEFAULTS, createCashflow, reduce } from './engine';
 import {
-  autopilotAction, currentId, dreamPrice, legalActions, maxLoan, monthlyCashflow, passiveIncome,
+  autopilotAction, currentId, dreamPrice, holdKey, legalActions, maxLoan, monthlyCashflow, passiveIncome,
   totalExpenses, waitingOn,
 } from './rules';
 import type { CFAction, CFEvent, CFSettings, CFState } from './types';
@@ -280,6 +280,151 @@ describe('the Fast Track', () => {
 
 /* ---------------------------- hostile input --------------------------- */
 
+describe('a brisk pace', () => {
+  it('rolls two dice in the Grind, three with charity', () => {
+    const s = started(41, 3, { pace: 'brisk' });
+    const rolls = (st: CFState) => legalActions(st, 'p0').filter((a) => a.type === 'ROLL').map((a) => a.type === 'ROLL' && a.dice);
+    expect(rolls(s)).toEqual([2]);
+    expect(rolls(edit(s, (c) => { c.players.p0.charityTurns = 2; }))).toEqual([2, 3]);
+    expect(rolls(started(41))).toEqual([1]);
+    const r = reduce(s, { type: 'ROLL', playerId: 'p0' });
+    expect(r.state.dice).toHaveLength(2);
+  });
+
+  it('pays a good month twice at Pay Check, and a bad one once', () => {
+    for (const pace of ['classic', 'brisk'] as const) {
+      const s = edit(started(9, 3, { pace }), (c) => { c.players.p0.position = 4; });
+      const month = monthlyCashflow(s.players.p0);
+      const r = reduce(s, { type: 'ROLL', playerId: 'p0', dice: pace === 'brisk' ? 2 : 1 });
+      const paid = r.events.filter((e) => e.type === 'PAYDAY').map((e) => e.type === 'PAYDAY' && e.amount);
+      if (paid.length) expect(paid[0]).toBe(pace === 'brisk' ? month * 2 : month);
+    }
+    const broke = edit(started(9, 3, { pace: 'brisk' }), (c) => {
+      c.players.p0.position = 4;
+      c.players.p0.other += 5000;
+      c.players.p0.cash = 100000;
+    });
+    const month = monthlyCashflow(broke.players.p0);
+    const r = reduce(broke, { type: 'ROLL', playerId: 'p0', dice: 2 });
+    for (const e of r.events) if (e.type === 'PAYDAY') expect(e.amount).toBe(month);
+  });
+
+  it('still lets bots finish, sooner', () => {
+    for (const seed of [3, 17, 99]) {
+      const g = playBots(seed, 4, 60000, { pace: 'brisk' });
+      expect(g.stuck).toBeNull();
+      expect(g.s.phase).toBe('game_over');
+    }
+  });
+});
+
+describe('passing a deal on', () => {
+  const house = BIG_DEALS.find((c) => c.kind === 'holding' && c.cashflow > 0)!;
+  const down = house.kind === 'holding' ? house.down : 0;
+  const cashflow = house.kind === 'holding' ? house.cashflow : 0;
+  /** p0 has drawn a paying deal it cannot afford; p1 and p2 are flush. */
+  const drawn = (fee?: number) => edit(started(31), (c) => {
+    c.phase = 'turn_end';
+    c.card = { id: house.id, by: 'p0', used: false, ...(fee === undefined ? {} : { fee }) };
+    c.players.p0.cash = 0;
+    c.players.p1.cash = 100000;
+    c.players.p2.cash = 100000;
+  });
+
+  it('lets only the drawer offer it, for a fee no more than the down payment', () => {
+    const s = drawn();
+    expect(legalActions(s, 'p1').some((a) => a.type === 'TAKE_DEAL')).toBe(false);
+    expect(reduce(s, { type: 'OFFER_DEAL', playerId: 'p1', fee: 0 }).state).toBe(s);
+    expect(reduce(s, { type: 'OFFER_DEAL', playerId: 'p0', fee: down + 100 }).state).toBe(s);
+    expect(reduce(s, { type: 'OFFER_DEAL', playerId: 'p0', fee: 150 }).state).toBe(s);
+    expect(reduce(s, { type: 'OFFER_DEAL', playerId: 'p0', fee: -100 }).state).toBe(s);
+    const r = reduce(s, { type: 'OFFER_DEAL', playerId: 'p0', fee: 500 });
+    expect(r.state.card?.fee).toBe(500);
+    expect(r.events).toContainEqual({ type: 'DEAL_OFFERED', playerId: 'p0', tag: house.kind === 'holding' ? house.tag : 'house', fee: 500 });
+    // Offered once is offered.
+    expect(reduce(r.state, { type: 'OFFER_DEAL', playerId: 'p0', fee: 0 }).state).toBe(r.state);
+  });
+
+  it('moves the fee to the drawer and the deal to whoever takes it first', () => {
+    const s = drawn(500);
+    const r = reduce(s, { type: 'TAKE_DEAL', playerId: 'p2' });
+    const p2 = r.state.players.p2;
+    expect(p2.cash).toBe(100000 - down - 500);
+    expect(r.state.players.p0.cash).toBe(500);
+    expect(p2.holdings).toHaveLength(1);
+    expect(passiveIncome(p2)).toBe(cashflow);
+    expect(r.state.card?.used).toBe(true);
+    // Too late for anybody else, and for the drawer too.
+    expect(reduce(r.state, { type: 'TAKE_DEAL', playerId: 'p1' }).state).toBe(r.state);
+    expect(legalActions(r.state, 'p0').some((a) => a.type === 'BUY_DEAL' || a.type === 'OFFER_DEAL')).toBe(false);
+  });
+
+  it('needs the cash in hand, and a seat still in the game', () => {
+    const s = edit(drawn(500), (c) => {
+      c.players.p1.cash = down + 499;
+      c.players.p2.out = true;
+    });
+    expect(legalActions(s, 'p1').some((a) => a.type === 'TAKE_DEAL')).toBe(false);
+    expect(legalActions(s, 'p2').some((a) => a.type === 'TAKE_DEAL')).toBe(false);
+    const ok = edit(s, (c) => { c.players.p1.cash = down + 500; });
+    expect(reduce(ok, { type: 'TAKE_DEAL', playerId: 'p1' }).state.players.p1.cash).toBe(0);
+  });
+
+  it('closes when the drawer ends the turn', () => {
+    const s = reduce(drawn(0), { type: 'END_TURN', playerId: 'p0' }).state;
+    expect(s.card).toBeNull();
+    expect(legalActions(s, 'p2').some((a) => a.type === 'TAKE_DEAL')).toBe(false);
+  });
+
+  it('lets the Free Lane take a paying deal, onto its Dividend Day', () => {
+    const s = edit(drawn(1000), (c) => {
+      c.players.p2.track = 'fast';
+      c.players.p2.fastIncome = 20000;
+      c.players.p2.fastGoal = 70000;
+    });
+    const r = reduce(s, { type: 'TAKE_DEAL', playerId: 'p2' });
+    const p2 = r.state.players.p2;
+    expect(p2.fastIncome).toBe(20000 + cashflow);
+    expect(p2.holdings).toHaveLength(0);
+    expect(p2.cash).toBe(100000 - down - 1000);
+    expect(r.state.players.p0.cash).toBe(1000);
+  });
+
+  it('keeps a deal that earns nothing away from the Free Lane', () => {
+    const land = SMALL_DEALS.find((c) => c.kind === 'holding' && c.cashflow === 0)!;
+    const s = edit(drawn(0), (c) => {
+      c.card = { id: land.id, by: 'p0', used: false, fee: 0 };
+      c.players.p2.track = 'fast';
+      c.players.p2.fastGoal = 70000;
+    });
+    expect(legalActions(s, 'p2').some((a) => a.type === 'TAKE_DEAL')).toBe(false);
+    expect(legalActions(s, 'p1').some((a) => a.type === 'TAKE_DEAL')).toBe(true);
+  });
+
+  it('holds End Turn only while a person elsewhere could still act', () => {
+    const offered = drawn(0);
+    expect(holdKey(offered)).not.toBeNull();
+    // Bots answer in a second, and nobody waits on someone who has gone.
+    const bots = edit(offered, (c) => { c.players.p1.isBot = true; c.players.p2.isBot = true; });
+    expect(holdKey(bots)).toBeNull();
+    expect(holdKey(offered, () => true)).toBeNull();
+    // Not yet offered: nothing for anyone else to do.
+    expect(holdKey(drawn())).toBeNull();
+    // Taken: the hold lifts.
+    expect(holdKey(reduce(offered, { type: 'TAKE_DEAL', playerId: 'p1' }).state)).toBeNull();
+  });
+
+  it('is offered by a bot that passes on a deal, and taken by one that wants it', () => {
+    const s = edit(drawn(), (c) => {
+      for (const id of c.seats) { c.players[id].isBot = true; c.players[id].botLevel = 'normal'; }
+    });
+    const offer = botDecide(s, 'p0');
+    expect(offer?.type).toBe('OFFER_DEAL');
+    const offered = reduce(s, offer!).state;
+    expect(botDecide(offered, 'p1')).toEqual({ type: 'TAKE_DEAL', playerId: 'p1' });
+  });
+});
+
 describe('hostile input', () => {
   it('rejects out-of-turn and malformed actions without throwing', () => {
     const s = started(21);
@@ -397,9 +542,9 @@ describe('bots', () => {
     expect(fastWins).toBeGreaterThanOrEqual(games.length - 1);
   });
 
-  it('actually trade: buy deals, and sell into the market', () => {
+  it('actually trade: buy deals, pass them on, and sell into the market', () => {
     const kinds = new Set(games.flatMap((g) => g.events.map((e) => e.type)));
-    for (const k of ['BOUGHT_HOLDING', 'BOUGHT_STOCK', 'SOLD_HOLDING', 'PAYDAY', 'DOODAD', 'CASHFLOW_DAY']) {
+    for (const k of ['BOUGHT_HOLDING', 'BOUGHT_STOCK', 'SOLD_HOLDING', 'PAYDAY', 'DOODAD', 'CASHFLOW_DAY', 'DEAL_OFFERED', 'DEAL_PASSED']) {
       expect(kinds, k).toContain(k);
     }
   });

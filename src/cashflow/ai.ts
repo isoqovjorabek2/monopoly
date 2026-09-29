@@ -1,8 +1,8 @@
 import { rand } from '../game/rng';
 import type { BotLevel } from '../game/types';
-import { DREAM_IDS, FAST_BOARD, FAST_SIZE, LOAN_UNIT } from './data';
+import { DREAM_IDS, FAST_BOARD, FAST_SIZE, FEE_STEP, HOLD_SECONDS, LOAN_UNIT } from './data';
 import {
-  charityCost, currentId, dreamPrice, legalActions, maxLoan, progress,
+  charityCost, currentId, dreamPrice, holdingCard, legalActions, maxFee, maxLoan, progress,
   settlement, tableCard, totalExpenses,
 } from './rules';
 import type { CFAction, CFPlayer, CFState } from './types';
@@ -27,6 +27,13 @@ const MIN_ROI: Record<BotLevel, number> = { easy: 0.05, normal: 0.12, hard: 0.2 
  *  it can never raise it and send the bot back for another loan. */
 const BUY_CUSHION: Record<BotLevel, number> = { easy: 0, normal: 100, hard: 300 };
 
+/** The annual return a Free Lane bot wants from a deal passed up to it. */
+const FAST_MIN_ROI = 0.3;
+
+/** The finder's fee a bot asks for a deal it passes on, as a share of the
+ *  down payment. An easy bot just gives it away. */
+const FEE_SHARE: Record<BotLevel, number> = { easy: 0, normal: 0.1, hard: 0.2 };
+
 const coin = (s: CFState, salt: number): number =>
   rand(s.settings.seed, s.rngCursor * 31 + s.version * 7 + salt);
 
@@ -41,7 +48,7 @@ export function botDecide(s: CFState, pid: string): CFAction | null {
   if (s.phase === 'dreams') return pickDream(s, me, legal);
 
   // Selling into a card someone turned over is open on or off turn.
-  const sale = saleDecision(s, me, legal);
+  const sale = saleDecision(s, me, legal) ?? takeDecision(s, me, legal);
   if (sale) return sale;
 
   if (currentId(s) !== pid) return null;
@@ -53,7 +60,8 @@ export function botDecide(s: CFState, pid: string): CFAction | null {
     case 'choose_deal':
       return chooseDeck(s, me, legal);
     case 'turn_end':
-      return dealDecision(s, me, legal) ?? charityDecision(s, me, legal) ?? find(legal, 'END_TURN');
+      return dealDecision(s, me, legal) ?? offerDecision(me, legal, s)
+        ?? charityDecision(s, me, legal) ?? find(legal, 'END_TURN');
     default:
       return null;
   }
@@ -195,6 +203,40 @@ function dealDecision(s: CFState, me: CFPlayer, legal: CFAction[]): CFAction | n
   return { type: 'TAKE_LOAN', playerId: me.id, amount: loan };
 }
 
+/** A deal the bot will not buy goes to the table rather than the bin -
+ *  unless it loses money, which nobody should be sold. */
+function offerDecision(me: CFPlayer, legal: CFAction[], s: CFState): CFAction | null {
+  const card = holdingCard(s);
+  if (!card || card.cashflow < 0 || !find(legal, 'OFFER_DEAL')) return null;
+  let fee = Math.min(maxFee(card), Math.floor((card.down * FEE_SHARE[me.botLevel]) / FEE_STEP) * FEE_STEP);
+  // Somebody on the Free Lane can afford the whole fee: charge it. Selling
+  // tips to the rich is how the Grind catches up.
+  const rich = s.seats.some((id) => {
+    const p = s.players[id];
+    return id !== me.id && !p.out && p.track === 'fast' && p.cash >= card.down + maxFee(card);
+  });
+  if (rich && me.botLevel !== 'easy' && card.cashflow > 0) fee = maxFee(card);
+  return { type: 'OFFER_DEAL', playerId: me.id, fee };
+}
+
+/** Somebody else's offered deal, judged like one of its own - with the fee
+ *  counted into the money it ties up, and no loan to reach it. */
+function takeDecision(s: CFState, me: CFPlayer, legal: CFAction[]): CFAction | null {
+  const take = find(legal, 'TAKE_DEAL');
+  const card = holdingCard(s);
+  if (!take || !card || !s.card || card.cashflow <= 0) return null;
+  const outlay = card.down + (s.card.fee ?? 0);
+  const roi = (card.cashflow * 12) / Math.max(outlay, 1);
+  if (me.track === 'fast') {
+    // Measured against the Free Lane's own businesses, which return about a
+    // third of their price a year - and never at the cost of the dream.
+    const reserve = me.botLevel === 'easy' ? 0 : dreamPrice(me) * 0.5;
+    return me.cash - outlay >= reserve && roi >= FAST_MIN_ROI ? take : null;
+  }
+  if (me.cash - outlay < keepFor(me)) return null;
+  return roi >= MIN_ROI[me.botLevel] ? take : null;
+}
+
 function charityDecision(s: CFState, me: CFPlayer, legal: CFAction[]): CFAction | null {
   const give = find(legal, 'DONATE');
   if (!give) return null;
@@ -268,8 +310,8 @@ export function botDelay(s: CFState, pid: string): number {
   let base = s.phase === 'dreams' ? 450 : 750;
   if (s.card && s.phase === 'turn_end' && currentId(s) === pid) {
     const humanCanSell = s.seats.some((id) => id !== pid && !s.players[id].isBot
-      && legalActions(s, id).some((a) => a.type === 'SELL_STOCK' || a.type === 'SELL_HOLDING'));
-    base = humanCanSell ? 5200 : 1500;
+      && legalActions(s, id).some((a) => a.type === 'SELL_STOCK' || a.type === 'SELL_HOLDING' || a.type === 'TAKE_DEAL'));
+    base = humanCanSell ? HOLD_SECONDS * 1000 + 200 : 1500;
   }
   return base + coin(s, 7) * 500;
 }

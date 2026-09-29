@@ -190,6 +190,10 @@ export type CFPhase =
   | 'turn_end'
   | 'game_over';
 
+/** Classic is the full-length game. Brisk shortens the Grind - see
+ *  PACE in data.ts for exactly what it changes. */
+export type CFPace = 'classic' | 'brisk';
+
 export interface CFSettings {
   seed: number;
   maxPlayers: number;
@@ -205,6 +209,8 @@ export interface CFSettings {
   /** Seconds a player has for each decision before the host plays it for
    *  them. 0 = no clock; a player who has dropped off is covered either way. */
   turnTimer: number;
+  /** Absent in games saved before it existed, which were all classic. */
+  pace?: CFPace;
 }
 
 /** Where everyone stood at the start of a round, for the closing chart. */
@@ -215,7 +221,7 @@ export interface CFHistoryPoint {
 }
 
 /** The part of the settings the lobby shows as Cashflow's own rules. */
-export type CFRules = Pick<CFSettings, 'strictLoans' | 'turnLimit' | 'fastGoal'>;
+export type CFRules = Pick<CFSettings, 'strictLoans' | 'turnLimit' | 'fastGoal' | 'pace'>;
 
 export interface CFTableCard {
   id: string;
@@ -223,6 +229,10 @@ export interface CFTableCard {
   by: string;
   /** A deal that has been bought, so it cannot be bought twice. */
   used: boolean;
+  /** Set once the drawer offers a deal they will not buy to the table: the
+   *  finder's fee anyone else in the Grind pays them to take it over.
+   *  Absent while the deal is still only theirs. */
+  fee?: number;
 }
 
 export interface CFState {
@@ -270,6 +280,11 @@ export type CFAction =
   | { type: 'BUY_STOCK'; playerId: string; shares: number }
   | { type: 'SELL_STOCK'; playerId: string; shares: number }
   | { type: 'BUY_DEAL'; playerId: string }
+  /** The drawer puts a deal they drew up for grabs, for a finder's fee. */
+  | { type: 'OFFER_DEAL'; playerId: string; fee: number }
+  /** Anyone else in the Grind takes an offered deal: fee to the drawer,
+   *  down payment to the seller. */
+  | { type: 'TAKE_DEAL'; playerId: string }
   | { type: 'SELL_HOLDING'; playerId: string; holdingId: string }
   | { type: 'DONATE'; playerId: string }
   | { type: 'TAKE_LOAN'; playerId: string; amount: number }
@@ -298,6 +313,8 @@ export type CFEvent =
   | { type: 'SOLD_STOCK'; playerId: string; symbol: string; shares: number; price: number }
   | { type: 'SPLIT'; symbol: string; factor: number }
   | { type: 'BOUGHT_HOLDING'; playerId: string; tag: HoldingTag; down: number; cashflow: number }
+  | { type: 'DEAL_OFFERED'; playerId: string; tag: HoldingTag; fee: number }
+  | { type: 'DEAL_PASSED'; playerId: string; from: string; tag: HoldingTag; fee: number; down: number; cashflow: number }
   | { type: 'SOLD_HOLDING'; playerId: string; tag: HoldingTag; price: number; settlement: number }
   | { type: 'BOOST'; tag: HoldingTag; delta: number; count: number }
   | { type: 'REPAIR'; playerId: string; cost: number }

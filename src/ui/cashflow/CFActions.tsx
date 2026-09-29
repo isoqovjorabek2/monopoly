@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { TakeSeatPanel } from '../Account';
-import { FAST_BOARD, LOAN_UNIT, RAT_BOARD } from '../../cashflow/data';
+import { FAST_BOARD, FEE_STEP, HOLD_SECONDS, LOAN_UNIT, RAT_BOARD } from '../../cashflow/data';
 import {
-  charityCost, clockKey, clockSeconds, currentId, dreamPrice, legalActions, maxLoan,
-  settlement, tableCard,
+  charityCost, clockKey, clockSeconds, currentId, dealImpact, dreamPrice, holdKey, holdingCard, legalActions,
+  maxFee, maxLoan, settlement, tableCard,
 } from '../../cashflow/rules';
 import type { CFAction, CFPlayer, CFState } from '../../cashflow/types';
 import { money } from '../../game/describe';
@@ -18,7 +18,9 @@ type Dispatch = (a: CFAction) => void;
  * from legalActions(), so the panel can never offer a move the engine
  * would refuse - and a control that is missing says why underneath.
  */
-export function CFActions({ s, myId, dispatch }: { s: CFState; myId: string; dispatch: Dispatch }) {
+export function CFActions({
+  s, myId, dispatch, away,
+}: { s: CFState; myId: string; dispatch: Dispatch; away?: (id: string) => boolean }) {
   const t = useT();
   const A = t.cf.actions;
   const me = s.players[myId];
@@ -60,6 +62,7 @@ export function CFActions({ s, myId, dispatch }: { s: CFState; myId: string; dis
         <p className="actions__title" style={{ color: cur?.color }}>{A.theirTurn(cur?.name ?? '')}</p>
         <p className="muted small">{me.skipTurns > 0 ? A.sitting(me.skipTurns) : A.waitNote}</p>
         {cardBlock}
+        <TakeControls s={s} me={me} legal={legal} dispatch={dispatch} />
         <SaleControls s={s} me={me} legal={legal} dispatch={dispatch} />
       </section>
     );
@@ -92,15 +95,7 @@ export function CFActions({ s, myId, dispatch }: { s: CFState; myId: string; dis
           <BuyControls s={s} me={me} legal={legal} dispatch={dispatch} />
           <SaleControls s={s} me={me} legal={legal} dispatch={dispatch} />
           <LandingControls s={s} me={me} legal={legal} dispatch={dispatch} />
-          <button
-            type="button"
-            className="btn btn--primary btn--block"
-            data-hotkey="advance"
-            onClick={() => dispatch({ type: 'END_TURN', playerId: myId })}
-          >
-            {A.endTurn}
-            <kbd className="kbd">{t.common.keySpace}</kbd>
-          </button>
+          <EndTurn s={s} myId={myId} dispatch={dispatch} away={away} />
         </>
       )}
     </section>
@@ -108,6 +103,56 @@ export function CFActions({ s, myId, dispatch }: { s: CFState; myId: string; dis
 }
 
 interface Part { s: CFState; me: CFPlayer; legal: CFAction[]; dispatch: Dispatch }
+
+/** True until `seconds` have passed since `key` last changed; a null key
+ *  is never held. */
+function useHold(key: string | null, seconds: number): boolean {
+  const [done, setDone] = useState<string | null>(null);
+  useEffect(() => {
+    if (!key) return undefined;
+    const timer = window.setTimeout(() => setDone(key), seconds * 1000);
+    return () => window.clearTimeout(timer);
+  }, [key, seconds]);
+  return key !== null && done !== key;
+}
+
+/**
+ * End Turn, held for a few seconds while someone else at the table could
+ * still sell into the card or take the deal. The hold shows as a line of
+ * brass burning round the button's edge; when it has burnt through, the
+ * button - and Space - work again.
+ */
+function EndTurn({
+  s, myId, dispatch, away,
+}: { s: CFState; myId: string; dispatch: Dispatch; away?: (id: string) => boolean }) {
+  const t = useT();
+  const A = t.cf.actions;
+  const key = holdKey(s, away);
+  const held = useHold(key, HOLD_SECONDS);
+  const left = useCountdown(held ? HOLD_SECONDS : 0, key ?? '');
+  return (
+    <>
+      <button
+        type="button"
+        className="btn btn--primary btn--block cfEndTurn"
+        data-hotkey="advance"
+        data-held={held || undefined}
+        disabled={held}
+        aria-describedby={held ? 'cf-hold-note' : undefined}
+        onClick={() => dispatch({ type: 'END_TURN', playerId: myId })}
+      >
+        {held && (
+          <svg className="cfEndTurn__fuse" aria-hidden="true" key={key ?? ''}>
+            <rect className="cfEndTurn__line" pathLength={100} style={{ animationDuration: `${HOLD_SECONDS}s` }} />
+          </svg>
+        )}
+        {A.endTurn}
+        {held && left != null ? <span className="num cfEndTurn__left">{left}</span> : <kbd className="kbd">{t.common.keySpace}</kbd>}
+      </button>
+      {held && <p id="cf-hold-note" className="muted small">{A.holdNote}</p>}
+    </>
+  );
+}
 
 function RollControls({ me, legal, dispatch }: Omit<Part, 's'>) {
   const t = useT();
@@ -189,21 +234,22 @@ function StockBuy({ s, me, dispatch }: Part) {
 function DealBuy({ s, me, legal, dispatch }: Part) {
   const t = useT();
   const A = t.cf.actions;
-  const card = tableCard(s);
-  if (!card || card.deck === 'market' || card.deck === 'doodad' || card.kind !== 'holding' || !s.card) return null;
+  const card = holdingCard(s);
+  if (!card || !s.card) return null;
   if (s.card.used) return <p className="muted small">{A.bought}</p>;
 
+  let buy: JSX.Element;
+  let loan = 0;
   if (legal.some((a) => a.type === 'BUY_DEAL')) {
-    return (
+    buy = (
       <button type="button" className="btn btn--block" onClick={() => dispatch({ type: 'BUY_DEAL', playerId: me.id })}>
         {A.buyDeal(fmt(card.down))}
       </button>
     );
-  }
-  // Short: the bank can make up the difference if the pay cheque allows.
-  const loan = Math.ceil((card.down - me.cash) / LOAN_UNIT) * LOAN_UNIT;
-  if (loan > 0 && loan <= maxLoan(s, me)) {
-    return (
+  } else {
+    // Short: the bank can make up the difference if the pay cheque allows.
+    loan = Math.ceil((card.down - me.cash) / LOAN_UNIT) * LOAN_UNIT;
+    buy = loan > 0 && loan <= maxLoan(s, me) ? (
       <button
         type="button"
         className="btn btn--block"
@@ -214,9 +260,105 @@ function DealBuy({ s, me, legal, dispatch }: Part) {
       >
         {A.borrowToBuy(fmt(loan))}
       </button>
-    );
+    ) : <p className="muted small">{A.cannotAfford}</p>;
+    if (loan > maxLoan(s, me)) loan = 0;
   }
-  return <p className="muted small">{A.cannotAfford}</p>;
+  return (
+    <>
+      <Impact me={me} cashflow={card.cashflow} loan={loan} />
+      {buy}
+      <OfferControls s={s} me={me} legal={legal} dispatch={dispatch} />
+    </>
+  );
+}
+
+/** What the deal would do to this player's own numbers - the part a deal
+ *  card cannot print, because it depends on who is reading it. */
+function Impact({ me, cashflow, loan = 0 }: { me: CFPlayer; cashflow: number; loan?: number }) {
+  const t = useT();
+  const I = t.cf.actions.impact;
+  if (me.track !== 'rat') return null;
+  const d = dealImpact(me, cashflow, loan);
+  const out = (passive: number, expenses: number) => `${Math.min(100, Math.round((passive / Math.max(expenses, 1)) * 100))}%`;
+  const tone = (a: number, b: number) => (b > a ? 'cfImpact__up' : b < a ? 'cfImpact__down' : undefined);
+  const row = (label: string, before: string, after: string, cls?: string) => (
+    <div className="cfImpact__row">
+      <dt>{label}</dt>
+      <dd className="num">{before} → <span className={cls}>{after}</span></dd>
+    </div>
+  );
+  return (
+    <dl className="cfImpact">
+      <p className="cfImpact__head">{I.title}</p>
+      {row(I.payCheck, money(d.payBefore), money(d.payAfter), tone(d.payBefore, d.payAfter))}
+      {row(I.passive, fmt(d.passiveBefore), fmt(d.passiveAfter), tone(d.passiveBefore, d.passiveAfter))}
+      {row(
+        I.escape,
+        out(d.passiveBefore, d.expensesBefore),
+        out(d.passiveAfter, d.expensesAfter),
+        tone(d.passiveBefore / Math.max(d.expensesBefore, 1), d.passiveAfter / Math.max(d.expensesAfter, 1)),
+      )}
+      {d.frees && <p className="cfImpact__frees">{I.frees}</p>}
+    </dl>
+  );
+}
+
+/** The drawer puts a deal they will not buy up for grabs. */
+function OfferControls({ s, me, legal, dispatch }: Part) {
+  const t = useT();
+  const A = t.cf.actions;
+  const card = holdingCard(s);
+  if (!card || !s.card || s.card.used) return null;
+  if (s.card.fee !== undefined) {
+    return <p className="muted small">{s.card.fee > 0 ? A.offered(fmt(s.card.fee)) : A.offeredFree}</p>;
+  }
+  if (!legal.some((a) => a.type === 'OFFER_DEAL')) return null;
+  const cap = maxFee(card);
+  const at = (share: number) => Math.min(cap, Math.round((card.down * share) / FEE_STEP) * FEE_STEP);
+  const fees = [...new Set([0, at(0.1), at(0.25)])];
+  return (
+    <div className="cfOffer">
+      <p className="cfOffer__title">{A.offerTitle}</p>
+      <div className="actions__row">
+        {fees.map((fee) => (
+          <button
+            key={fee}
+            type="button"
+            className="btn btn--sm"
+            onClick={() => dispatch({ type: 'OFFER_DEAL', playerId: me.id, fee })}
+          >
+            {fee === 0 ? A.offerFree : A.offerFor(fmt(fee))}
+          </button>
+        ))}
+      </div>
+      <p className="muted small">{A.offerNote}</p>
+    </div>
+  );
+}
+
+/** Somebody else's deal, passed across the table. */
+function TakeControls({ s, me, legal, dispatch }: Part) {
+  const t = useT();
+  const A = t.cf.actions;
+  const card = holdingCard(s);
+  if (!card || !s.card || s.card.used || s.card.fee === undefined || s.card.by === me.id) return null;
+  if (me.out || (me.track === 'fast' && card.cashflow <= 0)) return null;
+  const fee = s.card.fee;
+  const from = s.players[s.card.by]?.name ?? '';
+  const can = legal.some((a) => a.type === 'TAKE_DEAL');
+  return (
+    <div className="cfOffer">
+      <p className="cfOffer__title">{A.takeOffer(from)}</p>
+      {me.track === 'rat'
+        ? <Impact me={me} cashflow={card.cashflow} />
+        : <p className="muted small">{A.businessNote(fmt(card.cashflow))}</p>}
+      {can ? (
+        <button type="button" className="btn btn--primary btn--block" onClick={() => dispatch({ type: 'TAKE_DEAL', playerId: me.id })}>
+          {fee > 0 ? A.take(fmt(fee), fmt(card.down)) : A.takeFree(fmt(card.down))}
+        </button>
+      ) : <p className="muted small">{A.takeShort(fmt(card.down + fee))}</p>}
+    </div>
+  );
 }
 
 /** Selling into a card on the table - open to anyone who holds the asset,

@@ -5,6 +5,7 @@ import { passiveIncome, progress, totalExpenses } from '../../cashflow/rules';
 import type { CFAction, CFState } from '../../cashflow/types';
 import { useT } from '../../i18n';
 import { Avatar, Modal, fmt } from '../bits';
+import { CFRaceChart } from './CFRaceChart';
 import { CFStatement } from './CFStatement';
 
 const noop = () => {};
@@ -93,6 +94,7 @@ export function CFGameOver({
           </li>
         ))}
       </ol>
+      <CFRaceChart s={s} />
       {onRematch ? (
         <>
           <button type="button" className="btn btn--primary btn--block" onClick={onRematch}>{t.table.rematch.again}</button>

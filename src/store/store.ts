@@ -66,6 +66,7 @@ export const CF_RULES_DEFAULT: CFRules = {
   strictLoans: CF_DEFAULTS.strictLoans,
   turnLimit: CF_DEFAULTS.turnLimit,
   fastGoal: CF_DEFAULTS.fastGoal,
+  pace: CF_DEFAULTS.pace,
 };
 
 /** Seats a room can hold, which depends on the game it plays. */

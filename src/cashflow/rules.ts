@@ -1,8 +1,8 @@
 import {
-  DEBT_KEYS, DREAM_IDS, FAST_BOARD, LOAN_UNIT, RAT_BOARD, RENTAL_TAGS, cfCard,
+  DEBT_KEYS, DREAM_IDS, FAST_BOARD, FEE_STEP, LOAN_UNIT, RAT_BOARD, RENTAL_TAGS, cfCard,
 } from './data';
 import type {
-  CFAction, CFCard, CFHolding, CFPlayer, CFState, MarketCard,
+  CFAction, CFCard, CFHolding, CFPlayer, CFState, DealCard, MarketCard,
 } from './types';
 
 /* ------------------------------------------------------------------ *
@@ -81,6 +81,29 @@ export function progress(s: CFState, p: CFPlayer): number {
   return Math.min(0.999, passiveIncome(p) / Math.max(totalExpenses(p), 1));
 }
 
+export interface DealImpact {
+  payBefore: number; payAfter: number;
+  passiveBefore: number; passiveAfter: number;
+  expensesBefore: number; expensesAfter: number;
+  /** Passive income would beat expenses: the deal is the way out. */
+  frees: boolean;
+}
+
+/** A deal's effect on a player's statement, with any loan it takes to
+ *  reach it. What the deal card cannot say, because it depends on you. */
+export function dealImpact(p: CFPlayer, cashflow: number, loan = 0): DealImpact {
+  const passiveBefore = passiveIncome(p);
+  const expensesBefore = totalExpenses(p);
+  const passiveAfter = passiveBefore + cashflow;
+  const expensesAfter = expensesBefore + Math.round(loan / 10);
+  return {
+    payBefore: monthlyCashflow(p),
+    payAfter: monthlyCashflow(p) + cashflow - Math.round(loan / 10),
+    passiveBefore, passiveAfter, expensesBefore, expensesAfter,
+    frees: p.track === 'rat' && passiveBefore <= expensesBefore && passiveAfter > expensesAfter,
+  };
+}
+
 /* --------------------------- the card on the table ---------------------- */
 
 export type OfferCard = Extract<MarketCard, { kind: 'offer' }>;
@@ -96,12 +119,20 @@ export const settlement = (c: OfferCard, h: CFHolding): number => offerValue(c, 
 
 /* ------------------------------- dice ---------------------------------- */
 
-export function diceOptions(p: CFPlayer): number[] {
-  if (p.track === 'rat') return p.charityTurns > 0 ? [1, 2] : [1];
+export const isBrisk = (s: CFState): boolean => s.settings.pace === 'brisk';
+
+/** Dice in the Grind: one, or two at a brisk pace. Charity adds one more. */
+const ratDice = (s: CFState): number => (isBrisk(s) ? 2 : 1);
+
+export function diceOptions(s: CFState, p: CFPlayer): number[] {
+  if (p.track === 'rat') {
+    const n = ratDice(s);
+    return p.charityTurns > 0 ? [n, n + 1] : [n];
+  }
   return p.fastCharity ? [1, 2, 3] : [2];
 }
 
-export const defaultDice = (p: CFPlayer): number => (p.track === 'rat' ? 1 : 2);
+export const defaultDice = (s: CFState, p: CFPlayer): number => (p.track === 'rat' ? ratDice(s) : 2);
 
 /* ---------------------------- legal actions ---------------------------- *
  * The one authority. Amounts that can vary (shares, loans) appear here once
@@ -143,16 +174,23 @@ export function legalActions(s: CFState, pid: string): CFAction[] {
       }
     }
     if (card.deck !== 'market' && card.deck !== 'doodad' && card.kind === 'holding'
-      && isCurrent && s.card?.by === pid && !s.card.used && me.cash >= card.down) {
-      out.push({ type: 'BUY_DEAL', playerId: pid });
+      && s.card && !s.card.used) {
+      const mine = isCurrent && s.card.by === pid;
+      if (mine && me.cash >= card.down) out.push({ type: 'BUY_DEAL', playerId: pid });
+      if (mine && s.card.fee === undefined && hasTaker(s, pid, card)) {
+        out.push({ type: 'OFFER_DEAL', playerId: pid, fee: 0 });
+      }
     }
   }
+
+  /* --- a deal passed across the table: open to the Grind and the Free Lane --- */
+  if (card && s.card && canTake(s, me, card)) out.push({ type: 'TAKE_DEAL', playerId: pid });
 
   if (!isCurrent) return out;
 
   switch (s.phase) {
     case 'roll':
-      for (const n of diceOptions(me)) out.push({ type: 'ROLL', playerId: pid, dice: n });
+      for (const n of diceOptions(s, me)) out.push({ type: 'ROLL', playerId: pid, dice: n });
       pushMoneyActions(s, me, out);
       break;
 
@@ -173,6 +211,34 @@ export function legalActions(s: CFState, pid: string): CFAction[] {
   }
   return out;
 }
+
+/** Who an offered deal could go to: anyone else still in the Grind, and
+ *  anyone on the Free Lane - for whom it only makes sense if it pays, since
+ *  its monthly cash flow is added to their Dividend Day income. */
+const couldTake = (p: CFPlayer, c: CFCard): boolean =>
+  !p.out && c.deck !== 'market' && c.deck !== 'doodad' && c.kind === 'holding'
+  && (p.track === 'rat' || c.cashflow > 0);
+
+const hasTaker = (s: CFState, pid: string, c: CFCard): boolean =>
+  s.seats.some((id) => id !== pid && couldTake(s.players[id], c));
+
+/** An offered deal this player may take right now, cash in hand. */
+function canTake(s: CFState, me: CFPlayer, c: CFCard): boolean {
+  if (!s.card || s.card.used || s.card.fee === undefined || s.card.by === me.id) return false;
+  if (c.deck === 'market' || c.deck === 'doodad' || c.kind !== 'holding') return false;
+  return couldTake(me, c) && me.cash >= c.down + s.card.fee;
+}
+
+export type HoldingCard = Extract<DealCard, { kind: 'holding' }>;
+
+/** The deal on the table, when it is real estate or a business. */
+export function holdingCard(s: CFState): HoldingCard | null {
+  const c = tableCard(s);
+  return c && c.deck !== 'market' && c.deck !== 'doodad' && c.kind === 'holding' ? c : null;
+}
+
+/** The largest finder's fee the drawer may ask: the deal's down payment. */
+export const maxFee = (c: HoldingCard): number => Math.floor(c.down / FEE_STEP) * FEE_STEP;
 
 /** Decisions that stay open until the turn is ended. */
 function pushLandingActions(s: CFState, me: CFPlayer, out: CFAction[]): void {
@@ -243,7 +309,7 @@ export function isLegal(s: CFState, a: CFAction): boolean {
     case 'CHOOSE_DREAM':
       return same.some((x) => x.type === 'CHOOSE_DREAM' && x.spaceId === a.spaceId);
     case 'ROLL': {
-      const n = a.dice ?? defaultDice(me);
+      const n = a.dice ?? defaultDice(s, me);
       return same.some((x) => x.type === 'ROLL' && x.dice === n);
     }
     case 'DRAW_DEAL':
@@ -258,6 +324,10 @@ export function isLegal(s: CFState, a: CFAction): boolean {
       if (!card || card.deck === 'market' || card.deck === 'doodad' || card.kind !== 'stock') return false;
       const lot = me.stocks.find((l) => l.symbol === card.symbol);
       return Number.isInteger(a.shares) && a.shares > 0 && !!lot && a.shares <= lot.shares;
+    }
+    case 'OFFER_DEAL': {
+      const c = holdingCard(s);
+      return !!c && Number.isInteger(a.fee) && a.fee >= 0 && a.fee % FEE_STEP === 0 && a.fee <= maxFee(c);
     }
     case 'SELL_HOLDING':
       return same.some((x) => x.type === 'SELL_HOLDING' && x.holdingId === a.holdingId);
@@ -300,7 +370,7 @@ export function autopilotAction(s: CFState, pid: string): CFAction | null {
     case 'dreams':
       return legal.find((a) => a.type === 'CHOOSE_DREAM') ?? null;
     case 'roll':
-      return legal.find((a) => a.type === 'ROLL' && a.dice === defaultDice(me))
+      return legal.find((a) => a.type === 'ROLL' && a.dice === defaultDice(s, me))
         ?? legal.find((a) => a.type === 'ROLL') ?? null;
     case 'choose_deal':
       return legal.find((a) => a.type === 'DRAW_DEAL' && a.deck === 'small') ?? null;
@@ -309,6 +379,25 @@ export function autopilotAction(s: CFState, pid: string): CFAction | null {
     default:
       return null;
   }
+}
+
+/**
+ * What End Turn is being held for, if anything: a card on the table that a
+ * person at another seat - not a bot, which answers in a second, and not a
+ * dropped connection, which cannot answer - could still act on. The key
+ * changes with the card and with an offer, so each restarts the hold; it
+ * goes null the moment nobody is left who could act, which lifts it early.
+ */
+export function holdKey(s: CFState, away: (id: string) => boolean = () => false): string | null {
+  if (s.phase !== 'turn_end' || !s.card) return null;
+  const cur = currentId(s);
+  const card = s.card;
+  const someone = s.seats.some((id) => {
+    const p = s.players[id];
+    if (id === cur || p.out || p.isBot || !p.connected || away(id)) return false;
+    return legalActions(s, id).some((a) => a.type === 'SELL_STOCK' || a.type === 'SELL_HOLDING' || a.type === 'TAKE_DEAL');
+  });
+  return someone ? `${s.turnNumber}|${card.id}|${card.fee ?? '-'}` : null;
 }
 
 /** What the clock is timing. The host's timeout and every player's

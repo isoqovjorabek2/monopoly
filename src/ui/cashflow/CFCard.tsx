@@ -102,6 +102,9 @@ export function CFTableCardView({ s }: { s: CFState }) {
         <span className="cfCard__deck">{t.cf.decks[card.deck]}</span>
       </header>
       <div className="cfCard__body">{body}</div>
+      {s.card.fee !== undefined && !s.card.used && (
+        <p className="cfCard__offer">{s.card.fee > 0 ? C.offered(fmt(s.card.fee)) : C.offeredFree}</p>
+      )}
       <footer className="cfCard__by" style={{ color: by?.color }}>{C.drawnBy(by?.name ?? '')}</footer>
     </article>
   );

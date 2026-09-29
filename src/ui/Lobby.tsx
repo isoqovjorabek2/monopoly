@@ -254,6 +254,7 @@ export function Lobby() {
             <>
               <span className="chip num">{t.cf.lobby.chipGoal(fmt(room.cfRules.fastGoal))}</span>
               <span className="chip">{room.cfRules.strictLoans ? t.cf.lobby.strict : t.cf.lobby.open}</span>
+              <span className="chip">{room.cfRules.pace === 'brisk' ? t.cf.lobby.chipBrisk : t.cf.lobby.chipClassic}</span>
               <span className="chip">
                 {room.cfRules.turnLimit > 0 ? t.cf.lobby.chipRounds(room.cfRules.turnLimit) : t.cf.lobby.noLimit}
               </span>
@@ -508,6 +509,12 @@ function CashflowSettings({
             hint={C.strictLoans[1]}
             checked={r.strictLoans}
             onChange={(v) => setRules({ strictLoans: v })}
+          />
+          <Toggle
+            label={C.pace[0]}
+            hint={C.pace[1]}
+            checked={r.pace === 'brisk'}
+            onChange={(v) => setRules({ pace: v ? 'brisk' : 'classic' })}
           />
           <div className="labelled">
             <Slider

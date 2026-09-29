@@ -55,6 +55,21 @@ export const MAX_CHILDREN = 3;
 export const LOAN_UNIT = 1000;
 export const LOAN_RATE = 0.1;
 
+/** A brisk game: two dice in the Grind instead of one (see diceOptions),
+ *  and every Pay Check with money in it pays this many months. Measured
+ *  on four normal bots, it takes a game from ~40 rounds to ~27, and the
+ *  first escape from round ~30 to ~17. */
+export const BRISK_PAY = 2;
+
+/** Seconds the drawer's End Turn is held while somebody else at the table
+ *  could still sell into the card or take the deal - so a quick finger on
+ *  one side of the table cannot close a chance on the other. */
+export const HOLD_SECONDS = 5;
+
+/** Finder's fees for a deal passed across the table: multiples of this,
+ *  and never more than the deal's own down payment. */
+export const FEE_STEP = 100;
+
 /** Dividend Day income on leaving the Grind: this times passive income. */
 export const BUYOUT_MULTIPLE = 100;
 

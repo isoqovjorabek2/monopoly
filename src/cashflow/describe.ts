@@ -34,6 +34,8 @@ export function cfLogLine(e: CFEvent, seq: number): CFLogLine | null {
     case 'SOLD_STOCK': return line(e.playerId, 'good');
     case 'SPLIT': return line(null);
     case 'BOUGHT_HOLDING': return line(e.playerId, 'good');
+    case 'DEAL_OFFERED': return line(e.playerId);
+    case 'DEAL_PASSED': return line(e.playerId, 'good');
     case 'SOLD_HOLDING': return line(e.playerId, 'good');
     case 'BOOST': return line(null, 'good');
     case 'REPAIR': return line(e.playerId, 'bad');
@@ -121,6 +123,14 @@ export function cfDescribe(s: CFState, e: CFEvent, t: Dict): string {
     case 'SPLIT': return e.factor === 2 ? L.split(e.symbol) : L.reverse(e.symbol);
     case 'BOUGHT_HOLDING':
       return L.boughtHolding(name(e.playerId), t.cf.tags[e.tag], money(e.down), money(e.cashflow));
+    case 'DEAL_OFFERED':
+      return e.fee > 0
+        ? L.dealOffered(name(e.playerId), t.cf.tags[e.tag], money(e.fee))
+        : L.dealOfferedFree(name(e.playerId), t.cf.tags[e.tag]);
+    case 'DEAL_PASSED':
+      return e.fee > 0
+        ? L.dealPassed(name(e.playerId), t.cf.tags[e.tag], name(e.from), money(e.fee))
+        : L.dealPassedFree(name(e.playerId), t.cf.tags[e.tag], name(e.from));
     case 'SOLD_HOLDING': return L.soldHolding(name(e.playerId), t.cf.tags[e.tag], money(e.settlement));
     case 'BOOST': return L.boost(t.cf.tags[e.tag], money(e.delta));
     case 'REPAIR': return L.repair(name(e.playerId), money(e.cost));
