@@ -6,6 +6,10 @@ import { themedMedal } from '../art/art';
 import { hasPlus, refreshPass, useAccount } from '../net/account';
 import { checkoutReady, onPurchase, openCheckout } from '../net/checkout';
 import { SKINS } from '../net/plus';
+import { PLUS_REACTIONS, reactionTtl, type PlusReaction } from '../net/reactions';
+import { play } from '../audio/sfx';
+import { useStore } from '../store/store';
+import { Showpiece } from './PlusFx';
 import { PLANS, YEARLY_SAVING, usd, type PlanId } from '../net/pricing';
 import { Avatar, Modal } from './bits';
 
@@ -48,6 +52,14 @@ export function PlusSheet({ open, onClose }: { open: boolean; onClose: () => voi
   const [failed, setFailed] = useState(false);
   const [thanks, setThanks] = useState(false);
   const active = hasPlus(account);
+  // A showpiece being tried out: played for real, over the sheet.
+  const [trying, setTrying] = useState<{ key: number; emoji: PlusReaction } | null>(null);
+  const tryOut = (emoji: PlusReaction) => {
+    const key = Date.now();
+    setTrying({ key, emoji });
+    play('chime', useStore.getState().soundOn);
+    window.setTimeout(() => setTrying((v) => (v?.key === key ? null : v)), reactionTtl(emoji));
+  };
   const ready = checkoutReady();
 
   useEffect(() => onPurchase(() => setThanks(true)), []);
@@ -90,8 +102,8 @@ export function PlusSheet({ open, onClose }: { open: boolean; onClose: () => voi
         <p className="plusSheet__lead">{P.lead}</p>
         <ul className="plusSheet__perks">
           {P.perks.map(([name, hint], i) => (
-            <li key={name} className={`plusSheet__perk${i < 2 ? ' plusSheet__perk--visual' : ''}`}>
-              {i >= 2 && <span className="plusSheet__tick" aria-hidden>✦</span>}
+            <li key={name} className={`plusSheet__perk${i < 3 ? ' plusSheet__perk--visual' : ''}`}>
+              {i >= 3 && <span className="plusSheet__tick" aria-hidden>✦</span>}
               <span className="plusSheet__perkBody">
                 <span className="plusSheet__perkName">{name}</span>
                 <span className="plusSheet__perkHint">{hint}</span>
@@ -123,6 +135,16 @@ export function PlusSheet({ open, onClose }: { open: boolean; onClose: () => voi
                         <span className="perkShowcase__name">{P.finishNames[s]}</span>
                       </span>
                     ))}
+                  </span>
+                )}
+                {i === 2 && (
+                  <span className="perkShowcase perkShowcase--try">
+                    {PLUS_REACTIONS.map((e) => (
+                      <button key={e} type="button" className="perkShowcase__try" onClick={() => tryOut(e)} aria-label={t.reactions.send(e)}>
+                        {e}
+                      </button>
+                    ))}
+                    <span className="perkShowcase__name">{t.reactions.tryIt}</span>
                   </span>
                 )}
               </span>
@@ -184,6 +206,11 @@ export function PlusSheet({ open, onClose }: { open: boolean; onClose: () => voi
 
         <LegalLinks />
       </div>
+      {trying && (
+        <div className="reactFloat reactFloat--try" aria-hidden>
+          <Showpiece key={trying.key} id={String(trying.key)} emoji={trying.emoji} name={account?.name ?? t.account.plus.badge} />
+        </div>
+      )}
     </Modal>
   );
 }

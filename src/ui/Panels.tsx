@@ -1252,7 +1252,7 @@ export function GameOver({
             return (
               <li key={id} className="gameOver__row">
                 <span className="gameOver__rank num">{i + 1}</span>
-                <Avatar color={p.color} token={p.token} size={26} dim={p.bankrupt} />
+                <SkinnedAvatar pid={id} color={p.color} token={p.token} size={26} dim={p.bankrupt} />
                 <span className="truncate">{p.name}</span>
                 <span className="spacer" />
                 <span className="num">{p.bankrupt ? t.common.bankrupt : fmt(netWorth(state, id))}</span>

@@ -52,8 +52,12 @@ export function Money({ value, className = '' }: { value: number; className?: st
 export const tokenLabel = (id: TokenId): string => tr().tokens[id] ?? id;
 
 export function Avatar({
-  color, token, size = 30, active = false, dim = false, finish,
-}: { color: string; token: TokenId; size?: number; active?: boolean; dim?: boolean; finish?: SkinId }) {
+  color, token, size = 30, active = false, dim = false, finish, plus = false,
+}: {
+  color: string; token: TokenId; size?: number; active?: boolean; dim?: boolean; finish?: SkinId;
+  /** A Party Hall Plus player: a slow gold aura turns round the disc. */
+  plus?: boolean;
+}) {
   return (
     <span
       aria-hidden
@@ -66,6 +70,7 @@ export function Avatar({
       } as React.CSSProperties}
       data-active={active || undefined}
       data-finish={finish && finish !== 'classic' ? finish : undefined}
+      data-plus={plus || undefined}
     >
       <Piece token={token} className="avatar__piece" />
     </span>

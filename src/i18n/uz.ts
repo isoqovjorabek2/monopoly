@@ -126,6 +126,14 @@ export const uz: Dict = {
     aria: 'Munosabatlar',
     send: (e) => `${e} bilan munosabat bildirish`,
     quiet: 'Hozir munosabat bildira olmaysiz',
+    plusRow: 'Party Hall Plus munosabatlari',
+    locked: (e) => `${e} — Party Hall Plus bilan`,
+    plusTurn: (name) => `${name} navbati`,
+    plusEscape: (name) => `${name} olmaxon g‘ildiragidan chiqdi`,
+    plusSaved: (name) => `${name} tirik`,
+    calm: 'Sokin effektlar',
+    calmHint: 'Boshqa o‘yinchilarning Plus effektlari kichik bo‘lib qoladi',
+    tryIt: 'Ko‘rish uchun bosing',
   },
 
   rooms: {

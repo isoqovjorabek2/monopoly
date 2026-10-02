@@ -557,6 +557,31 @@ no-op there). And **pull-to-refresh is off at the table** (`overscroll` on
 `.game` / `.cfGame`): that gesture drops the WebRTC session the game lives
 on, so everywhere but the table it still works.
 
+## Party Hall Plus at the table
+
+A Plus player is visible in every game, and none of it touches a game's
+state or adds a message to the wire: which seats hold Plus is the host's
+word (`SeatInfo.plus`, from a pass it verified), and everything below is
+drawn from that and from the events every tab already receives.
+
+- **Showpieces** - a second row of eight reactions (`net/reactions.ts`) that
+  take the whole table for three seconds, each with a move of its own
+  (`ui/PlusFx.tsx`). The host passes one on only from a Plus seat, one every
+  four seconds. Everyone sees the row; without Plus a tap opens the sheet.
+- **Gilded reactions**, an **aura** round their piece wherever it is drawn,
+  a **ribbon** when their turn comes round, and a **fountain** of coins or
+  light at the moments that are theirs (`net/plusMoments.ts`).
+- On the 3D board their piece leaves a **trail** and their dice **spark** as
+  they land; a win brings **gold confetti**.
+- **Quieter effects**, a switch in the reaction tray and the table menu, is
+  for everyone else: other players' showpieces float up like any reaction
+  and their ribbons and fountains do not play.
+
+Everything is glyphs, CSS and a few spheres - nothing to download - and with
+`prefers-reduced-motion` a showpiece is the emoji fading in and out. On the
+dev server only, `?plus=1` stands in for a paid pass so all of this can be
+looked at; the check is compiled out of a production build.
+
 ## Nest Egg
 
 The second table. Pick it on the front door and everything else - room

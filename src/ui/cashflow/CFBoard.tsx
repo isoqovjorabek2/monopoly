@@ -6,7 +6,8 @@ import { currentId } from '../../cashflow/rules';
 import type { CFState, CFTrack, FastKind, FastSpace, RatKind } from '../../cashflow/types';
 import type { TokenId } from '../../game/types';
 import { useT, type Dict } from '../../i18n';
-import { Avatar, fmt } from '../bits';
+import { fmt } from '../bits';
+import { SkinnedAvatar } from '../finish';
 import { CFTableCardView } from './CFCard';
 
 /* ------------------------------------------------------------------ *
@@ -176,6 +177,7 @@ export function CFBoard({ s, myId, rolling }: { s: CFState; myId: string; rollin
             return (
               <CFToken
                 key={id}
+                pid={id}
                 track={p.track}
                 position={p.position}
                 index={i}
@@ -256,8 +258,8 @@ function TilePeek({ s, t, peek }: { s: CFState; t: Dict; peek: Peek }) {
 /** A piece that walks square by square rather than teleporting, and jumps
  *  only when it changes track. */
 function CFToken({
-  track, position, index, color, token, active,
-}: { track: CFTrack; position: number; index: number; color: string; token: TokenId; active: boolean }) {
+  pid, track, position, index, color, token, active,
+}: { pid: string; track: CFTrack; position: number; index: number; color: string; token: TokenId; active: boolean }) {
   const [shown, setShown] = useState({ track, position });
   const ref = useRef(shown);
   ref.current = shown;
@@ -291,7 +293,7 @@ function CFToken({
       data-active={active || undefined}
       style={{ left: `${(x + ox) / 10}%`, top: `${(y + oy) / 10}%` }}
     >
-      <Avatar color={color} token={token} size={24} active={active} />
+      <SkinnedAvatar pid={pid} color={color} token={token} size={24} active={active} />
     </span>
   );
 }

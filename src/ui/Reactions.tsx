@@ -1,14 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useT } from '../i18n';
-import { REACTIONS, canReact, type ReactionShown } from '../net/reactions';
+import { PLUS_REACTIONS, REACTIONS, canReact, isPlusReaction, seatHasPlus, type ReactionShown } from '../net/reactions';
 import { useStore } from '../store/store';
+import { PlusBadge, PlusSheet } from './Plus';
+import { PlusMoments, PlusVictory, Showpiece } from './PlusFx';
 
 /* ------------------------------------------------------------------ *
  * The reaction button and the emoji that float up from it. One small
  * round button in a corner of the table opens a row of eight faces; a
  * tap sends one and closes the row. Everyone's reactions rise over the
  * table with the sender's name under them, and are gone in two seconds.
+ *
+ * Under the eight sits a second row for Party Hall Plus: showpieces that
+ * play across the whole table (PlusFx.tsx). Everyone sees the row; for a
+ * player without Plus a tap opens the Plus sheet instead of sending. A
+ * Plus player's ordinary reactions also rise gilded.
  *
  * `game` places the button clear of each table's own furniture (the
  * phone dock, Omertà's chat button) - see .react[data-game] in app.css.
@@ -30,7 +37,11 @@ export function Reactions({ game, seat }: { game: 'monopoly' | 'cashflow' | 'maf
   const send = useStore((s) => s.sendReaction);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const [offer, setOffer] = useState(false);
   const allowed = canReact(room, seat);
+  const plus = seatHasPlus(room, seat);
+  const quietFx = useStore((s) => s.quietFx);
+  const toggleQuietFx = useStore((s) => s.toggleQuietFx);
 
   // A tap anywhere else, or Escape, puts the row away.
   useEffect(() => {
@@ -45,7 +56,10 @@ export function Reactions({ game, seat }: { game: 'monopoly' | 'cashflow' | 'maf
 
   return (
     <>
-      <FloatingReactions shown={shown} />
+      <FloatingReactions shown={shown} seat={seat} quiet={quietFx} />
+      <PlusMoments />
+      <PlusVictory />
+      <PlusSheet open={offer} onClose={() => setOffer(false)} />
       {seat && (
         <div className="react" data-game={game} ref={ref}>
           <AnimatePresence>
@@ -71,6 +85,32 @@ export function Reactions({ game, seat }: { game: 'monopoly' | 'cashflow' | 'maf
                     {e}
                   </button>
                 ))}
+                <span className="react__plus"><PlusBadge small /></span>
+                {PLUS_REACTIONS.map((e) => (
+                  <button
+                    key={e}
+                    type="button"
+                    role="menuitem"
+                    className="react__pick react__pick--plus"
+                    data-locked={!plus || undefined}
+                    title={plus ? undefined : R.locked(e)}
+                    aria-label={plus ? R.send(e) : R.locked(e)}
+                    onClick={() => { if (plus) send(e); else setOffer(true); setOpen(false); }}
+                  >
+                    {e}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={quietFx}
+                  className="react__calm"
+                  title={R.calmHint}
+                  onClick={toggleQuietFx}
+                >
+                  <span className="tmenu__switch" aria-hidden />
+                  {R.calm}
+                </button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -92,18 +132,23 @@ export function Reactions({ game, seat }: { game: 'monopoly' | 'cashflow' | 'maf
   );
 }
 
-function FloatingReactions({ shown }: { shown: ReactionShown[] }) {
+function FloatingReactions({ shown, seat, quiet }: { shown: ReactionShown[]; seat: string | null; quiet: boolean }) {
   const room = useStore((s) => s.room);
   const reduce = useReducedMotion();
   const nameOf = (id: string): string => room?.seats.find((s) => s.playerId === id)?.name ?? '';
+  // With quieter effects on, somebody else's showpiece floats up the lane
+  // like any other reaction; your own still plays in full.
+  const staged = (r: ReactionShown): boolean => isPlusReaction(r.emoji) && !(quiet && r.from !== seat);
+  const showpieces = shown.filter(staged);
 
   return (
     <div className="reactFloat" aria-live="polite">
       <AnimatePresence>
-        {shown.map((r) => (
+        {shown.filter((r) => !staged(r)).map((r) => (
           <motion.div
             key={r.id}
             className="reactFloat__item"
+            data-plus={seatHasPlus(room, r.from) || undefined}
             style={{ left: `${lane(r.id)}%` }}
             initial={{ opacity: 0, y: 0, scale: 0.6 }}
             animate={reduce
@@ -117,6 +162,12 @@ function FloatingReactions({ shown }: { shown: ReactionShown[] }) {
           </motion.div>
         ))}
       </AnimatePresence>
+      {showpieces.map((r) => isPlusReaction(r.emoji) && (
+        <div key={r.id}>
+          <Showpiece id={r.id} emoji={r.emoji} name={nameOf(r.from)} />
+          <span className="sr-only">{`${nameOf(r.from)} ${r.emoji}`}</span>
+        </div>
+      ))}
     </div>
   );
 }

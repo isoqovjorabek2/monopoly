@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { CanvasTexture, LinearFilter, SRGBColorSpace, type Group, type Mesh } from 'three';
+import { AdditiveBlending, CanvasTexture, Color, LinearFilter, SRGBColorSpace, type Group, type Mesh } from 'three';
 import type { SkinId } from '../../game/types';
 
 /* The engine decides the roll before anything moves. These dice only play
@@ -158,13 +158,66 @@ function Die({
   );
 }
 
+/* A Plus player's dice strike sparks off the felt as they land: a ring of
+ * them thrown outward from under each die, gone in half a second. The
+ * throw eases out over two thirds of a second (see Die) and is all but
+ * down well before that, so the sparks wait a little under half a second
+ * after the roll begins. */
+const SPARKS = 14;
+const LAND_AT = 0.45;
+const SPARK_LIFE = 0.6;
+
+function Sparks({ rolling, color }: { rolling: boolean; color: string }) {
+  const meshes = useRef<(Mesh | null)[]>([]);
+  const age = useRef(SPARK_LIFE);
+  const glow = useMemo(() => `#${new Color(color).lerp(new Color('#ffe2a0'), 0.65).getHexString()}`, [color]);
+  const dirs = useMemo(() => Array.from({ length: SPARKS * 2 }, (_, i) => {
+    const a = (i / SPARKS) * Math.PI * 2 + (i % 2) * 0.22;
+    return { ox: i < SPARKS ? -0.45 : 0.45, dx: Math.cos(a), dz: Math.sin(a), speed: 1.9 + ((i * 7) % 5) * 0.3, up: 1.6 + ((i * 3) % 4) * 0.35 };
+  }), []);
+
+  useEffect(() => { if (rolling) age.current = -LAND_AT; }, [rolling]);
+
+  useFrame((_, dt) => {
+    if (age.current >= SPARK_LIFE) return;
+    age.current += dt;
+    const t = age.current;
+    const live = t >= 0 && t < SPARK_LIFE;
+    for (let i = 0; i < dirs.length; i++) {
+      const m = meshes.current[i];
+      if (!m) continue;
+      m.visible = live;
+      if (!live) continue;
+      const d = dirs[i];
+      m.position.set(d.ox + d.dx * d.speed * t, Math.max(0.03, 0.08 + d.up * t - 4.2 * t * t), d.dz * d.speed * t);
+      m.scale.setScalar(1 - t / SPARK_LIFE);
+    }
+  });
+
+  return (
+    <>
+      {dirs.map((_, i) => (
+        <mesh key={i} ref={(m) => { meshes.current[i] = m; }} visible={false}>
+          <sphereGeometry args={[0.07, 8, 6]} />
+          <meshBasicMaterial color={glow} transparent opacity={0.95} blending={AdditiveBlending} depthWrite={false} toneMapped={false} />
+        </mesh>
+      ))}
+    </>
+  );
+}
+
 export function Dice3D({
-  dice, rolling, finish = 'classic', color = '#39ffb0',
-}: { dice: [number, number] | null; rolling: boolean; finish?: SkinId; color?: string }) {
+  dice, rolling, finish = 'classic', color = '#39ffb0', sparks = false,
+}: {
+  dice: [number, number] | null; rolling: boolean; finish?: SkinId; color?: string;
+  /** A Plus player is throwing: the dice spark as they land. */
+  sparks?: boolean;
+}) {
   const group = useRef<Group>(null);
   if (!dice) return null;
   return (
     <group ref={group}>
+      {sparks && <Sparks rolling={rolling} color={color} />}
       <Die value={dice[0]} offset={-0.45} seed={dice[0]} rolling={rolling} finish={finish} glowColor={color} />
       <Die value={dice[1]} offset={0.45} seed={dice[1] + 1} rolling={rolling} finish={finish} glowColor={color} />
     </group>

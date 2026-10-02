@@ -4,7 +4,8 @@ import { CHANCE } from '../game/cards';
 import { CLASSIC } from '../game/settings';
 import { dictFor, setBoardTheme, spaceName, spaceShort, tr, trReason } from '../i18n';
 import { BOARD_THEMES, themeSpaces } from '../i18n/themes';
-import { boardsOpen, cleanSkin, roomTheme, SKINS, tablePlus } from './plus';
+import { boardsOpen, cleanSkin, plusWinners, roomTheme, SKINS, tablePlus } from './plus';
+import { plusMoments } from './plusMoments';
 import type { RoomSnapshot, SeatInfo } from './protocol';
 
 /* ------------------------------------------------------------------ *
@@ -55,6 +56,57 @@ describe('a Plus table', () => {
     const old = room([seat('a', { plus: true })]);
     delete old.settings.boardTheme;
     expect(roomTheme(old)).toBe('silk');
+  });
+});
+
+describe('the winner\'s confetti', () => {
+  const over = (winnerId: string | null) => ({ phase: 'game_over', winnerId }) as RoomSnapshot['game'];
+
+  it('falls for a Plus player who won, and nobody else', () => {
+    const seats = [seat('a', { plus: true }), seat('b')];
+    expect(plusWinners(room(seats, { game: over('a') }))).toEqual(['a']);
+    expect(plusWinners(room(seats, { game: over('b') }))).toEqual([]);
+    expect(plusWinners(room(seats, { game: { phase: 'preroll', winnerId: null } as RoomSnapshot['game'] }))).toEqual([]);
+    expect(plusWinners(room([seat('bot', { plus: true, isBot: true })], { game: over('bot') }))).toEqual([]);
+    expect(plusWinners(room(seats, { kind: 'cashflow', cf: over('a') as unknown as RoomSnapshot['cf'] }))).toEqual(['a']);
+  });
+
+  it('falls for every Plus seat on the side that took an Omertà table', () => {
+    const seats = [seat('a', { plus: true }), seat('b', { plus: true }), seat('c')];
+    const mf = (extra: object) => ({
+      phase: 'game_over', winner: 'village', winnerId: null,
+      finalRoles: { a: 'doctor', b: 'godfather', c: 'villager' }, ...extra,
+    }) as unknown as RoomSnapshot['mf'];
+    expect(plusWinners(room(seats, { kind: 'mafia', mf: mf({}) }))).toEqual(['a']);
+    expect(plusWinners(room(seats, { kind: 'mafia', mf: mf({ winner: 'mafia' }) }))).toEqual(['b']);
+    expect(plusWinners(room(seats, { kind: 'mafia', mf: mf({ winner: 'jester', winnerId: 'c' }) }))).toEqual([]);
+  });
+});
+
+describe('Plus moments', () => {
+  const seats = [seat('a', { plus: true }), seat('b'), seat('bot', { plus: true, isBot: true })];
+  const table = room(seats);
+
+  it('mark a Plus player\'s turn, purchase and rent, and nobody else\'s', () => {
+    expect(plusMoments(table, [
+      { type: 'TURN_STARTED', playerId: 'a', turnNumber: 3 },
+      { type: 'BOUGHT', playerId: 'a', spaceId: 1, price: 60 },
+      { type: 'RENT_PAID', from: 'b', to: 'a', amount: 10, spaceId: 1 },
+      { type: 'TURN_STARTED', playerId: 'b', turnNumber: 4 },
+      { type: 'BOUGHT', playerId: 'bot', spaceId: 3, price: 60 },
+      { type: 'RENT_PAID', from: 'a', to: 'b', amount: 10, spaceId: 5 },
+    ])).toEqual([{ kind: 'turn', playerId: 'a' }, { kind: 'coins', playerId: 'a' }]);
+  });
+
+  it('cover Nest Egg\'s escape and an Omertà night survived', () => {
+    expect(plusMoments(table, [{ type: 'ESCAPED', playerId: 'a', income: 5000 }])).toEqual([{ kind: 'escape', playerId: 'a' }]);
+    expect(plusMoments(table, [{ type: 'DAWN', round: 2, deaths: [], saved: ['a', 'b'], silenced: [] }]))
+      .toEqual([{ kind: 'saved', playerId: 'a' }]);
+  });
+
+  it('are nothing at a table with no Plus player', () => {
+    expect(plusMoments(room([seat('a'), seat('b')]), [{ type: 'TURN_STARTED', playerId: 'a', turnNumber: 1 }])).toEqual([]);
+    expect(plusMoments(null, [{ type: 'TURN_STARTED', playerId: 'a', turnNumber: 1 }])).toEqual([]);
   });
 });
 

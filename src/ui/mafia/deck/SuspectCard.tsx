@@ -4,6 +4,7 @@ import { MicOff, WifiOff } from 'lucide-react';
 import { useT } from '../../../i18n';
 import { AvatarImg } from '../Hud';
 import type { RoleDef, ViewPlayer } from '../model';
+import { usePlusSeats } from '../../finish';
 import { Portrait } from './Portrait';
 
 /* ------------------------------------------------------------------ *
@@ -66,6 +67,7 @@ export function SuspectCard({
   const t = useT();
   const D = t.maf.ui.deck;
   const reduce = useReducedMotion();
+  const plus = usePlusSeats().has(player.id);
   // Dealt a little crooked, the same way every time.
   const tilt = reduce ? 0 : ((seatNo * 7) % 5 - 2) * 0.6;
   const label = [
@@ -90,6 +92,7 @@ export function SuspectCard({
       data-ally={isAlly}
       data-leading={leading}
       data-offline={!player.isConnected}
+      data-plus={plus || undefined}
       style={{ '--dk-card-c': role?.color } as CSSProperties}
       initial={reduce ? false : { opacity: 0, y: 60, rotate: -8, scale: 0.85 }}
       animate={{ opacity: 1, y: 0, rotate: tilt, scale: 1 }}

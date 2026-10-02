@@ -43,11 +43,14 @@ export function TableMenu({ alerts, extra = [], footer }: {
   const hapticsOn = useStore((s) => s.hapticsOn);
   const toggleSound = useStore((s) => s.toggleSound);
   const toggleHaptics = useStore((s) => s.toggleHaptics);
+  const quietFx = useStore((s) => s.quietFx);
+  const toggleQuietFx = useStore((s) => s.toggleQuietFx);
 
   const rows: MenuRow[] = [
     ...extra,
     { key: 'sound', label: t.game.sound, on: soundOn, onToggle: toggleSound },
     { key: 'haptics', label: t.game.haptics, on: hapticsOn, onToggle: toggleHaptics },
+    { key: 'quietfx', label: t.reactions.calm, hint: t.reactions.calmHint, on: quietFx, onToggle: toggleQuietFx },
     {
       key: 'alerts', label: t.game.alertsLabel,
       hint: alerts.blocked ? t.table.alerts.blocked : t.table.alerts.title, on: alerts.on, onToggle: alerts.toggle,

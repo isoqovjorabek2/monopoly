@@ -127,6 +127,14 @@ export const ru: Dict = {
     aria: 'Реакции',
     send: (e) => `Реакция ${e}`,
     quiet: 'Сейчас реагировать нельзя',
+    plusRow: 'Реакции Party Hall Plus',
+    locked: (e) => `${e} — с Party Hall Plus`,
+    plusTurn: (name) => `Ходит ${name}`,
+    plusEscape: (name) => `${name} вырывается из беличьего колеса`,
+    plusSaved: (name) => `${name} жив`,
+    calm: 'Спокойные эффекты',
+    calmHint: 'Эффекты Plus других игроков остаются небольшими',
+    tryIt: 'Нажмите, чтобы посмотреть',
   },
 
   rooms: {

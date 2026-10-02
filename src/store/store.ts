@@ -23,7 +23,11 @@ import {
   mentionsIn, mfBotDecide, mfBotDelay, mfBotLine, mfBotTalkDelay, talkKind, type BotLine, type TalkLine,
 } from '../mafia/ai';
 import { MAF_MAX_SEATS, MAF_MIN_PLAYERS, MAF_PRACTICE_BOTS } from '../mafia/data';
-import { REACT_GAP_MS, canReact, isReaction, type Reaction, type ReactionShown } from '../net/reactions';
+import {
+  PLUS_REACT_GAP_MS, REACT_GAP_MS, canReactWith, isPlusReaction, isReaction, reactionTtl,
+  type Reaction, type ReactionShown,
+} from '../net/reactions';
+import { MOMENT_MS, plusMoments, type PlusMomentShown } from '../net/plusMoments';
 import { botLineText, mafLogLine, type MFLogLine } from '../mafia/describe';
 import {
   MAF_DEFAULTS, MAF_RULES_DEFAULT, botifySeat as mfBotifySeat, createMafia,
@@ -95,6 +99,8 @@ interface Store {
   chat: ChatMessage[];
   /** Emoji reactions floating over the table right now. */
   reactions: ReactionShown[];
+  /** Plus players' flourishes playing right now (net/plusMoments.ts). */
+  moments: PlusMomentShown[];
   floats: CashFloat[];
 
   netStatus: NetStatus;
@@ -114,6 +120,9 @@ interface Store {
   soundOn: boolean;
   /** Short vibration pulses on events that matter to the holder (phones). */
   hapticsOn: boolean;
+  /** Other players' Plus effects are kept small: a showpiece floats up
+   *  like any reaction, and their ribbons and fountains do not play. */
+  quietFx: boolean;
 
   setPick: (kind: GameKind) => void;
   /** Open the account screen, and go back to where it was opened from. */
@@ -180,6 +189,7 @@ interface Store {
   openSheet: (sheet: Store['sheet']) => void;
   toggleSound: () => void;
   toggleHaptics: () => void;
+  toggleQuietFx: () => void;
 }
 
 /* ------------------------------------------------------------------ *
@@ -200,7 +210,16 @@ let mafTalk: TalkLine[] = [];
 const botSpoken = new Set<string>();
 let talkTimers: number[] = [];
 /** When each seat last reacted, for the host's rate limit. */
+/** Whether the seat this tab hosts or plays alone holds Plus. On the dev
+ *  server only, `?plus=1` stands in for a paid pass so the Plus effects can
+ *  be looked at; the check is compiled out of a production build. */
+const localPlus = (): boolean =>
+  hasPlus(currentAccount())
+  || (import.meta.env.DEV && new URLSearchParams(window.location.search).has('plus'));
+
 const lastReacted = new Map<string, number>();
+/** Likewise for a Plus showpiece, which has a longer gap of its own. */
+const lastShowpiece = new Map<string, number>();
 const resetTalk = (): void => {
   mafTalk = [];
   botSpoken.clear();
@@ -319,6 +338,9 @@ const savedSkin = (): SkinId => {
 const savedSound = (): boolean => {
   try { return localStorage.getItem('mply.sound') !== 'off'; } catch { return true; }
 };
+const savedQuietFx = (): boolean => {
+  try { return localStorage.getItem('mply.quietfx') === 'on'; } catch { return false; }
+};
 const savedPick = (): GameKind => {
   try {
     const v = localStorage.getItem('mply.game');
@@ -424,7 +446,26 @@ export const useStore = create<Store>((set, get) => {
     }, 1600);
   };
 
+  /** The seat this tab plays: its own id, or a bot's seat it took over. */
+  const mySeat = (): string => {
+    const { room, me } = get();
+    return room?.seats.find((s) => s.playerId === me.playerId || room.owners?.[s.playerId] === me.playerId)?.playerId ?? me.playerId;
+  };
+
+  /** A Plus player's flourishes for this batch of events, in any game. */
+  const pushMoments = (events: readonly (GameEvent | CFEvent | MafiaEvent)[]): void => {
+    const { quietFx, soundOn } = get();
+    for (const m of plusMoments(get().room, events)) {
+      if (quietFx && m.playerId !== mySeat()) continue;
+      if (m.kind === 'escape' || m.kind === 'saved') play('chime', soundOn);
+      const id = `m${logSeq++}`;
+      set((s) => ({ moments: [...s.moments, { ...m, id }].slice(-6) }));
+      window.setTimeout(() => set((s) => ({ moments: s.moments.filter((x) => x.id !== id) })), MOMENT_MS[m.kind]);
+    }
+  };
+
   const pushEvents = (state: GameState, events: GameEvent[]): void => {
+    pushMoments(events);
     const lines: LogLine[] = [];
     const floats: CashFloat[] = [];
     const { soundOn, hapticsOn, me } = get();
@@ -450,6 +491,7 @@ export const useStore = create<Store>((set, get) => {
    *  guest, whose events and snapshot arrive as separate messages. */
   const pushCfEvents = (events: CFEvent[]): void => {
     if (events.length === 0) return;
+    pushMoments(events);
     const lines: CFLogLine[] = [];
     const { soundOn, hapticsOn, me } = get();
     for (const e of events) {
@@ -478,6 +520,7 @@ export const useStore = create<Store>((set, get) => {
    *  describer's own choice (mafLogLine returns null for ACTED and VOTED). */
   const pushMafEvents = (events: MafiaEvent[]): void => {
     if (events.length === 0) return;
+    pushMoments(events);
     const lines: MFLogLine[] = [];
     const { soundOn } = get();
     for (const e of events) {
@@ -1140,9 +1183,13 @@ export const useStore = create<Store>((set, get) => {
   /** A reaction this host has checked: everyone sees it, nobody keeps it. */
   const react = (seat: string, emoji: unknown): void => {
     const room = snapshot();
-    if (!isReaction(emoji) || !canReact(room, seat)) return;
+    if (!isReaction(emoji) || !canReactWith(room, seat, emoji)) return;
     const now = Date.now();
     if (now - (lastReacted.get(seat) ?? 0) < REACT_GAP_MS) return;
+    if (isPlusReaction(emoji)) {
+      if (now - (lastShowpiece.get(seat) ?? 0) < PLUS_REACT_GAP_MS) return;
+      lastShowpiece.set(seat, now);
+    }
     lastReacted.set(seat, now);
     const id = `r${logSeq++}`;
     showReaction(id, seat, emoji);
@@ -1151,8 +1198,10 @@ export const useStore = create<Store>((set, get) => {
 
   const showReaction = (id: string, from: string, emoji: Reaction): void => {
     const shown: ReactionShown = { id, from, emoji, at: Date.now() };
+    const { quietFx, soundOn } = get();
+    if (isPlusReaction(emoji) && !(quietFx && from !== mySeat())) play('chime', soundOn);
     set((s) => ({ reactions: [...s.reactions, shown].slice(-12) }));
-    window.setTimeout(() => set((s) => ({ reactions: s.reactions.filter((r) => r.id !== id) })), 2600);
+    window.setTimeout(() => set((s) => ({ reactions: s.reactions.filter((r) => r.id !== id) })), reactionTtl(emoji));
   };
 
   /**
@@ -1596,6 +1645,7 @@ export const useStore = create<Store>((set, get) => {
     mafPrivate: null,
     chat: [],
     reactions: [],
+    moments: [],
     floats: [],
 
     netStatus: 'idle',
@@ -1608,6 +1658,7 @@ export const useStore = create<Store>((set, get) => {
     sheet: 'none',
     soundOn: savedSound(),
     hapticsOn: readHaptics(),
+    quietFx: savedQuietFx(),
 
     setPick: (kind) => {
       try { localStorage.setItem('mply.game', kind); } catch { /* private mode */ }
@@ -1659,7 +1710,7 @@ export const useStore = create<Store>((set, get) => {
     syncPlus: () => {
       const { role, room, me } = get();
       if (!room || role === 'guest') return;
-      const plus = hasPlus(currentAccount());
+      const plus = localPlus();
       const photo = myPhoto();
       const mine = room.seats.find((x) => x.playerId === me.playerId);
       if (!mine || (Boolean(mine.plus) === plus && mine.photo === photo)) return;
@@ -1677,8 +1728,8 @@ export const useStore = create<Store>((set, get) => {
         code,
         {
           ...emptySeat(me.playerId, me.name || tr().defaults.host, me.token, 0, true),
-          plus: hasPlus(currentAccount()),
-          skin: hasPlus(currentAccount()) ? cleanSkin(me.skin) : undefined,
+          plus: localPlus(),
+          skin: localPlus() ? cleanSkin(me.skin) : undefined,
           photo: myPhoto(),
         },
         kind,
@@ -1769,8 +1820,8 @@ export const useStore = create<Store>((set, get) => {
         'LOCAL',
         {
           ...emptySeat(me.playerId, me.name || tr().defaults.you, me.token, 0, true),
-          plus: hasPlus(currentAccount()),
-          skin: hasPlus(currentAccount()) ? cleanSkin(me.skin) : undefined,
+          plus: localPlus(),
+          skin: localPlus() ? cleanSkin(me.skin) : undefined,
           photo: myPhoto(),
         },
         kind,
@@ -2079,6 +2130,11 @@ export const useStore = create<Store>((set, get) => {
       const hapticsOn = !s.hapticsOn;
       try { localStorage.setItem('mply.haptics', hapticsOn ? 'on' : 'off'); } catch { /* private mode */ }
       return { hapticsOn };
+    }),
+    toggleQuietFx: () => set((s) => {
+      const quietFx = !s.quietFx;
+      try { localStorage.setItem('mply.quietfx', quietFx ? 'on' : 'off'); } catch { /* private mode */ }
+      return { quietFx };
     }),
   };
 });

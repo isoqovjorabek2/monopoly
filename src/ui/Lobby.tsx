@@ -184,7 +184,7 @@ export function Lobby() {
                   transition={{ type: 'spring', stiffness: 420, damping: 34, delay: i * 0.03 }}
                   className="seat"
                 >
-                  <Avatar color={seat.color} token={seat.token} size={34} dim={!seat.connected} finish={seat.plus ? seat.skin : undefined} />
+                  <Avatar color={seat.color} token={seat.token} size={34} dim={!seat.connected} finish={seat.plus ? seat.skin : undefined} plus={Boolean(seat.plus) && !seat.isBot} />
                   <span className="seat__info">
                     <span className="seat__name truncate" title={seat.name}>{seat.name}</span>
                     <span className="seat__meta">

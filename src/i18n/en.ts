@@ -129,6 +129,14 @@ export const en = {
     aria: 'Reactions',
     send: (e: string) => `React with ${e}`,
     quiet: 'You cannot react right now',
+    plusRow: 'Party Hall Plus reactions',
+    locked: (e: string) => `${e} comes with Party Hall Plus`,
+    plusTurn: (name: string) => `${name}'s turn`,
+    plusEscape: (name: string) => `${name} is out of the Grind`,
+    plusSaved: (name: string) => `${name} lives`,
+    calm: 'Quieter effects',
+    calmHint: "Other players' Plus effects stay small",
+    tryIt: 'Tap one to see it play',
   },
 
   rooms: {

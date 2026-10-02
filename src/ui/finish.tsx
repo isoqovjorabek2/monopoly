@@ -21,10 +21,18 @@ export function useSkins(): Record<string, SkinId> {
   }, [seats]);
 }
 
-/** An avatar in the finish its player chose. */
+/** The seats that are people holding Plus: who wears the aura, leaves a
+ *  trail on the 3D board, and throws dice that spark. */
+export function usePlusSeats(): ReadonlySet<string> {
+  const seats = useStore((s) => s.room?.seats);
+  return useMemo(() => new Set((seats ?? []).filter((s) => s.plus && !s.isBot).map((s) => s.playerId)), [seats]);
+}
+
+/** An avatar in the finish its player chose, with the Plus aura if theirs. */
 export function SkinnedAvatar({ pid, ...rest }: {
   pid: string; color: string; token: TokenId; size?: number; active?: boolean; dim?: boolean;
 }) {
   const skins = useSkins();
-  return <Avatar {...rest} finish={skins[pid]} />;
+  const plus = usePlusSeats();
+  return <Avatar {...rest} finish={skins[pid]} plus={plus.has(pid)} />;
 }

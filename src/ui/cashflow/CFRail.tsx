@@ -3,7 +3,8 @@ import type { CFState } from '../../cashflow/types';
 import { useT } from '../../i18n';
 import type { CashFloat } from '../../store/store';
 import type { SeatInfo } from '../../net/protocol';
-import { Avatar, Money, fmt } from '../bits';
+import { Money, fmt } from '../bits';
+import { SkinnedAvatar } from '../finish';
 import { useEffect, useState } from 'react';
 
 /**
@@ -45,7 +46,7 @@ export function CFRail({
         return (
           <li key={id} className="cfSeat" data-active={active || undefined} data-out={p.out || undefined} data-fast={p.track === 'fast' || undefined}>
             <button type="button" className="cfSeat__btn" onClick={() => onOpen(id)}>
-              <Avatar color={p.color} token={p.token} size={34} active={active} dim={!p.connected || p.out} />
+              <SkinnedAvatar pid={id} color={p.color} token={p.token} size={34} active={active} dim={!p.connected || p.out} />
               <span className="cfSeat__who">
                 <span className="cfSeat__name truncate">
                   {p.name}{id === myId ? ` · ${t.common.you}` : ''}

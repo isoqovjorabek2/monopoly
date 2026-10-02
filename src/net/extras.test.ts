@@ -6,7 +6,7 @@ import { MAF_DEFAULTS, createMafia, reduce, spendLastWords } from '../mafia/engi
 import type { MafiaState } from '../mafia/types';
 import { monopolyTips, mafiaTips } from '../ui/coachTips';
 import type { RoomSnapshot, SeatInfo } from './protocol';
-import { canReact, isReaction } from './reactions';
+import { canReact, canReactWith, isPlusReaction, isReaction } from './reactions';
 import { buildReport } from './tableReport';
 
 const specs = (n: number): SeatSpec[] =>
@@ -43,6 +43,22 @@ describe('reactions', () => {
     const dead = spendLastWords({ ...s, players: { ...s.players, p0: { ...s.players.p0, alive: false } } }, 'p0');
     expect(canReact(mafiaRoom(dead), 'p0')).toBe(false);
     expect(canReact(mafiaRoom(s), 'nobody')).toBe(false);
+  });
+
+  it('keeps the showpieces for a seat the host knows holds Plus', () => {
+    const day = mafiaRoom({ ...started(), phase: 'day' });
+    const withPlus = (id: string): RoomSnapshot =>
+      ({ ...day, seats: day.seats.map((x) => (x.playerId === id ? { ...x, plus: true } : x)) });
+    expect(isReaction('👑')).toBe(true);
+    expect(isPlusReaction('👑')).toBe(true);
+    expect(isPlusReaction('🔥')).toBe(false);
+    expect(canReactWith(day, 'p0', '🔥')).toBe(true);
+    expect(canReactWith(day, 'p0', '👑')).toBe(false);
+    expect(canReactWith(withPlus('p0'), 'p0', '👑')).toBe(true);
+    // A bot's seat never counts, whatever its flag says.
+    expect(canReactWith(withPlus('p1'), 'p1', '👑')).toBe(false);
+    // Plus does not speak where nobody may: Omertà's night is still quiet.
+    expect(canReactWith({ ...withPlus('p0'), mf: started() }, 'p0', '👑')).toBe(false);
   });
 });
 

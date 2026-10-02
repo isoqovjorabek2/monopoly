@@ -62,6 +62,7 @@ export const accountUz: AccountDict = {
     perks: [
       ['Maydon mavzulari', 'Bazaar Barons’ni Toshkent yoki Yevropa maydonida o‘ynang.'],
       ['Fishka va zar bezaklari', 'Oyna, shisha, neon yoki zarhal — stoldagi hamma ko‘radi.'],
+      ['Maxsus munosabatlar', 'Sakkizta ko‘rkam emoji, qolganlarida zarhal jilo va g‘alabada oltin konfetti — har bir o‘yinda.'],
       ['O‘yinlar tarixi va statistika', 'Tugatgan barcha o‘yinlaringiz, g‘alabalar va rekordlar.'],
       ['Saqlangan o‘yinlar 90 kun', '14 kun o‘rniga, 100 tagacha stol.'],
       ['Reklamasiz', 'Siz uchun banner ham, o‘yinlar orasida video ham yo‘q.'],

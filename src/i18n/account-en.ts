@@ -69,6 +69,7 @@ export const accountEn = {
     perks: [
       ['Board themes', 'Play Bazaar Barons on a Tashkent or a Europe board.'],
       ['Piece & dice finishes', 'Mirror, glass, neon or gilded - the whole table sees them.'],
+      ['Signature reactions', 'Eight showpiece emoji, a gilded glow on the rest, and gold confetti when you win - in every game.'],
       ['Game history & stats', 'Every game you finish, your wins and your records.'],
       ['Saved games for 90 days', 'Instead of 14, with room for 100 tables.'],
       ['No ads', 'No banners and no videos between games, for you.'],

@@ -18,7 +18,7 @@ import {
 import { makeTileEmissive, makeTileFace, onFaceArtReady, setFaceLabels, setFaceQuality } from './tileFace';
 import { Building3D, Token3D } from './Token3D';
 import { Dice3D } from './Dice3D';
-import { useSkins } from '../finish';
+import { usePlusSeats, useSkins } from '../finish';
 import { Beacon3D } from './Beacon3D';
 import { PLATE_REACH, PLATE_SPAN, SeatPlates, setPlateQuality } from './SeatPlates';
 import { disposeEnvironment, tableEnvironment } from './tableEnvironment';
@@ -570,6 +570,7 @@ export default function Board3D({
   const theme = useBoardTheme();
   const current = state.seats[state.seatIndex];
   const skins = useSkins();
+  const plusSeats = usePlusSeats();
 
   const bySpace = useMemo(() => {
     const map: Record<number, string[]> = {};
@@ -732,12 +733,13 @@ export default function Board3D({
                 active={id === current}
                 jailed={p.inJail}
                 finish={skins[id]}
+                trail={plusSeats.has(id)}
               />
             );
           }))}
 
         <group position={[0, BASE_H / 2, 1.4]}>
-          <Dice3D dice={state.dice} rolling={rolling} finish={skins[current]} color={state.players[current]?.color} />
+          <Dice3D dice={state.dice} rolling={rolling} finish={skins[current]} color={state.players[current]?.color} sparks={plusSeats.has(current)} />
         </group>
       </Suspense>
 

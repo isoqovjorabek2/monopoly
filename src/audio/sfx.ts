@@ -98,6 +98,12 @@ const SYNTH = {
       tone({ freq: f, dur: 0.3, type: 'triangle', gain: 0.1, delay: i * 0.11 }));
   },
   error: () => tone({ freq: 200, to: 140, dur: 0.16, type: 'sawtooth', gain: 0.07 }),
+  /* Party Hall Plus: a showpiece arriving. A rising glint of four bells. */
+  chime: () => {
+    [1047, 1319, 1568, 2093].forEach((f, i) =>
+      tone({ freq: f, dur: 0.34, type: 'sine', gain: 0.07, delay: i * 0.07 }));
+    tone({ freq: 3136, dur: 0.5, type: 'triangle', gain: 0.03, delay: 0.3 });
+  },
 };
 
 export type SfxName = keyof typeof SYNTH;
@@ -112,10 +118,12 @@ export const SFX = SYNTH;
  */
 const MIX: Record<SfxName, number> = {
   dice: 0.85, step: 0.28, cash: 0.8, pay: 0.7, buy: 0.75, card: 0.7,
-  jail: 0.75, build: 0.7, turn: 0.5, win: 0.9, error: 0.6,
+  jail: 0.75, build: 0.7, turn: 0.5, win: 0.9, error: 0.6, chime: 0.6,
 };
 
-const NAMES = Object.keys(SYNTH) as SfxName[];
+/** Cues that are synthesised only: there is no file to fetch for them. */
+const SYNTH_ONLY: readonly SfxName[] = ['chime'];
+const NAMES = (Object.keys(SYNTH) as SfxName[]).filter((n) => !SYNTH_ONLY.includes(n));
 const buffers = new Map<SfxName, AudioBuffer>();
 let fetched = false;
 

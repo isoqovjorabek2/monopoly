@@ -1,4 +1,5 @@
 import type { BoardTheme, SkinId } from '../game/types';
+import { teamOf } from '../mafia/rules';
 import type { RoomSnapshot } from './protocol';
 
 /* ------------------------------------------------------------------ *
@@ -36,3 +37,21 @@ export const SKINS: readonly SkinId[] = ['classic', 'mirror', 'glass', 'neon', '
 /** Anything off the wire or out of storage, as a finish this build can draw. */
 export const cleanSkin = (v: unknown): SkinId =>
   (SKINS as readonly unknown[]).includes(v) ? (v as SkinId) : 'classic';
+
+/**
+ * The Plus players who won the game on the table, for the gold confetti
+ * (ui/PlusFx.tsx). Empty until a game is over, and when nobody who won
+ * holds Plus. An Omertà win is a side's, so it is every Plus seat on it.
+ */
+export function plusWinners(room: RoomSnapshot | null | undefined): string[] {
+  if (!room) return [];
+  let won: string[] = [];
+  if (room.game?.phase === 'game_over' && room.game.winnerId) won = [room.game.winnerId];
+  else if (room.cf?.phase === 'game_over' && room.cf.winnerId) won = [room.cf.winnerId];
+  else if (room.mf?.phase === 'game_over') {
+    const { winner, winnerId, finalRoles } = room.mf;
+    if (winnerId) won = [winnerId];
+    else if (winner && finalRoles) won = Object.keys(finalRoles).filter((id) => teamOf(finalRoles[id]) === winner);
+  }
+  return room.seats.filter((s) => s.plus && !s.isBot && won.includes(s.playerId)).map((s) => s.playerId);
+}

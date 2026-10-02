@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Color, type Group } from 'three';
+import { Color, type Group, type Mesh, type MeshBasicMaterial } from 'three';
 import { normalizeToken } from '../../game/settings';
 import type { SkinId, TokenId } from '../../game/types';
 
@@ -269,8 +269,61 @@ const SHAPES: Record<TokenId, (p: PartProps) => JSX.Element> = {
   minaret: Minaret,
 };
 
+/* A Plus player's piece leaves light behind it as it hops: a short string
+ * of embers dropped along the arc, each shrinking out in under a second.
+ * Plain blending, not additive: the tile faces are pale, and light added
+ * to a pale surface is light nobody sees.
+ * They live in board space, beside the piece rather than inside it, so
+ * they stay where they were dropped while the piece moves on. */
+const EMBERS = 22;
+const EMBER_EVERY = 0.03;
+
+function Trail({ at, hop, color }: {
+  at: React.MutableRefObject<[number, number, number]>;
+  hop: React.MutableRefObject<number>;
+  color: string;
+}) {
+  const meshes = useRef<(Mesh | null)[]>([]);
+  const life = useRef<number[]>(Array(EMBERS).fill(0));
+  const next = useRef(0);
+  const since = useRef(0);
+  const glow = useMemo(() => `#${new Color(color).lerp(new Color('#ffd98a'), 0.6).getHexString()}`, [color]);
+
+  useFrame((_, dt) => {
+    since.current += dt;
+    if (hop.current > 0.05 && since.current >= EMBER_EVERY) {
+      since.current = 0;
+      const i = next.current;
+      next.current = (i + 1) % EMBERS;
+      life.current[i] = 1;
+      const [x, , z] = at.current;
+      meshes.current[i]?.position.set(x, at.current[1] + 0.12 + Math.sin(hop.current * Math.PI) * 0.22, z);
+    }
+    for (let i = 0; i < EMBERS; i++) {
+      const m = meshes.current[i];
+      if (!m) continue;
+      const l = Math.max(0, life.current[i] - dt * 1.3);
+      life.current[i] = l;
+      m.visible = l > 0;
+      m.scale.setScalar(0.25 + l * 0.75);
+      (m.material as MeshBasicMaterial).opacity = l * 0.9;
+    }
+  });
+
+  return (
+    <>
+      {Array.from({ length: EMBERS }, (_, i) => (
+        <mesh key={i} ref={(m) => { meshes.current[i] = m; }} visible={false}>
+          <sphereGeometry args={[0.12, 12, 10]} />
+          <meshBasicMaterial color={glow} transparent opacity={0} depthWrite={false} toneMapped={false} />
+        </mesh>
+      ))}
+    </>
+  );
+}
+
 export function Token3D({
-  token, color, position, active, jailed, finish = 'classic',
+  token, color, position, active, jailed, finish = 'classic', trail = false,
 }: {
   token: TokenId;
   color: string;
@@ -279,6 +332,8 @@ export function Token3D({
   jailed: boolean;
   /** A Plus player's finish; classic for everyone else. */
   finish?: SkinId;
+  /** A Plus player's piece: it leaves a trail of light as it moves. */
+  trail?: boolean;
 }) {
   const group = useRef<Group>(null);
   const current = useRef<[number, number, number]>(position);
@@ -298,7 +353,7 @@ export function Token3D({
     const g = group.current;
     if (!g) return;
     const [tx, , tz] = position;
-    const [cx, cy, cz] = current.current;
+    const [cx, , cz] = current.current;
 
     // Ease toward the target square; every step of a walk arrives as a new
     // position, so this turns discrete hops into continuous motion.
@@ -312,7 +367,7 @@ export function Token3D({
     else hop.current = Math.max(0, hop.current - dt * 7);
     const lift = Math.sin(hop.current * Math.PI) * 0.22;
 
-    current.current = [nx, cy, nz];
+    current.current = [nx, position[1], nz];
     g.position.set(nx, position[1] + lift, nz);
     g.rotation.y += dt * (active ? 0.5 : 0.12);
     const squash = 1 + Math.sin(hop.current * Math.PI) * 0.08;
@@ -320,6 +375,8 @@ export function Token3D({
   });
 
   return (
+    <>
+    {trail && <Trail at={current} hop={hop} color={color} />}
     <group ref={group} position={position}>
       <group scale={jailed ? 0.85 : 1}>
         <FinishContext.Provider value={finish}>
@@ -339,6 +396,7 @@ export function Token3D({
         </mesh>
       )}
     </group>
+    </>
   );
 }
 
