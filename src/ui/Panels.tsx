@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { BOARD, GROUPS, GROUP_COLOR, GROUP_ORDER } from '../game/board';
-import { canTrade, clockKey, netWorth, ownedBy } from '../game/rules';
+import { canTrade, clockKey, netWorth, ownedBy, waitingOn } from '../game/rules';
 import { acceptMargin, completesFor, suggestTrade, tradeGain } from '../game/ai';
 import { flipOffer, loanDebt, sharedPct } from '../game/deals';
 import type { DealTerm, GameAction, GameState, Player, TradeBody, TradeOffer } from '../game/types';
@@ -44,10 +44,22 @@ export function PlayerRail({
     const timer = window.setTimeout(() => setKickArmed(null), 4000);
     return () => window.clearTimeout(timer);
   }, [kickArmed]);
+  // Where each card sits, so a coin can fly from payer to payee. The seat
+  // order never reshuffles, so these offsets are steady between floats.
+  const railRef = useRef<HTMLUListElement>(null);
+  const liRefs = useRef(new Map<string, HTMLLIElement>());
+  const seatRef = useCallback((id: string) => (el: HTMLLIElement | null) => {
+    if (el) liRefs.current.set(id, el);
+    else liRefs.current.delete(id);
+  }, []);
   // Seat order, not a leaderboard: cards that reshuffle as fortunes change
   // make it impossible to see who plays next, and the movement is jarring
   // mid-turn. Standing is shown as a rank badge instead.
   const order = state.seats;
+  // Whoever the table is waiting on gets a soft pulse: on a bot it reads as
+  // "thinking" - which is exactly the pause it explains - and on a human it
+  // is the "your move" tap on the shoulder.
+  const waiting = new Set(waitingOn(state));
   const rank = useMemo(() => {
     const sorted = [...state.seats]
       .filter((id) => !state.players[id].bankrupt)
@@ -58,7 +70,7 @@ export function PlayerRail({
   }, [state]);
 
   return (
-    <ul className="rail">
+    <ul className="rail" ref={railRef}>
       {order.map((id) => {
         const p = state.players[id];
         const seat = seats.find((s) => s.playerId === id);
@@ -67,13 +79,14 @@ export function PlayerRail({
         const myFloats = floats.filter((f) => f.playerId === id);
 
         return (
-          <li key={id}>
+          <li key={id} ref={seatRef(id)}>
             <button
               type="button"
               className="playerCard"
               data-active={active || undefined}
               data-bankrupt={p.bankrupt || undefined}
               data-me={mine || undefined}
+              data-waiting={waiting.has(id) || undefined}
               style={{ ['--pc' as string]: p.color } as React.CSSProperties}
               onClick={() => onInspectPlayer(id)}
               /* Mouse and keyboard both, so the board answers whether you are
@@ -135,19 +148,27 @@ export function PlayerRail({
               </span>
 
               <AnimatePresence>
-                {myFloats.map((f) => (
-                  <motion.span
-                    key={f.id}
-                    className="cashFloat"
-                    data-neg={f.delta < 0 || undefined}
-                    initial={{ opacity: 0, y: 6, scale: 0.9 }}
-                    animate={{ opacity: 1, y: -18, scale: 1 }}
-                    exit={{ opacity: 0, y: -34 }}
-                    transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
-                  >
-                    {f.delta > 0 ? '+' : '-'}{fmt(Math.abs(f.delta))}
-                  </motion.span>
-                ))}
+                {myFloats.map((f) => {
+                  const peer = f.peer ? state.players[f.peer] : null;
+                  return (
+                    <motion.span
+                      key={f.id}
+                      className="cashFloat"
+                      data-neg={f.delta < 0 || undefined}
+                      initial={{ opacity: 0, y: 8, scale: 0.85 }}
+                      animate={{ opacity: 1, y: -20, scale: 1 }}
+                      exit={{ opacity: 0, y: -38 }}
+                      transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
+                    >
+                      {f.delta > 0 ? '+' : '-'}{fmt(Math.abs(f.delta))}
+                      {peer && (
+                        <span className="cashFloat__peer" style={{ color: peer.color }}>
+                          {f.delta < 0 ? '→' : '←'}&nbsp;{peer.name}
+                        </span>
+                      )}
+                    </motion.span>
+                  );
+                })}
               </AnimatePresence>
             </button>
             {seat && canKickSeat?.(id) && (
@@ -167,7 +188,53 @@ export function PlayerRail({
           </li>
         );
       })}
+      <CashFlights floats={floats} state={state} liRefs={liRefs} />
     </ul>
+  );
+}
+
+/** The coin that makes a payment visible: for each charge with a named
+ *  payee, a small pill flies from the payer's card to theirs. Only the
+ *  payer's half of a transfer flies, or it would fly twice. Pure decoration
+ *  on top of the floats, and silent under prefers-reduced-motion. */
+function CashFlights({
+  floats, state, liRefs,
+}: {
+  floats: CashFloat[];
+  state: GameState;
+  liRefs: React.RefObject<Map<string, HTMLLIElement>>;
+}) {
+  const still = useMemo(
+    () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    [],
+  );
+  if (still) return null;
+  return (
+    <>
+      {floats.map((f) => {
+        if (f.delta >= 0 || !f.peer || !state.players[f.peer]) return null;
+        const fromEl = liRefs.current?.get(f.playerId);
+        const toEl = liRefs.current?.get(f.peer);
+        if (!fromEl || !toEl || fromEl === toEl) return null;
+        const x0 = fromEl.offsetLeft + fromEl.offsetWidth / 2;
+        const y0 = fromEl.offsetTop + fromEl.offsetHeight / 2;
+        const dx = toEl.offsetLeft + toEl.offsetWidth / 2 - x0;
+        const dy = toEl.offsetTop + toEl.offsetHeight / 2 - y0;
+        return (
+          <motion.span
+            key={f.id}
+            className="cashFlight"
+            style={{ left: x0, top: y0 }}
+            initial={{ x: 0, y: 0, opacity: 0, scale: 0.5 }}
+            animate={{ x: dx, y: dy, opacity: [0, 1, 1, 0.9], scale: [0.5, 1.08, 1, 0.92] }}
+            transition={{ duration: 0.9, times: [0, 0.2, 0.85, 1], ease: [0.22, 1, 0.36, 1] }}
+            aria-hidden
+          >
+            {fmt(Math.abs(f.delta))}
+          </motion.span>
+        );
+      })}
+    </>
   );
 }
 

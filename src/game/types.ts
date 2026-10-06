@@ -368,7 +368,10 @@ export type GameEvent =
   | { type: 'AUCTION_PASSED'; playerId: string }
   | { type: 'AUCTION_WON'; playerId: string; spaceId: number; amount: number }
   | { type: 'AUCTION_NOBODY'; spaceId: number }
-  | { type: 'MONEY'; playerId: string; delta: number; reason: string }
+  /** `peer` is who the money moved between: for a debit, who received it;
+   *  for a credit, who paid it. Absent means the bank. Presentation only -
+   *  the float on a player card can point at the other end of the deal. */
+  | { type: 'MONEY'; playerId: string; delta: number; reason: string; peer?: string | null }
   | { type: 'DEBT_INCURRED'; playerId: string; amount: number; reason: string }
   | { type: 'BANKRUPT'; playerId: string; creditorId: string | null }
   | { type: 'TRADE_PROPOSED'; offer: TradeOffer }

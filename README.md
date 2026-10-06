@@ -304,6 +304,26 @@ way. Three decisions carry most of that:
   invisible to a touch user and easy to miss on a mouse; the home screen now
   states what is missing instead.
 
+Money and movement are meant to be *seen*, not read back from the log. Every
+payment shows on both cards at once - red on the payer's with an arrow to
+the payee, green on theirs with an arrow back - and a coin flies between the
+two cards, so "who just paid whom" never needs reconstructing. Pieces travel
+at a pace the table can follow: a card that sends you across the board rides
+the ring square by square rather than snapping, and a trip to the Zindan is
+a beat and a glide into the cell - before, the token simply stayed where it
+was arrested until its next roll.
+
+The board itself narrates. A walking piece leaves fading footprints, and the
+square that just charged someone flashes once, timed to the moment the piece
+actually arrives rather than when the dice stopped (both ride the same
+queue the walks do). Wherever a piece stops, the board reads that square
+aloud for a moment - the hover peek, unasked. The last thing that happened
+is said in a line over the board, because mid-turn nobody is watching the
+side log. A drawn card flies in from the square it was drawn on. Whoever the
+table is waiting on has a soft breathing ring on their card, which on a bot
+reads as thinking - exactly the pause it explains - and the 3D camera leans
+toward the deed being auctioned, not just the active piece.
+
 ### Seeing the board
 
 The board is sized off the shorter viewport axis so it is always square and

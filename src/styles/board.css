@@ -630,6 +630,49 @@
    and never has to measure anything.
    ================================================================== */
 
+/* A charge landed: the square flashes once in brass, then lets go. Keyed by
+   the pulse's seq so the same square twice in a row replays. */
+.tile__flash {
+  position: absolute;
+  inset: -1px;
+  border-radius: 7px;
+  pointer-events: none;
+  z-index: 5;
+  box-shadow:
+    0 0 0 2px var(--brass-200),
+    0 0 22px 6px rgb(242 223 174 / 0.55);
+  animation: tileFlash 1.05s var(--ease-out) forwards;
+}
+@keyframes tileFlash {
+  0% { opacity: 0; }
+  18% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* A footprint: the square a moving piece just left glows softly and fades,
+   so a walk reads as a path. */
+.tile__step {
+  position: absolute;
+  inset: 16%;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 4;
+  background: radial-gradient(circle, rgb(242 223 174 / 0.5), transparent 70%);
+  animation: stepFade 0.85s ease-out forwards;
+}
+@keyframes stepFade {
+  from { opacity: 1; transform: scale(0.7); }
+  to { opacity: 0; transform: scale(1.3); }
+}
+
+/* The arrival peek appears by itself, so it drifts in rather than popping.
+   Opacity only: the edge variants carry their own positioning transform. */
+.peek--auto { animation: peekIn 0.25s var(--ease-out); }
+@keyframes peekIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .peek {
   position: absolute;
   z-index: 8;

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { play, type SfxName } from '../audio/sfx';
 import { botDecide, botDelay } from '../game/ai';
+import { JAIL_POSITION } from '../game/board';
 import { createGame, botifySeat, handOverSeat, reduce, type SeatSpec } from '../game/engine';
 import { logLine, type LogLine } from '../game/describe';
 import { tr, setBoardTheme } from '../i18n';
@@ -59,8 +60,14 @@ export type Screen = 'home' | 'account' | 'lobby' | 'game';
 export type Role = 'host' | 'guest' | 'local';
 export type AnyAction = GameAction | CFAction | MafiaAction;
 
-/** A floating +$200 / -$450 over a player's card. */
-export interface CashFloat { id: string; playerId: string; delta: number }
+/** A floating +$200 / -$450 over a player's card. `peer` is the other end
+ *  of the transfer, when there is one: the float can say who the money
+ *  went to or came from, and a coin flies between the two cards. */
+export interface CashFloat { id: string; playerId: string; delta: number; peer?: string | null }
+
+/** One beat of board animation: a square to light, distinct per firing so a
+ *  repeat on the same square replays. */
+export interface BoardPulse { spaceId: number; seq: number }
 
 /** Cashflow has room for six: its player rail and its board are drawn
  *  for that many, and there are only so many professions to go round. */
@@ -111,6 +118,13 @@ interface Store {
 
   /** Board positions the renderer draws, which lag state while a token walks. */
   animPos: Record<string, number>;
+  /** The square a charge just landed on, so both boards can flash it. Set
+   *  only once the token has actually arrived there (see driveWalks). */
+  tileFlash: BoardPulse | null;
+  /** The squares a moving piece has just stepped on, newest last. */
+  trail: BoardPulse[];
+  /** Where the last walk or ride stopped; the board reads that square aloud. */
+  arrived: BoardPulse | null;
   /** Dice currently tumbling, for the roll animation. */
   rolling: boolean;
   /** Deed the player has opened for inspection. */
@@ -227,6 +241,18 @@ const resetTalk = (): void => {
   talkTimers = [];
 };
 let walkTimer: number | null = null;
+/** One leg of a token's journey, waiting to be played. See driveWalks. */
+interface WalkJob {
+  playerId: string;
+  from: number;
+  to: number;
+  kind: 'walk' | 'ride' | 'jump' | 'flash';
+  speed: number;
+}
+let walkQueue: WalkJob[] = [];
+/** Bumped whenever the board is reset wholesale, so a tick scheduled by the
+ *  previous game (or the previous room) does not move this one's pieces. */
+let walkGen = 0;
 let clockTimer: number | null = null;
 /** What the armed clock is timing (see clockKey), so an unrelated publish -
  *  the presence ping every few seconds, a chat line - does not restart it. */
@@ -440,10 +466,12 @@ export const useStore = create<Store>((set, get) => {
   const addFloats = (floats: CashFloat[]): void => {
     if (floats.length === 0) return;
     set((s) => ({ floats: [...s.floats, ...floats] }));
+    // Long enough to actually be read - and for the flight between the two
+    // cards to finish - then gone.
     window.setTimeout(() => {
       const ids = new Set(floats.map((f) => f.id));
       set((s) => ({ floats: s.floats.filter((f) => !ids.has(f.id)) }));
-    }, 1600);
+    }, 2600);
   };
 
   /** The seat this tab plays: its own id, or a bot's seat it took over. */
@@ -477,9 +505,16 @@ export const useStore = create<Store>((set, get) => {
       const l = logLine(e, logSeq++);
       if (l) lines.push(l);
       if (e.type === 'MONEY' && Math.abs(e.delta) > 0) {
-        floats.push({ id: `f${logSeq++}`, playerId: e.playerId, delta: e.delta });
+        floats.push({ id: `f${logSeq++}`, playerId: e.playerId, delta: e.delta, peer: e.peer ?? null });
       }
       if (e.type === 'MOVED') queueWalk(e.playerId, e.from, e.to, e.direct, state);
+      // JAILED carries no MOVED: without this the token sat on the square
+      // that sent it until the player's next roll.
+      if (e.type === 'JAILED') queueJail(e.playerId);
+      // Money has a place it came from: flash the square once the piece
+      // has actually arrived on it.
+      if (e.type === 'RENT_PAID') queueFlash(e.spaceId);
+      if (e.type === 'TAX_PAID') queueFlash(state.players[e.playerId]?.position ?? 0);
       if (e.type === 'DICE_ROLLED') spin(state.settings.animationSpeed);
     }
     if (lines.length > 0) set((s) => ({ log: [...s.log, ...lines].slice(-160) }));
@@ -549,29 +584,118 @@ export const useStore = create<Store>((set, get) => {
     }
   };
 
-  /** Walk a token space by space. Teleports (cards) jump straight there. */
-  const queueWalk = (
-    playerId: string, from: number, to: number, direct: boolean, state: GameState,
-  ): void => {
-    if (direct || from === to) { set((s) => ({ animPos: { ...s.animPos, [playerId]: to } })); return; }
+  /** Drop every queued and in-flight board animation: a new game, a rematch,
+   *  or a torn-down room. */
+  const resetWalks = (): void => {
+    walkGen += 1;
+    walkQueue = [];
+    if (walkTimer !== null) {
+      window.clearInterval(walkTimer);
+      window.clearTimeout(walkTimer);
+      walkTimer = null;
+    }
+    set({ tileFlash: null, trail: [], arrived: null });
+  };
+
+  /** Token journeys play one at a time: "land on the Bazaar, draw a card,
+   *  ride to the station" reads as the two motions it is, instead of the
+   *  second cutting the first off. Effects that belong to the *arrival* -
+   *  the flash of the square that charged you - ride the same queue, so they
+   *  fire when the piece gets there rather than when the dice stopped. */
+  const driveWalks = (): void => {
+    if (walkTimer !== null) return; // one in flight; its last step picks up the next
+    const job = walkQueue.shift();
+    if (!job) return;
+    const gen = walkGen;
+    const { playerId, from, to, kind, speed } = job;
+
+    if (kind === 'flash') {
+      const seq = logSeq++;
+      set({ tileFlash: { spaceId: to, seq } });
+      // The flash is CSS after this; the store only has to put it out.
+      window.setTimeout(() => {
+        if (gen === walkGen) set((s) => (s.tileFlash?.seq === seq ? { tileFlash: null } : s));
+      }, 1100);
+      walkTimer = window.setTimeout(() => {
+        walkTimer = null;
+        driveWalks();
+      }, 160);
+      return;
+    }
+
+    if (kind === 'jump') {
+      // A beat on the square that sent them, so the siren lands first;
+      // then one glide. Both renderers smooth the jump on their own.
+      walkTimer = window.setTimeout(() => {
+        walkTimer = null;
+        if (gen === walkGen) set((s) => ({ animPos: { ...s.animPos, [playerId]: to } }));
+        driveWalks();
+      }, 300);
+      return;
+    }
+
     const forward = ((to - from) % 40 + 40) % 40;
     const backward = forward > 20 ? forward - 40 : forward;
     const stepCount = Math.abs(backward);
     const dir = Math.sign(backward);
-    const perStep = Math.max(70, 150 / Math.max(state.settings.animationSpeed, 0.25));
+    // A stroll for the dice; a card ride is brisk but capped, so the longest
+    // jump still lands inside a couple of seconds.
+    const perStep = kind === 'walk'
+      ? Math.max(70, 150 / speed)
+      : Math.max(60, Math.min(150, Math.round(1500 / Math.max(stepCount, 1))) / speed);
 
     let i = 0;
-    if (walkTimer) window.clearInterval(walkTimer);
     set((s) => ({ animPos: { ...s.animPos, [playerId]: from } }));
     walkTimer = window.setInterval(() => {
-      i += 1;
-      const pos = ((from + dir * i) % 40 + 40) % 40;
-      set((s) => ({ animPos: { ...s.animPos, [playerId]: pos } }));
-      if (i >= stepCount) {
+      if (gen !== walkGen) {
         if (walkTimer) window.clearInterval(walkTimer);
         walkTimer = null;
+        return;
+      }
+      i += 1;
+      const pos = ((from + dir * i) % 40 + 40) % 40;
+      const done = i >= stepCount;
+      set((s) => ({
+        animPos: { ...s.animPos, [playerId]: pos },
+        // Each step leaves a footprint; arriving says where the piece stopped.
+        trail: [...s.trail.slice(-5), { spaceId: pos, seq: logSeq++ }],
+        ...(done ? { arrived: { spaceId: pos, seq: logSeq++ } } : {}),
+      }));
+      if (done) {
+        if (walkTimer) window.clearInterval(walkTimer);
+        walkTimer = null;
+        driveWalks();
       }
     }, perStep);
+  };
+
+  /** Walk a token space by space. Card teleports ride the ring briskly
+   *  rather than snapping - they pass Start honestly when they do. */
+  const queueWalk = (
+    playerId: string, from: number, to: number, direct: boolean, state: GameState,
+  ): void => {
+    if (from === to) return;
+    walkQueue.push({
+      playerId, from, to,
+      kind: direct ? 'ride' : 'walk',
+      speed: Math.max(state.settings.animationSpeed, 0.25),
+    });
+    driveWalks();
+  };
+
+  /** Off to the Zindan: not a walk (it passes nothing), a lift and a glide. */
+  const queueJail = (playerId: string): void => {
+    const from = get().animPos[playerId] ?? get().room?.game?.players[playerId]?.position;
+    if (from == null || from === JAIL_POSITION) return;
+    walkQueue.push({ playerId, from, to: JAIL_POSITION, kind: 'jump', speed: 1 });
+    driveWalks();
+  };
+
+  /** Light the square money just moved through. Queued rather than fired:
+   *  the charge lands when the token does, not while it is still walking. */
+  const queueFlash = (spaceId: number): void => {
+    walkQueue.push({ playerId: '', from: spaceId, to: spaceId, kind: 'flash', speed: 1 });
+    driveWalks();
   };
 
   const snapshot = (): RoomSnapshot | null => get().room;
@@ -1368,6 +1492,9 @@ export const useStore = create<Store>((set, get) => {
         // has been handed on, which starts a fresh count under a new host.
         if (cur && msg.snapshot.epoch === cur.epoch && msg.snapshot.rev <= cur.rev) return;
         const wasInGame = Boolean(cur && inGame(cur));
+        // A fresh game (or a lobby after one) resets the board: any walk
+        // still playing belongs to the game that was.
+        if (wasInGame !== inGame(msg.snapshot)) resetWalks();
         set({ room: msg.snapshot, screen: inGame(msg.snapshot) ? 'game' : 'lobby' });
         // The host started a rematch: last game's log is not this game's.
         if (wasInGame && !inGame(msg.snapshot)) set({ log: [], cfLog: [], mafLog: [], mafPrivate: null, animPos: {} });
@@ -1545,9 +1672,8 @@ export const useStore = create<Store>((set, get) => {
     host = null;
     guest = null;
     if (botTimer) window.clearTimeout(botTimer);
-    if (walkTimer) window.clearInterval(walkTimer);
     botTimer = null;
-    walkTimer = null;
+    resetWalks();
     stopClock();
     stopListing();
   };
@@ -1653,6 +1779,9 @@ export const useStore = create<Store>((set, get) => {
     retryCode: null,
 
     animPos: {},
+    tileFlash: null,
+    trail: [],
+    arrived: null,
     rolling: false,
     inspecting: null,
     sheet: 'none',
@@ -2026,6 +2155,7 @@ export const useStore = create<Store>((set, get) => {
       const started = reduce(fresh, { type: 'START_GAME', playerId: me.playerId });
       const pos: Record<string, number> = {};
       for (const id of started.state.seats) pos[id] = 0;
+      resetWalks();
       set({ screen: 'game', animPos: pos, log: [] });
       publish({ ...base, seats, game: started.state }, started.events);
     },
@@ -2072,6 +2202,7 @@ export const useStore = create<Store>((set, get) => {
       }
       mafPrivateCache.clear();
       resetTalk();
+      resetWalks();
       set({ screen: 'lobby', log: [], cfLog: [], mafLog: [], mafPrivate: null, animPos: {}, inspecting: null });
       // The listing ended with the game - and has to end here, before the
       // publish below announces a lobby: rematching inside one heartbeat

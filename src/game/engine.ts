@@ -521,10 +521,10 @@ function applyCard(
 
 /* ------------------------------- money ------------------------------ */
 
-function credit(s: GameState, events: GameEvent[], pid: string, amount: number, reason: string): void {
+function credit(s: GameState, events: GameEvent[], pid: string, amount: number, reason: string, peer?: string | null): void {
   if (amount === 0) return;
   s.players[pid].cash += amount;
-  events.push({ type: 'MONEY', playerId: pid, delta: amount, reason });
+  events.push({ type: 'MONEY', playerId: pid, delta: amount, reason, ...(peer ? { peer } : {}) });
 }
 
 /**
@@ -545,8 +545,8 @@ function chargePlayer(
 
   if (me.cash >= amount) {
     me.cash -= amount;
-    events.push({ type: 'MONEY', playerId: pid, delta: -amount, reason });
-    payOut(s, events, me.name, creditorId, amount, cuts);
+    events.push({ type: 'MONEY', playerId: pid, delta: -amount, reason, peer: creditorId });
+    payOut(s, events, pid, me.name, creditorId, amount, cuts);
     return;
   }
 
@@ -561,10 +561,10 @@ function chargePlayer(
   autoLiquidate(s, events, pid, amount);
   if (s.players[pid].cash >= amount) {
     me.cash -= amount;
-    events.push({ type: 'MONEY', playerId: pid, delta: -amount, reason });
-    payOut(s, events, me.name, creditorId, amount, cuts);
+    events.push({ type: 'MONEY', playerId: pid, delta: -amount, reason, peer: creditorId });
+    payOut(s, events, pid, me.name, creditorId, amount, cuts);
   } else {
-    if (creditorId) credit(s, events, creditorId, me.cash, `from ${me.name}`);
+    if (creditorId) credit(s, events, creditorId, me.cash, `from ${me.name}`, pid);
     me.cash = 0;
     doBankrupt(s, events, pid, creditorId);
   }
@@ -593,7 +593,7 @@ function autoLiquidate(s: GameState, events: GameEvent[], pid: string, target: n
 /** Hand a paid amount to its creditor, less any shareholder cuts, or to the
  *  bank when there is no creditor. */
 function payOut(
-  s: GameState, events: GameEvent[], payerName: string,
+  s: GameState, events: GameEvent[], payerId: string, payerName: string,
   creditorId: string | null, amount: number, cuts?: RentCut[],
 ): void {
   if (!creditorId) { paidToBank(s, amount); return; }
@@ -604,10 +604,10 @@ function payOut(
     // A shareholder who has since gone bust leaves their slice with the owner.
     if (!holder || holder.bankrupt || take <= 0) continue;
     rest -= take;
-    credit(s, events, cut.to, take, 'revenue share');
+    credit(s, events, cut.to, take, 'revenue share', payerId);
     events.push({ type: 'SHARE_PAID', from: creditorId, to: cut.to, amount: take, spaceId: cut.spaceId });
   }
-  credit(s, events, creditorId, rest, `from ${payerName}`);
+  credit(s, events, creditorId, rest, `from ${payerName}`, payerId);
 }
 
 /**
@@ -655,13 +655,13 @@ function settleDebt(s: GameState, events: GameEvent[]): void {
   if (!d) return;
   const me = s.players[d.from];
   me.cash -= d.amount;
-  events.push({ type: 'MONEY', playerId: d.from, delta: -d.amount, reason: d.reason });
+  events.push({ type: 'MONEY', playerId: d.from, delta: -d.amount, reason: d.reason, peer: d.to });
   if (d.split) {
     // Whole by construction: the debt is the per-player sum times the count.
     const share = d.amount / d.split.length;
-    for (const id of d.split) credit(s, events, id, share, `from ${me.name}`);
+    for (const id of d.split) credit(s, events, id, share, `from ${me.name}`, d.from);
   } else {
-    payOut(s, events, me.name, d.to, d.amount, d.cuts);
+    payOut(s, events, d.from, me.name, d.to, d.amount, d.cuts);
   }
   s.debt = null;
   s.phase = 'resolving';
@@ -1011,6 +1011,13 @@ function doAcceptTrade(s: GameState, events: GameEvent[], pid: string, tradeId: 
   const to = s.players[offer.to];
   from.cash += offer.wantCash - offer.giveCash;
   to.cash += offer.giveCash - offer.wantCash;
+  // The cash leg, said out loud: a trade used to move money with no MONEY
+  // event at all, so neither side's card showed it.
+  if (offer.giveCash !== offer.wantCash) {
+    const net = offer.giveCash - offer.wantCash;
+    events.push({ type: 'MONEY', playerId: offer.from, delta: -net, reason: 'trade', peer: offer.to });
+    events.push({ type: 'MONEY', playerId: offer.to, delta: net, reason: 'trade', peer: offer.from });
+  }
   from.getOutOfJailCards += offer.wantJailCards - offer.giveJailCards;
   to.getOutOfJailCards += offer.giveJailCards - offer.wantJailCards;
   for (const id of offer.giveProperties) s.properties[id].owner = offer.to;
@@ -1054,8 +1061,8 @@ function signTerms(s: GameState, events: GameEvent[], offer: TradeOffer): void {
         const borrower = lender === offer.from ? offer.to : offer.from;
         s.players[lender].cash -= t.principal;
         s.players[borrower].cash += t.principal;
-        events.push({ type: 'MONEY', playerId: lender, delta: -t.principal, reason: 'loan' });
-        events.push({ type: 'MONEY', playerId: borrower, delta: t.principal, reason: 'loan' });
+        events.push({ type: 'MONEY', playerId: lender, delta: -t.principal, reason: 'loan', peer: borrower });
+        events.push({ type: 'MONEY', playerId: borrower, delta: t.principal, reason: 'loan', peer: lender });
         c = {
           id, kind: 'loan', lender, borrower,
           principal: t.principal, repay: t.repay, dueRound: s.round + t.rounds,
@@ -1117,8 +1124,8 @@ function doRepayLoan(s: GameState, events: GameEvent[], pid: string, contractId:
   if (me.cash < loan.repay) return;
   s.contracts = s.contracts.filter((c) => c.id !== contractId);
   me.cash -= loan.repay;
-  events.push({ type: 'MONEY', playerId: pid, delta: -loan.repay, reason: 'loan repayment' });
-  credit(s, events, loan.lender, loan.repay, `from ${me.name}`);
+  events.push({ type: 'MONEY', playerId: pid, delta: -loan.repay, reason: 'loan repayment', peer: loan.lender });
+  credit(s, events, loan.lender, loan.repay, `from ${me.name}`, pid);
   events.push({ type: 'LOAN_REPAID', borrower: pid, lender: loan.lender, amount: loan.repay, early: true });
 }
 
@@ -1200,7 +1207,7 @@ function doBankrupt(
 
   if (creditorId && s.players[creditorId] && !s.players[creditorId].bankrupt) {
     // Everything transfers, mortgages and all.
-    credit(s, events, creditorId, me.cash, `from ${me.name}'s estate`);
+    credit(s, events, creditorId, me.cash, `from ${me.name}'s estate`, pid);
     let interest = 0;
     for (const id of owned) {
       const st = s.properties[id];
@@ -1210,7 +1217,7 @@ function doBankrupt(
         if (st.houses === 5) { s.hotelsRemaining += 1; }
         else { s.housesRemaining += st.houses; }
         st.houses = 0;
-        credit(s, events, creditorId, refund, 'liquidated buildings');
+        credit(s, events, creditorId, refund, 'liquidated buildings', pid);
       }
       st.owner = creditorId;
       if (st.mortgaged) interest += transferFee(s, id);

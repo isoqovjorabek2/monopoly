@@ -2,7 +2,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
   AdditiveBlending, CanvasTexture, DoubleSide, MathUtils, NeutralToneMapping,
-  PMREMGenerator, SRGBColorSpace, ShaderChunk, Vector3, type Mesh,
+  PMREMGenerator, SRGBColorSpace, ShaderChunk, Vector3, type Mesh, type MeshBasicMaterial,
 } from 'three';
 import { themedFelt, themedMedal, themedTable } from '../../art/art';
 import { useArtTexture } from './artTexture';
@@ -10,7 +10,7 @@ import { BOARD } from '../../game/board';
 import type { BoardTheme, GameState, Space } from '../../game/types';
 import { spaceShort, useBoardTheme, useT } from '../../i18n';
 import { tablePlus } from '../../net/plus';
-import { useStore } from '../../store/store';
+import { useStore, type BoardPulse } from '../../store/store';
 import {
   BASE_H, HALF, TILE_H, TOTAL,
   buildingPositions, tileLayout, tokenPosition,
@@ -422,6 +422,49 @@ function fitDistance(aspect: number): number {
   return MathUtils.clamp(hi * 1.03, 9, 48);
 }
 
+/** The square a charge just landed on, lit once in brass. The store clears
+ *  the pulse after the fade; the mesh just plays it. */
+function Flash3D({ spaceId }: { spaceId: number }) {
+  const m = useRef<Mesh>(null);
+  const started = useRef(-1);
+  const { x, z, sx, sz } = tileLayout(spaceId);
+  useFrame(({ clock }) => {
+    const mesh = m.current;
+    if (!mesh) return;
+    if (started.current < 0) started.current = clock.elapsedTime;
+    const t = Math.max(0, (clock.elapsedTime - started.current) / 1.05);
+    (mesh.material as MeshBasicMaterial).opacity = Math.max(0, 0.5 * (1 - t));
+    mesh.scale.setScalar(1 + t * 0.15);
+  });
+  return (
+    <mesh ref={m} position={[x, BASE_H / 2 + TILE_H + 0.02, z]} rotation={[-Math.PI / 2, 0, 0]}>
+      <planeGeometry args={[sx * 0.94, sz * 0.94]} />
+      <meshBasicMaterial color="#f2dfae" transparent opacity={0.5} depthWrite={false} />
+    </mesh>
+  );
+}
+
+/** A footprint: fades where the moving piece just stepped, so a walk reads
+ *  as a path rather than a piece that keeps teleporting one square over. */
+function StepDot({ spaceId }: { spaceId: number }) {
+  const m = useRef<Mesh>(null);
+  const started = useRef(-1);
+  const { x, z } = tileLayout(spaceId);
+  useFrame(({ clock }) => {
+    const mesh = m.current;
+    if (!mesh) return;
+    if (started.current < 0) started.current = clock.elapsedTime;
+    const t = Math.max(0, (clock.elapsedTime - started.current) / 0.85);
+    (mesh.material as MeshBasicMaterial).opacity = Math.max(0, 0.38 * (1 - t));
+  });
+  return (
+    <mesh ref={m} position={[x, BASE_H / 2 + TILE_H + 0.015, z]} rotation={[-Math.PI / 2, 0, 0]}>
+      <circleGeometry args={[0.16, 20]} />
+      <meshBasicMaterial color="#f2dfae" transparent opacity={0.38} depthWrite={false} />
+    </mesh>
+  );
+}
+
 function Rig({
   focus, cinematic, yaw,
 }: { focus: [number, number, number] | null; cinematic: boolean; yaw: number }) {
@@ -544,6 +587,10 @@ export interface Board3DProps {
   animPos: Record<string, number>;
   rolling: boolean;
   highlight: number | null;
+  /** The square a charge just landed on (store.tileFlash). */
+  flash?: BoardPulse | null;
+  /** Where the moving piece just stepped (store.trail). */
+  trail?: BoardPulse[];
   onInspect: (id: number) => void;
   /** Which square the pointer is over, for the readable label in the shell. */
   onHover?: (id: number | null) => void;
@@ -556,7 +603,7 @@ export interface Board3DProps {
 }
 
 export default function Board3D({
-  state, myId, animPos, rolling, highlight, onInspect, onHover, spotlight,
+  state, myId, animPos, rolling, highlight, flash, trail, onInspect, onHover, spotlight,
   quality, onReady, onContextLost,
 }: Board3DProps) {
   // Set before any tile draws its face: the cap decides how large those
@@ -601,9 +648,13 @@ export default function Board3D({
   }, []);
 
   const focus = useMemo<[number, number, number] | null>(() => {
-    const pos = animPos[current] ?? state.players[current]?.position;
-    if (pos == null) return null;
-    const { x, z } = tileLayout(pos);
+    // While the table bids, look at what is being sold: a bankrupt estate's
+    // deed can be on the far side of the board from anyone's piece.
+    const spaceId = state.phase === 'auction' && state.auction
+      ? state.auction.spaceId
+      : (animPos[current] ?? state.players[current]?.position);
+    if (spaceId == null) return null;
+    const { x, z } = tileLayout(spaceId);
     return [x, 0, z];
   }, [current, animPos, state]);
 
@@ -741,6 +792,9 @@ export default function Board3D({
         <group position={[0, BASE_H / 2, 1.4]}>
           <Dice3D dice={state.dice} rolling={rolling} finish={skins[current]} color={state.players[current]?.color} sparks={plusSeats.has(current)} />
         </group>
+
+        {trail?.map((s) => <StepDot key={s.seq} spaceId={s.spaceId} />)}
+        {flash && <Flash3D key={flash.seq} spaceId={flash.spaceId} />}
       </Suspense>
 
       <AdaptiveResolution start={quality === 'high' ? 1.75 : 1.4} floor={1.15} />

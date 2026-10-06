@@ -949,7 +949,7 @@
 
 /* ------------------------------ rail ------------------------------- */
 
-.rail { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-2); }
+.rail { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-2); position: relative; }
 .rail > li { position: relative; }
 
 /* The moderation kick: tucked into a corner until armed; a second tap lands
@@ -1058,16 +1058,97 @@
 
 .cashFloat {
   position: absolute;
-  right: 12px;
-  top: 8px;
+  right: 10px;
+  top: 6px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
   font-family: var(--font-num);
-  font-size: var(--t-sm);
+  font-size: var(--t-md);
   font-weight: 700;
+  white-space: nowrap;
   color: var(--success-400);
-  text-shadow: 0 1px 6px rgb(0 0 0 / 0.8);
+  background: rgb(8 10 9 / 0.9);
+  border: 1px solid color-mix(in oklab, var(--success-400) 50%, transparent);
+  box-shadow: 0 3px 14px rgb(0 0 0 / 0.7);
   pointer-events: none;
 }
-.cashFloat[data-neg] { color: var(--danger-400); }
+.cashFloat[data-neg] {
+  color: var(--danger-400);
+  border-color: color-mix(in oklab, var(--danger-400) 50%, transparent);
+}
+/* Who the money moved between - small, in their table colour. */
+.cashFloat__peer {
+  font-family: var(--font-ui, inherit);
+  font-size: var(--t-2xs);
+  font-weight: 600;
+  max-width: 11ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The coin that flies from the payer's card to the payee's. */
+.cashFlight {
+  position: absolute;
+  z-index: 4;
+  margin: -11px 0 0 -20px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-family: var(--font-num);
+  font-size: var(--t-xs);
+  font-weight: 700;
+  white-space: nowrap;
+  color: #201503;
+  background: linear-gradient(160deg, var(--brass-200), var(--brass-500));
+  box-shadow: 0 2px 9px rgb(0 0 0 / 0.65), inset 0 1px 1px rgb(255 255 255 / 0.55);
+  pointer-events: none;
+}
+
+/* Whoever the table is waiting on: a soft ring that breathes. On a bot it
+   reads as "thinking" - which is exactly the pause it explains; on a human
+   it is the "your move" tap on the shoulder. */
+.playerCard[data-waiting]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1.5px rgb(242 223 174 / 0.55);
+  animation: waitPulse 1.2s ease-in-out infinite;
+}
+@keyframes waitPulse {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 1; }
+}
+
+/* What just happened, said on the board itself: the feed keeps the whole
+   story, but mid-turn nobody is watching the feed. */
+.game__boardWrap { position: relative; }
+.turnToast {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 88%;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: var(--t-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  background: rgb(8 10 9 / 0.88);
+  border: 1px solid var(--border-brass);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.6);
+  pointer-events: none;
+}
+.turnToast[data-tone='good'] { border-color: color-mix(in oklab, var(--success-400) 50%, transparent); }
+.turnToast[data-tone='bad'] { border-color: color-mix(in oklab, var(--danger-400) 50%, transparent); }
+.turnToast[data-tone='big'] { border-color: var(--brass-500); }
 
 .strip { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .strip__group { display: flex; gap: 1.5px; padding: 1px 2px; border-radius: 3px; }

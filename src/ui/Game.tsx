@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { BOARD } from '../game/board';
+import { describe, type LogLine } from '../game/describe';
 import { clockKey, clockSeconds, maxRaisable } from '../game/rules';
 import type { GameAction, GameState } from '../game/types';
 import { cap, spaceName, trReason, useBoardTheme, useT } from '../i18n';
 import { useStore } from '../store/store';
 import { BoardStage, readRenderMode, writeRenderMode, type RenderMode } from './BoardStage';
 import { BoardTools, readBoardZoom, useFocusMode, writeBoardZoom, ZOOM_STEPS } from './BoardTools';
+import { cellOf } from './Board';
 import { DeedCard } from './DeedCard';
 import {
   AuctionPanel, GameOver, IncomingTrades, LogFeed, PlayerRail, PortfolioModal, TradePanel,
@@ -46,6 +48,9 @@ export function Game() {
   const chat = useStore((s) => s.chat);
   const floats = useStore((s) => s.floats);
   const animPos = useStore((s) => s.animPos);
+  const tileFlash = useStore((s) => s.tileFlash);
+  const trail = useStore((s) => s.trail);
+  const arrived = useStore((s) => s.arrived);
   const rolling = useStore((s) => s.rolling);
   const inspecting = useStore((s) => s.inspecting);
   const sheet = useStore((s) => s.sheet);
@@ -310,12 +315,18 @@ export function Game() {
               animPos={animPos}
               spotlight={spotlight ?? portfolioOf ?? pinned}
               rolling={rolling}
+              flash={tileFlash}
+              trail={trail}
+              arrive={arrived}
               onInspect={inspect}
               onFallback={fallBackTo2D}
               highlight={state.phase === 'awaiting_buy' || state.phase === 'auction'
                 ? (state.auction?.spaceId ?? state.players[state.seats[state.seatIndex]].position)
                 : null}
             />
+            {/* What just happened, said on the board itself: the side log is
+                not where eyes are mid-turn. */}
+            <TurnToast state={state} />
           </div>
           <BoardTools
             zoom={zoom}
@@ -401,6 +412,45 @@ export function Game() {
       <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
       <FxLayer request={fx} />
     </div>
+  );
+}
+
+/* ====================== what just happened ============================ */
+
+/** The latest log line, said on the board itself for a couple of seconds.
+ *  The feed keeps the whole story; this is for eyes that are on the board.
+ *  Turn openings are skipped - the centre HUD already says whose go it is. */
+function TurnToast({ state }: { state: GameState }) {
+  const t = useT();
+  const log = useStore((s) => s.log);
+  const last = log[log.length - 1] ?? null;
+  const [shown, setShown] = useState<LogLine | null>(null);
+  useEffect(() => {
+    if (!last || last.event.type === 'TURN_STARTED') return undefined;
+    setShown(last);
+    const timer = window.setTimeout(() => setShown(null), 2400);
+    return () => window.clearTimeout(timer);
+  }, [last]);
+  const actor = shown?.actor ? state.players[shown.actor] : null;
+  return (
+    <AnimatePresence>
+      {shown && (
+        <motion.div
+          key={shown.id}
+          className="turnToast"
+          data-tone={shown.tone}
+          style={{ x: '-50%' }}
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -4 }}
+          transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+          aria-hidden
+        >
+          {actor && <span className="logLine__dot" style={{ background: actor.color }} />}
+          <span className="truncate">{describe(state, shown.event, t)}</span>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -630,6 +680,12 @@ function CardModal({
   const card = state.activeCard;
   const drawer = state.players[state.seats[state.seatIndex]];
 
+  // The card flies in from the square it was drawn on rather than appearing
+  // from nowhere: "where did that come from" answers itself. Grid geometry
+  // only - both renderers share it, so no measuring the board is needed.
+  const { col, row } = cellOf(drawer?.position ?? 0);
+  const fly = { x: (col - 6) * 32, y: (row - 6) * 32 };
+
   // One card on the table is one draw: the roll that drew it moved the dice
   // cursor, so this names it for as long as it stays up.
   const drawKey = card ? `${state.turnNumber}:${state.rngCursor}:${card.id}` : '';
@@ -663,8 +719,8 @@ function CardModal({
           <div className="cardFlip__scene">
           <motion.div
             className="cardFlip"
-            initial={{ rotateY: 180, opacity: 0 }}
-            animate={{ rotateY: 0, opacity: 1 }}
+            initial={{ rotateY: 180, opacity: 0, x: fly.x, y: fly.y, scale: 0.4 }}
+            animate={{ rotateY: 0, opacity: 1, x: 0, y: 0, scale: 1 }}
             transition={{ type: 'spring', stiffness: 90, damping: 16 }}
           >
             <div

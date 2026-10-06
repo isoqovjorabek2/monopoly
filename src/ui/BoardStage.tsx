@@ -4,6 +4,7 @@ import type { GameState } from '../game/types';
 import { spaceName, useT } from '../i18n';
 import { Board } from './Board';
 import { ErrorBoundary } from './ErrorBoundary';
+import type { BoardPulse } from '../store/store';
 
 /* The 3D board is code-split: three.js is roughly the size of the rest of
  * the app, and a player who stays in 2D should never download it. */
@@ -77,7 +78,7 @@ export function writeRenderMode(mode: RenderMode): void {
 }
 
 export function BoardStage({
-  mode, state, myId, animPos, rolling, highlight, spotlight, onInspect, onFallback,
+  mode, state, myId, animPos, rolling, highlight, spotlight, flash, trail, arrive, onInspect, onFallback,
 }: {
   mode: RenderMode;
   state: GameState;
@@ -88,6 +89,12 @@ export function BoardStage({
   highlight: number | null;
   /** A player to point at on the board itself. */
   spotlight: string | null;
+  /** The square a charge just landed on. */
+  flash: BoardPulse | null;
+  /** The squares a moving piece just stepped on. */
+  trail: BoardPulse[];
+  /** Where the last move stopped: name it for a moment. */
+  arrive: BoardPulse | null;
   onInspect: (id: number) => void;
   onFallback: () => void;
 }) {
@@ -99,6 +106,16 @@ export function BoardStage({
   // the player sitting there - so the name is also said here, in HTML, at
   // whatever size the screen actually is.
   const [peek, setPeek] = useState<number | null>(null);
+
+  /* The 3D board has no tile hover card of its own - the shell names the
+   * square. Arriving somewhere names it too, for a moment, unasked. */
+  const [autoPeek, setAutoPeek] = useState<number | null>(null);
+  useEffect(() => {
+    if (!arrive) return undefined;
+    setAutoPeek(arrive.spaceId);
+    const timer = window.setTimeout(() => setAutoPeek(null), 1700);
+    return () => window.clearTimeout(timer);
+  }, [arrive]);
 
   /* Read first, open second - on touch only.
    *
@@ -250,6 +267,9 @@ export function BoardStage({
       rolling={rolling}
       onInspect={choose}
       highlight={highlight}
+      flash={flash}
+      trail={trail}
+      arrive={arrive}
     />
   );
 
@@ -288,6 +308,8 @@ export function BoardStage({
                 animPos={animPos}
                 rolling={rolling}
                 highlight={highlight}
+                flash={flash}
+                trail={trail}
                 onInspect={choose}
                 onHover={setPeek}
                 spotlight={spotlight}
@@ -299,7 +321,7 @@ export function BoardStage({
           </div>
         </Suspense>
       </ErrorBoundary>
-      {readingCard || <TilePeek state={state} spaceId={peek} />}
+      {readingCard || <TilePeek state={state} spaceId={peek ?? autoPeek} />}
     </div>
   );
 }

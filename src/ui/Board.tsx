@@ -1,9 +1,10 @@
-import { memo, useCallback, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   CORNER_EMBLEM, themedCorner, themedFelt, themedGroup, themedMedal, type GroupMotif,
 } from '../art/art';
 import { BOARD, GROUP_COLOR, edgeOf, isCorner } from '../game/board';
 import type { BoardTheme, GameState, Space } from '../game/types';
+import type { BoardPulse } from '../store/store';
 import { BoardIcon, House, Hotel, Piece, type SpaceIcon } from './Pieces';
 import { Dice } from './Dice';
 import { fmt } from './bits';
@@ -81,6 +82,10 @@ interface TileProps {
   houses: number;
   mortgaged: boolean;
   highlight: boolean;
+  /** A charge just landed here: play the flash. Keyed so a repeat replays. */
+  flashSeq: number | null;
+  /** A piece just stepped here: leave a fading footprint. */
+  stepSeq: number | null;
   /** Roving tabindex: exactly one tile is in the tab order at a time. */
   focusable: boolean;
   onInspect: (id: number) => void;
@@ -89,7 +94,8 @@ interface TileProps {
 }
 
 const Tile = memo(function Tile({
-  space, t, theme, ownerColor, houses, mortgaged, highlight, focusable, onInspect, onPeek, register,
+  space, t, theme, ownerColor, houses, mortgaged, highlight, flashSeq, stepSeq,
+  focusable, onInspect, onPeek, register,
 }: TileProps) {
   const short = spaceShort(t, space.id);
   const edge = edgeOf(space.id);
@@ -198,6 +204,8 @@ const Tile = memo(function Tile({
             : Array.from({ length: houses }, (_, i) => <House key={i} className="house" />)}
         </span>
       )}
+      {stepSeq != null && <span key={`s${stepSeq}`} className="tile__step" aria-hidden />}
+      {flashSeq != null && <span key={`f${flashSeq}`} className="tile__flash" aria-hidden />}
     </button>
   );
 });
@@ -205,13 +213,19 @@ const Tile = memo(function Tile({
 /* ------------------------------- board ------------------------------- */
 
 export function Board({
-  state, animPos, rolling, onInspect, highlight,
+  state, animPos, rolling, onInspect, highlight, flash, trail, arrive,
 }: {
   state: GameState;
   animPos: Record<string, number>;
   rolling: boolean;
   onInspect: (id: number) => void;
   highlight: number | null;
+  /** The square a charge just landed on. */
+  flash: BoardPulse | null;
+  /** The squares a moving piece just stepped on. */
+  trail: BoardPulse[];
+  /** Where the last move stopped: read that square aloud for a moment. */
+  arrive: BoardPulse | null;
 }) {
   const t = useT();
   const theme = useBoardTheme();
@@ -226,6 +240,21 @@ export function Board({
   const [cursor, setCursor] = useState(0);
   const [peek, setPeek] = useState<number | null>(null);
   const tiles = useRef(new Map<number, HTMLButtonElement>());
+
+  /* Where the piece stopped, said aloud without anyone reaching for it:
+   * the hover peek, shown by the game itself for a moment. A hover of the
+   * player's own always wins. */
+  const [autoPeek, setAutoPeek] = useState<BoardPulse | null>(null);
+  useEffect(() => {
+    if (!arrive) return undefined;
+    setAutoPeek(arrive);
+    const timer = window.setTimeout(() => setAutoPeek(null), 1700);
+    return () => window.clearTimeout(timer);
+  }, [arrive]);
+
+  // Latest step per square, so a tile shows only its freshest footprint.
+  const stepOf: Record<number, number> = {};
+  for (const s of trail) stepOf[s.spaceId] = s.seq;
 
   const register = useCallback((id: number, el: HTMLButtonElement | null) => {
     if (el) tiles.current.set(id, el);
@@ -287,6 +316,8 @@ export function Board({
             houses={st?.houses ?? 0}
             mortgaged={st?.mortgaged ?? false}
             highlight={highlight === space.id}
+            flashSeq={flash?.spaceId === space.id ? flash.seq : null}
+            stepSeq={stepOf[space.id] ?? null}
             focusable={cursor === space.id}
             onInspect={onInspect}
             onPeek={setPeek}
@@ -302,6 +333,9 @@ export function Board({
       </div>
 
       {peek !== null && <Peek state={state} spaceId={peek} />}
+      {peek === null && autoPeek !== null && (
+        <Peek key={`auto${autoPeek.seq}`} state={state} spaceId={autoPeek.spaceId} auto />
+      )}
 
       <div className="tokenLayer" aria-hidden>
         {Object.entries(bySpace).flatMap(([pos, ids]) =>
@@ -342,7 +376,7 @@ export function Board({
  * using the same track geometry the tokens use, so it never leaves the
  * board's own box and never needs to measure anything.
  */
-function Peek({ state, spaceId }: { state: GameState; spaceId: number }) {
+function Peek({ state, spaceId, auto = false }: { state: GameState; spaceId: number; auto?: boolean }) {
   const t = useT();
   const space = BOARD[spaceId];
   const st = state.properties[spaceId];
@@ -359,7 +393,7 @@ function Peek({ state, spaceId }: { state: GameState; spaceId: number }) {
 
   return (
     <div
-      className={`peek peek--${edge}`}
+      className={`peek peek--${edge}${auto ? ' peek--auto' : ''}`}
       style={{
         left: `${(trackCentre(col) / TOTAL) * 100}%`,
         top: `${(trackCentre(row) / TOTAL) * 100}%`,
