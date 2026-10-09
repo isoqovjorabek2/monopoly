@@ -42,8 +42,10 @@ function candidates(e: AnyEvent): PlusMoment[] {
     case 'BOUGHT_HOLDING':
     case 'DEAL_PASSED':
     case 'BUSINESS':
+    case 'TAKEOVER':
     case 'DREAM_BOUGHT': return [{ kind: 'coins', playerId: e.playerId }];
     case 'RENT_PAID': return [{ kind: 'coins', playerId: e.to }];
+    case 'TOLL': return [{ kind: 'coins', playerId: e.owner }];
     case 'TRADE_ACCEPTED': return [{ kind: 'coins', playerId: e.offer.from }, { kind: 'coins', playerId: e.offer.to }];
     case 'ESCAPED': return [{ kind: 'escape', playerId: e.playerId }];
     case 'DAWN': return e.saved.map((playerId) => ({ kind: 'saved' as const, playerId }));

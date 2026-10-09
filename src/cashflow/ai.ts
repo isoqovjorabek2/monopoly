@@ -1,9 +1,9 @@
 import { rand } from '../game/rng';
 import type { BotLevel } from '../game/types';
-import { DREAM_IDS, FAST_BOARD, FAST_SIZE, FEE_STEP, HOLD_SECONDS, LOAN_UNIT } from './data';
+import { DREAM_IDS, ECONOMY, FAST_BOARD, FAST_SIZE, FEE_STEP, HOLD_SECONDS, LOAN_UNIT } from './data';
 import {
-  charityCost, currentId, dreamPrice, holdingCard, legalActions, maxFee, maxLoan, progress,
-  settlement, tableCard, totalExpenses,
+  charityCost, currentId, dreamPrice, holdingCard, legalActions, maxFee, maxLoan, modeOf, progress,
+  settlement, spaceCost, tableCard, takeoverPrice, tollOf, totalExpenses, upkeepOf,
 } from './rules';
 import type { CFAction, CFPlayer, CFState } from './types';
 
@@ -253,24 +253,55 @@ function fastDecision(s: CFState, me: CFPlayer, legal: CFAction[]): CFAction | n
   const dreamBuy = find(legal, 'BUY_DREAM');
   if (dreamBuy) return dreamBuy;
 
-  const reserve = me.botLevel === 'easy' ? 0 : dreamPrice(me) * 0.5;
+  const reserve = fastReserve(s, me);
   const sp = FAST_BOARD[me.position];
+  const cost = spaceCost(s, sp);
 
   const business = find(legal, 'BUY_BUSINESS');
-  if (business && me.cash - (sp.cost ?? 0) >= reserve) return business;
+  if (business && me.cash - cost >= reserve) return business;
+
+  // A takeover costs double and is never a good return on its own: it is
+  // for knocking back a rival who is ahead.
+  const raid = find(legal, 'TAKEOVER');
+  if (raid && me.botLevel !== 'easy' && me.cash - takeoverPrice(s, sp) >= reserve) {
+    const owner = s.players[s.fastOwners[sp.id]];
+    if (owner && progress(s, owner) >= progress(s, me)) return raid;
+  }
 
   const venture = find(legal, 'TRY_VENTURE');
-  if (venture && me.cash - (sp.cost ?? 0) >= reserve) {
+  if (venture && me.cash - cost >= reserve) {
     const odds = (sp.win?.length ?? 0) / 6;
     // A monthly payout is worth roughly a year of CASHFLOW Days to a bot.
     const worth = odds * ((sp.payout ?? 0) + (sp.cfPayout ?? 0) * 12);
-    if (worth > (sp.cost ?? 0)) return venture;
+    if (worth > cost) return venture;
   }
 
   const give = find(legal, 'DONATE');
   if (give && me.botLevel !== 'easy' && me.cash - charityCost(me) >= reserve) return give;
 
   return find(legal, 'END_TURN');
+}
+
+/**
+ * Cash a Free Lane bot will not spend. Half the dream, as ever - and outside
+ * classic, enough to see out the bills that could send it back: a few
+ * Dividend Days of upkeep that a bust would leave unpaid, and the dearest
+ * toll a rival could charge.
+ */
+function fastReserve(s: CFState, me: CFPlayer): number {
+  if (me.botLevel === 'easy') return 0;
+  let reserve = dreamPrice(me) * 0.5;
+  const mode = modeOf(s);
+  if (mode === 'classic') return reserve;
+  const worstDay = me.fastIncome * (mode === 'boom' ? ECONOMY.bust.day : 1);
+  const short = upkeepOf(me) - worstDay;
+  if (short > 0) reserve = Math.max(reserve, short * (me.botLevel === 'hard' ? 4 : 3));
+  if (mode === 'sharks') {
+    for (const [space, owner] of Object.entries(s.fastOwners)) {
+      if (owner !== me.id) reserve = Math.max(reserve, tollOf(FAST_BOARD[Number(space)]));
+    }
+  }
+  return reserve;
 }
 
 /** Probability of rolling exactly `target` with `n` dice. */

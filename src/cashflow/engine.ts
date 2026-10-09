@@ -1,16 +1,18 @@
 import { randInt, shuffle } from '../game/rng';
 import type { SeatSpec } from '../game/engine';
 import {
-  BRISK_PAY, BUYOUT_MULTIPLE, DEBT_KEYS, DECK_CARDS, FAST_BOARD, FAST_SIZE, LOAN_UNIT,
-  MAX_CHILDREN, PROFESSIONS, RAT_BOARD, RAT_SIZE, cfCard, professionById,
+  BRISK_PAY, BUYOUT_MULTIPLE, DEBT_KEYS, DECK_CARDS, DIVORCE_CUT, ECONOMY, ECONOMY_SPAN, FAST_BOARD,
+  FAST_SIZE, LOAN_UNIT, MAX_CHILDREN, PROFESSIONS, RAT_BOARD, RAT_SIZE, UPKEEP_SHARE, cfCard,
+  professionById,
 } from './data';
 import {
-  autopilotAction, canEscape, charityCost, currentId, currentPlayer, defaultDice, dreamPrice,
-  holdingCard, isBrisk, isLegal, monthlyCashflow, ownsRental, passiveIncome, progress, settlement,
-  stockQuote, tableCard, totalExpenses, waitingOn, type HoldingCard,
+  autopilotAction, canEscape, charityCost, currentId, currentPlayer, dayIncome, defaultDice, dreamPrice,
+  economyOf, holdingCard, isBrisk, isLegal, modeOf, monthlyCashflow, ownsRental, passiveIncome, progress,
+  rivalOwner, settlement, spaceCost, stockQuote, tableCard, takeoverPrice, tollOf, totalExpenses,
+  upkeepOf, waitingOn, type HoldingCard,
 } from './rules';
 import type {
-  CFAction, CFDeck, CFEvent, CFPlayer, CFReduction, CFSettings, CFState, DebtKey,
+  CFAction, CFDeck, CFEconomy, CFEvent, CFPlayer, CFReduction, CFSettings, CFState, DebtKey,
 } from './types';
 
 /* ------------------------------------------------------------------ *
@@ -27,6 +29,7 @@ export const CF_DEFAULTS: Omit<CFSettings, 'seed'> = {
   fastGoal: 50000,
   turnTimer: 0,
   pace: 'classic',
+  mode: 'classic',
 };
 
 export function createCashflow(settings: CFSettings, seats: SeatSpec[]): CFState {
@@ -65,6 +68,7 @@ export function createCashflow(settings: CFSettings, seats: SeatSpec[]): CFState
       dream: null,
       dreamMarks: 0,
       fastCharity: false,
+      upkeep: 0,
     };
     // The bank opens with savings plus one pay cheque.
     p.cash = prof.savings + monthlyCashflow(p);
@@ -131,6 +135,7 @@ export function reduce(prev: CFState, action: CFAction): CFReduction {
     case 'BUY_BUSINESS': buyBusiness(s, events, me); break;
     case 'TRY_VENTURE': tryVenture(s, events, me); break;
     case 'BUY_DREAM': buyDream(s, events, me); break;
+    case 'TAKEOVER': takeover(s, events, me); break;
     case 'END_TURN': endTurn(s, events); break;
   }
 
@@ -148,6 +153,7 @@ function chooseDream(s: CFState, events: CFEvent[], me: CFPlayer, spaceId: numbe
   s.turnNumber = 1;
   s.seatIndex = 0;
   s.round = 1;
+  if (modeOf(s) === 'boom') s.economy = { phase: 'steady', until: 1 + ECONOMY_SPAN[0] };
   recordHistory(s);
   beginTurn(s, events);
 }
@@ -205,6 +211,7 @@ function beginTurn(s: CFState, events: CFEvent[]): void {
   s.decided = false;
 
   if (s.seats.every((id) => s.players[id].out)) return;
+  turnEconomy(s, events);
 
   // Every pass either finds a player who can move or takes one skipped
   // turn off somebody, so this always ends; the guard is belt and braces.
@@ -224,7 +231,7 @@ function beginTurn(s: CFState, events: CFEvent[]): void {
   }
 
   const p = currentPlayer(s);
-  if (canEscape(p)) escape(events, p, s.settings.fastGoal);
+  if (canEscape(p)) escape(s, events, p);
   s.phase = 'roll';
   events.push({ type: 'TURN_STARTED', playerId: p.id, turnNumber: s.turnNumber });
 }
@@ -235,17 +242,75 @@ function endTurn(s: CFState, events: CFEvent[]): void {
   beginTurn(s, events);
 }
 
-/** Out of the Rat Race: a hundred times passive income, every CASHFLOW Day. */
-function escape(events: CFEvent[], p: CFPlayer, goalBonus: number): void {
+/** Out of the Rat Race: a hundred times passive income, every CASHFLOW Day -
+ *  and, outside classic, a share of a hundred times the expenses as upkeep. */
+function escape(s: CFState, events: CFEvent[], p: CFPlayer): void {
   const income = passiveIncome(p) * BUYOUT_MULTIPLE;
   p.track = 'fast';
   p.position = 0;
   p.fastIncome = income;
-  p.fastGoal = income + goalBonus;
+  p.fastGoal = income + s.settings.fastGoal;
+  p.upkeep = Math.round(totalExpenses(p) * BUYOUT_MULTIPLE * UPKEEP_SHARE[modeOf(s)]);
   p.charityTurns = 0;
   // The buyout is paid on the way out, before the first Fast Track roll.
   p.cash += income;
   events.push({ type: 'ESCAPED', playerId: p.id, income });
+}
+
+/** Boom & Bust: at the start of the round it is due, the economy turns to
+ *  one of the other two phases and holds for a few rounds. */
+function turnEconomy(s: CFState, events: CFEvent[]): void {
+  if (modeOf(s) !== 'boom' || !s.economy || s.round < s.economy.until) return;
+  const now = s.economy.phase;
+  const others = (['boom', 'steady', 'bust'] as CFEconomy[]).filter((e) => e !== now);
+  const phase = others[randInt(s.settings.seed, s.rngCursor, 0, others.length - 1)];
+  const rounds = randInt(s.settings.seed, s.rngCursor + 1, ECONOMY_SPAN[0], ECONOMY_SPAN[1]);
+  s.rngCursor += 2;
+  s.economy = { phase, until: s.round + rounds };
+  events.push({ type: 'ECONOMY', phase, rounds });
+}
+
+/**
+ * A Free Lane bill that could not be paid. Every Free Lane business goes,
+ * and creditors take the best-earning Grind assets until passive income no
+ * longer beats expenses - so the way back out has to be earned again.
+ */
+function fall(s: CFState, events: CFEvent[], me: CFPlayer): void {
+  for (const [space, owner] of Object.entries(s.fastOwners)) {
+    if (owner === me.id) delete s.fastOwners[Number(space)];
+  }
+  let seized = 0;
+  for (const h of [...me.holdings].sort((a, b) => b.cashflow - a.cashflow)) {
+    if (passiveIncome(me) <= totalExpenses(me) || h.cashflow <= 0) break;
+    me.holdings = me.holdings.filter((x) => x.id !== h.id);
+    seized += 1;
+  }
+  for (const l of [...me.stocks].sort((a, b) => b.shares * b.dividend - a.shares * a.dividend)) {
+    if (passiveIncome(me) <= totalExpenses(me) || l.dividend <= 0) break;
+    me.stocks = me.stocks.filter((x) => x.symbol !== l.symbol);
+    seized += 1;
+  }
+  me.track = 'rat';
+  me.position = 0;
+  me.fastIncome = 0;
+  me.fastGoal = 0;
+  me.upkeep = 0;
+  me.fastCharity = false;
+  me.charityTurns = 0;
+  s.landed = null;
+  s.phase = 'turn_end';
+  events.push({ type: 'FELL', playerId: me.id, seized });
+}
+
+/** A Free Lane bill: paid in full, or with everything left and a fall.
+ *  Whatever was paid goes to `to`, when somebody is owed it. */
+function payFast(s: CFState, events: CFEvent[], me: CFPlayer, amount: number, to?: CFPlayer): boolean {
+  const paid = Math.min(me.cash, amount);
+  me.cash -= paid;
+  if (to) to.cash += paid;
+  if (paid >= amount) return true;
+  fall(s, events, me);
+  return false;
 }
 
 /* ----------------------------- movement ---------------------------- */
@@ -317,8 +382,11 @@ function moveFast(s: CFState, events: CFEvent[], me: CFPlayer, steps: number): v
 
   for (let i = 1; i <= steps; i++) {
     if (FAST_BOARD[(from + i) % FAST_SIZE].kind === 'cashflowDay') {
-      me.cash += me.fastIncome;
-      events.push({ type: 'CASHFLOW_DAY', playerId: me.id, amount: me.fastIncome });
+      const amount = dayIncome(s, me);
+      const upkeep = upkeepOf(me);
+      me.cash += amount;
+      events.push({ type: 'CASHFLOW_DAY', playerId: me.id, amount, ...(upkeep > 0 ? { upkeep } : {}) });
+      if (!payFast(s, events, me, upkeep)) return;
     }
   }
 
@@ -327,6 +395,13 @@ function moveFast(s: CFState, events: CFEvent[], me: CFPlayer, steps: number): v
   const sp = FAST_BOARD[to];
 
   switch (sp.kind) {
+    case 'business': {
+      const owner = rivalOwner(s, me, to);
+      if (!owner) return;
+      events.push({ type: 'TOLL', playerId: me.id, owner: owner.id, spaceId: to, amount: Math.min(tollOf(sp), me.cash) });
+      payFast(s, events, me, tollOf(sp), owner);
+      return;
+    }
     case 'dream':
       // Landing on somebody else's dream makes it dearer for them.
       for (const id of s.seats) {
@@ -339,6 +414,8 @@ function moveFast(s: CFState, events: CFEvent[], me: CFPlayer, steps: number): v
       return;
     case 'audit':
     case 'lawsuit': {
+      // Lifestyle: a lawsuit goes after a business first, cash only if none.
+      if (sp.kind === 'lawsuit' && modeOf(s) === 'lifestyle' && loseBusiness(s, events, me)) return;
       const amount = Math.floor(me.cash / 2);
       me.cash -= amount;
       events.push({ type: 'LOSS', playerId: me.id, kind: sp.kind, amount });
@@ -348,11 +425,29 @@ function moveFast(s: CFState, events: CFEvent[], me: CFPlayer, steps: number): v
       const amount = me.cash;
       me.cash = 0;
       events.push({ type: 'LOSS', playerId: me.id, kind: 'divorce', amount });
+      if (modeOf(s) === 'lifestyle') {
+        const cut = Math.round((me.fastIncome * DIVORCE_CUT) / 100) * 100;
+        me.fastIncome -= cut;
+        events.push({ type: 'INCOME_CUT', playerId: me.id, amount: cut });
+      }
       return;
     }
     default:
       return;
   }
+}
+
+/** Lifestyle: a lawsuit takes the business that earns the most. */
+function loseBusiness(s: CFState, events: CFEvent[], me: CFPlayer): boolean {
+  const best = Object.entries(s.fastOwners)
+    .filter(([space, owner]) => owner === me.id && FAST_BOARD[Number(space)].kind === 'business')
+    .map(([space]) => FAST_BOARD[Number(space)])
+    .sort((a, b) => (b.cashflow ?? 0) - (a.cashflow ?? 0))[0];
+  if (!best) return false;
+  delete s.fastOwners[best.id];
+  me.fastIncome -= best.cashflow ?? 0;
+  events.push({ type: 'BUSINESS_LOST', playerId: me.id, spaceId: best.id, cashflow: best.cashflow ?? 0 });
+  return true;
 }
 
 /* ------------------------------- money ------------------------------ */
@@ -477,7 +572,7 @@ function drawDeal(s: CFState, events: CFEvent[], me: CFPlayer, deck: 'small' | '
   const card = cfCard(id);
   s.card = { id, by: me.id, used: false };
   if (card && card.deck !== 'market' && card.deck !== 'doodad' && card.kind === 'stock') {
-    s.card.price = stockQuote(card, s.settings.seed, s.rngCursor);
+    s.card.price = stockQuote(card, s.settings.seed, s.rngCursor, ECONOMY[economyOf(s)].shares);
     s.rngCursor += 1;
   }
   events.push({ type: 'CARD', playerId: me.id, cardId: id, price: s.card.price });
@@ -499,9 +594,15 @@ function drawDeal(s: CFState, events: CFEvent[], me: CFPlayer, deck: 'small' | '
 function drawMarket(s: CFState, events: CFEvent[], me: CFPlayer): void {
   const id = draw(s, 'market');
   if (!id) return;
-  s.card = { id, by: me.id, used: false };
-  events.push({ type: 'CARD', playerId: me.id, cardId: id });
   const card = cfCard(id);
+  s.card = { id, by: me.id, used: false };
+  // A boom brings buyers who pay more; a bust, buyers who pay less.
+  const factor = ECONOMY[economyOf(s)].market;
+  if (card && card.deck === 'market' && card.kind === 'offer' && factor !== 1) {
+    const moved = card.price * factor;
+    s.card.price = moved >= 1000 ? Math.round(moved / 100) * 100 : Math.round(moved);
+  }
+  events.push({ type: 'CARD', playerId: me.id, cardId: id, price: s.card.price });
   if (!card || card.deck !== 'market') return;
 
   switch (card.kind) {
@@ -651,7 +752,7 @@ function donate(s: CFState, events: CFEvent[], me: CFPlayer): void {
 
 function buyBusiness(s: CFState, events: CFEvent[], me: CFPlayer): void {
   const sp = FAST_BOARD[me.position];
-  const cost = sp.cost ?? 0;
+  const cost = spaceCost(s, sp);
   me.cash -= cost;
   me.fastIncome += sp.cashflow ?? 0;
   s.fastOwners[sp.id] = me.id;
@@ -661,7 +762,7 @@ function buyBusiness(s: CFState, events: CFEvent[], me: CFPlayer): void {
 
 function tryVenture(s: CFState, events: CFEvent[], me: CFPlayer): void {
   const sp = FAST_BOARD[me.position];
-  me.cash -= sp.cost ?? 0;
+  me.cash -= spaceCost(s, sp);
   const roll = randInt(s.settings.seed, s.rngCursor, 1, 6);
   s.rngCursor += 1;
   const won = (sp.win ?? []).includes(roll);
@@ -673,6 +774,22 @@ function tryVenture(s: CFState, events: CFEvent[], me: CFPlayer): void {
   }
   s.decided = true;
   events.push({ type: 'VENTURE', playerId: me.id, spaceId: sp.id, roll, won });
+}
+
+/** Sharks: the business changes hands, and what it earns goes with it. */
+function takeover(s: CFState, events: CFEvent[], me: CFPlayer): void {
+  const sp = FAST_BOARD[me.position];
+  const owner = rivalOwner(s, me, sp.id);
+  if (!owner) return;
+  const price = takeoverPrice(s, sp);
+  const cashflow = sp.cashflow ?? 0;
+  me.cash -= price;
+  owner.cash += price;
+  owner.fastIncome -= cashflow;
+  me.fastIncome += cashflow;
+  s.fastOwners[sp.id] = me.id;
+  s.decided = true;
+  events.push({ type: 'TAKEOVER', playerId: me.id, from: owner.id, spaceId: sp.id, price, cashflow });
 }
 
 function buyDream(s: CFState, events: CFEvent[], me: CFPlayer): void {

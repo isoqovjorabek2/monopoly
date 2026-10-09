@@ -2,8 +2,8 @@ import { cfDreamArt, cfJobArt } from '../../art/art';
 import { DEBT_KEYS, FAST_BOARD, LOAN_UNIT } from '../../cashflow/data';
 import { fastName } from '../../cashflow/describe';
 import {
-  childExpenses, currentId, dividendIncome, dreamPrice, holdingIncome, loanPayment, maxLoan,
-  monthlyCashflow, passiveIncome, totalExpenses, totalIncome,
+  childExpenses, currentId, dayIncome, dividendIncome, dreamPrice, holdingIncome, loanPayment, maxLoan,
+  monthlyCashflow, passiveIncome, totalExpenses, totalIncome, upkeepOf,
 } from '../../cashflow/rules';
 import type { CFAction, CFPlayer, CFState } from '../../cashflow/types';
 import { money } from '../../game/describe';
@@ -180,6 +180,8 @@ function FastSheet({ s, p }: { s: CFState; p: CFPlayer }) {
     .map(([id]) => Number(id))
     .filter((id) => FAST_BOARD[id].kind === 'business' || FAST_BOARD[id].kind === 'venture');
   const dream = p.dream != null ? FAST_BOARD[p.dream] : null;
+  const upkeep = upkeepOf(p);
+  const day = dayIncome(s, p);
 
   return (
     <>
@@ -192,6 +194,19 @@ function FastSheet({ s, p }: { s: CFState; p: CFPlayer }) {
       </div>
       <dl className="cfSheet">
         <Row label={S.dayIncome} value={fmt(p.fastIncome)} strong />
+        {day !== p.fastIncome && (
+          <Row label={t.cf.economy.names[s.economy?.phase ?? 'steady']} value={fmt(day)} />
+        )}
+        {upkeep > 0 && (
+          <>
+            <Row label={S.upkeep} value={`−${fmt(upkeep)}`} />
+            <div className="cfRow cfRow--pay" data-neg={day < upkeep || undefined}>
+              <dt>{S.net}</dt>
+              <dd className="num">{money(day - upkeep)}</dd>
+            </div>
+            <p className="muted small">{S.fallNote}</p>
+          </>
+        )}
         <Row label={S.goal} value={fmt(p.fastGoal)} />
         <p className="cfSheet__head">{S.businesses}</p>
         {owned.length === 0 && <p className="muted small">—</p>}

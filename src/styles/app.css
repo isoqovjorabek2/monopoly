@@ -3095,6 +3095,8 @@
 }
 .settings__cols > .switch { flex-direction: row; }
 .settings > .muted.small:not(.settings__lock) { margin: 0 0 var(--s-4); max-width: 70ch; }
+.settings > .labelled { margin-bottom: var(--s-4); }
+.settings > .labelled > .muted.small { margin: 0; max-width: 70ch; }
 
 /* Presets: even cards, the board picker across the top. */
 .presets { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: var(--s-3); }

@@ -1,9 +1,10 @@
 import {
-  DEBT_KEYS, DREAM_IDS, FAST_BOARD, FEE_STEP, LOAN_UNIT, RAT_BOARD, RENTAL_TAGS, cfCard,
+  DEBT_KEYS, DREAM_IDS, ECONOMY, FAST_BOARD, FEE_STEP, LOAN_UNIT, RAT_BOARD, RENTAL_TAGS,
+  TAKEOVER_MULTIPLE, TOLL_MONTHS, cfCard,
 } from './data';
 import { randInt } from '../game/rng';
 import type {
-  CFAction, CFCard, CFHolding, CFPlayer, CFState, DealCard, MarketCard,
+  CFAction, CFCard, CFEconomy, CFHolding, CFMode, CFPlayer, CFState, DealCard, FastSpace, MarketCard,
 } from './types';
 
 /* ------------------------------------------------------------------ *
@@ -105,19 +106,53 @@ export function dealImpact(p: CFPlayer, cashflow: number, loan = 0): DealImpact 
   };
 }
 
+/* ------------------------------- modes --------------------------------- */
+
+export const modeOf = (s: CFState): CFMode => s.settings.mode ?? 'classic';
+
+/** Only Boom & Bust has an economy that moves; everywhere else it is steady. */
+export const economyOf = (s: CFState): CFEconomy =>
+  (modeOf(s) === 'boom' ? s.economy?.phase ?? 'steady' : 'steady');
+
+export const upkeepOf = (p: CFPlayer): number => p.upkeep ?? 0;
+
+/** What a Dividend Day pays this player today, before upkeep. */
+export const dayIncome = (s: CFState, p: CFPlayer): number =>
+  Math.round(p.fastIncome * ECONOMY[economyOf(s)].day);
+
+/** What a Free Lane business or venture costs today: the printed price,
+ *  moved by the economy, in whole thousands. */
+export const spaceCost = (s: CFState, sp: FastSpace): number => {
+  const base = sp.cost ?? 0;
+  if (sp.kind !== 'business' && sp.kind !== 'venture') return base;
+  return Math.round((base * ECONOMY[economyOf(s)].business) / 1000) * 1000;
+};
+
+/** Sharks: the rival who owns this business, if landing on it costs a toll. */
+export function rivalOwner(s: CFState, me: CFPlayer, spaceId: number): CFPlayer | null {
+  if (modeOf(s) !== 'sharks' || FAST_BOARD[spaceId].kind !== 'business') return null;
+  const owner = s.players[s.fastOwners[spaceId]];
+  return owner && owner.id !== me.id && !owner.out && owner.track === 'fast' ? owner : null;
+}
+
+export const tollOf = (sp: FastSpace): number => (sp.cashflow ?? 0) * TOLL_MONTHS;
+
+export const takeoverPrice = (s: CFState, sp: FastSpace): number => spaceCost(s, sp) * TAKEOVER_MULTIPLE;
+
 /* --------------------------- the card on the table ---------------------- */
 
 export type OfferCard = Extract<MarketCard, { kind: 'offer' }>;
 
 export type StockCard = Extract<DealCard, { kind: 'stock' }>;
 
-/** The card on the table, with a stock at the price it was drawn at. */
+/** The card on the table, with a stock - or a Market offer the economy
+ *  has moved - at the price it was drawn at. */
 export function tableCard(s: CFState): CFCard | undefined {
   const c = s.card ? cfCard(s.card.id) : undefined;
-  if (c && c.deck !== 'market' && c.deck !== 'doodad' && c.kind === 'stock' && s.card?.price != null) {
-    return { ...c, price: s.card.price };
-  }
-  return c;
+  const price = s.card?.price;
+  if (!c || price == null || c.deck === 'doodad') return c;
+  if (c.deck === 'market') return c.kind === 'offer' ? { ...c, price } : c;
+  return c.kind === 'stock' ? { ...c, price } : c;
 }
 
 /**
@@ -126,10 +161,11 @@ export function tableCard(s: CFState): CFCard | undefined {
  * card can open at $11 or $29 and the deck no longer reads as a fixed
  * ladder from $1 to $40. Bonds (one fixed price) are not quoted.
  */
-export function stockQuote(c: StockCard, seed: number, cursor: number): number {
+export function stockQuote(c: StockCard, seed: number, cursor: number, economy = 1): number {
   if (c.range[0] === c.range[1]) return c.price;
-  const lo = Math.max(1, Math.round(c.price * 0.6) - 2);
-  const hi = Math.round(c.price * 1.4) + 2;
+  const anchor = c.price * economy;
+  const lo = Math.max(1, Math.round(anchor * 0.6) - 2);
+  const hi = Math.max(lo, Math.round(anchor * 1.4) + 2);
   return randInt(seed, cursor, lo, hi);
 }
 
@@ -278,10 +314,11 @@ function pushLandingActions(s: CFState, me: CFPlayer, out: CFAction[]): void {
 
   const sp = FAST_BOARD[at.space];
   const taken = s.fastOwners[sp.id] !== undefined;
-  const cost = sp.cost ?? 0;
+  const cost = spaceCost(s, sp);
   switch (sp.kind) {
     case 'business':
       if (!taken && me.cash >= cost) out.push({ type: 'BUY_BUSINESS', playerId: pid });
+      if (rivalOwner(s, me, sp.id) && me.cash >= takeoverPrice(s, sp)) out.push({ type: 'TAKEOVER', playerId: pid });
       break;
     case 'venture':
       if (!taken && me.cash >= cost) out.push({ type: 'TRY_VENTURE', playerId: pid });

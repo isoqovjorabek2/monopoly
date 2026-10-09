@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { rand } from '../game/rng';
+import { rand, randInt } from '../game/rng';
 import type { SeatSpec } from '../game/engine';
 import { botDecide } from './ai';
 import {
-  BIG_DEALS, DOODADS, DREAM_IDS, FAST_BOARD, MARKET, PROFESSIONS, RAT_BOARD, SMALL_DEALS,
+  BIG_DEALS, DOODADS, DREAM_IDS, FAST_BOARD, FAST_SIZE, MARKET, PROFESSIONS, RAT_BOARD, SMALL_DEALS,
 } from './data';
 import { CF_DEFAULTS, createCashflow, reduce } from './engine';
 import {
   autopilotAction, currentId, dreamPrice, holdKey, legalActions, maxLoan, monthlyCashflow, passiveIncome,
-  totalExpenses, waitingOn,
+  spaceCost, totalExpenses, waitingOn,
 } from './rules';
-import type { CFAction, CFEvent, CFSettings, CFState } from './types';
+import type { CFAction, CFEvent, CFMode, CFPlayer, CFSettings, CFState } from './types';
 
 const seats = (n: number, bots = true): SeatSpec[] =>
   Array.from({ length: n }, (_, i) => ({
@@ -575,6 +575,188 @@ describe('fuzz', () => {
         s = r.state;
         const broken = invariants(s);
         expect(broken, `game ${g} step ${step}`).toBeNull();
+      }
+    }
+  });
+});
+
+/* -------------------------------- modes -------------------------------- */
+
+/** p0 on the Free Lane, placed so that the next roll lands exactly on
+ *  `target`. Earns and owes nothing on Dividend Day unless `patch` says so. */
+function fastAt(s: CFState, target: number, patch: (c: CFState, p: CFPlayer) => void = () => {}): CFState {
+  return edit(s, (c) => {
+    const p = c.players.p0;
+    Object.assign(p, { track: 'fast', fastIncome: 0, fastGoal: 1_000_000, upkeep: 0, cash: 0 });
+    patch(c, p);
+    const steps = randInt(c.settings.seed, c.rngCursor, 1, 6) + randInt(c.settings.seed, c.rngCursor + 1, 1, 6);
+    p.position = (target - steps + FAST_SIZE * 2) % FAST_SIZE;
+  });
+}
+
+const roll = (s: CFState) => reduce(s, { type: 'ROLL', playerId: 'p0' });
+const COFFEE = 1;
+const PIZZA = 15;
+const LAWSUIT = 17;
+const DIVORCE = 27;
+
+describe('modes', () => {
+  it('charges upkeep on the Free Lane in every mode but classic', () => {
+    const shares: [CFMode, number][] = [['classic', 0], ['lifestyle', 1], ['boom', 0.8], ['sharks', 0.7]];
+    for (const [mode, share] of shares) {
+      const s = edit(started(9, 3, { mode }), (c) => {
+        c.players.p0.holdings.push({
+          id: 'hx', tag: 'apartment', units: 60, cost: 1_200_000, down: 200_000, mortgage: 1_000_000, cashflow: 20000,
+        });
+        c.phase = 'turn_end';
+        c.seatIndex = c.seats.length - 1;
+        c.landed = null;
+      });
+      const last = s.seats[s.seats.length - 1];
+      const p = reduce(s, { type: 'END_TURN', playerId: last }).state.players.p0;
+      expect(p.track, mode).toBe('fast');
+      expect(p.upkeep, mode).toBe(Math.round(totalExpenses(s.players.p0) * 100 * share));
+    }
+  });
+
+  it('sends a player who cannot pay upkeep back to the Grind, just short of the way out', () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const s = fastAt(started(seed, 3, { mode: 'lifestyle' }), 10, (c, p) => {
+        p.fastIncome = 50_000;
+        p.upkeep = 80_000;
+        p.holdings.push(
+          { id: 'big', tag: 'apartment', units: 60, cost: 1_200_000, down: 200_000, mortgage: 1_000_000, cashflow: 20000 },
+          { id: 'small', tag: 'house', units: 1, cost: 50_000, down: 5000, mortgage: 45_000, cashflow: 100 },
+        );
+        c.fastOwners[COFFEE] = 'p0';
+      });
+      const r = roll(s);
+      const p = r.state.players.p0;
+      const fell = r.events.find((e) => e.type === 'FELL');
+      expect(fell, `seed ${seed}`).toBeDefined();
+      expect(fell && fell.type === 'FELL' && fell.seized).toBe(1);
+      expect(p.track).toBe('rat');
+      expect(p.cash).toBe(0);
+      expect(p.holdings.map((h) => h.id)).toEqual(['small']);
+      expect(passiveIncome(p)).toBeLessThanOrEqual(totalExpenses(p));
+      expect(r.state.fastOwners[COFFEE]).toBeUndefined();
+      expect(legalActions(r.state, 'p0').some((a) => a.type === 'END_TURN')).toBe(true);
+    }
+  });
+
+  it('pays upkeep out of Dividend Day when it can', () => {
+    const s = fastAt(started(4, 3, { mode: 'lifestyle' }), 10, (_c, p) => { p.fastIncome = 90_000; p.upkeep = 60_000; });
+    const r = roll(s);
+    const days = r.events.filter((e) => e.type === 'CASHFLOW_DAY');
+    expect(days.length).toBeGreaterThan(0);
+    for (const d of days) expect(d.type === 'CASHFLOW_DAY' && d.upkeep).toBe(60_000);
+    expect(r.state.players.p0.cash).toBe(days.length * 30_000);
+    expect(r.state.players.p0.track).toBe('fast');
+  });
+
+  it('lifestyle: a lawsuit takes the best business, a divorce a quarter of the income', () => {
+    const sued = roll(fastAt(started(5, 3, { mode: 'lifestyle' }), LAWSUIT, (c, p) => {
+      c.fastOwners[COFFEE] = 'p0';
+      c.fastOwners[PIZZA] = 'p0';
+      p.fastIncome = 100_000;
+      p.cash = 40_000;
+    }));
+    expect(sued.state.fastOwners[PIZZA]).toBeUndefined();
+    expect(sued.state.fastOwners[COFFEE]).toBe('p0');
+    expect(sued.state.players.p0.fastIncome).toBe(88_000);
+
+    const split = roll(fastAt(started(5, 3, { mode: 'lifestyle' }), DIVORCE, (_c, p) => {
+      p.fastIncome = 100_000;
+      p.cash = 40_000;
+    }));
+    expect(split.state.players.p0.cash).toBe(0);
+    expect(split.state.players.p0.fastIncome).toBe(75_000);
+
+    const classic = roll(fastAt(started(5, 3), DIVORCE, (_c, p) => { p.fastIncome = 100_000; }));
+    expect(classic.state.players.p0.fastIncome).toBe(100_000);
+  });
+
+  it('boom & bust: the economy turns, and moves Dividend Day and prices with it', () => {
+    let s = started(9, 3, { mode: 'boom' });
+    expect(s.economy).toEqual({ phase: 'steady', until: 4 });
+    s = edit(s, (c) => { c.economy = { phase: 'steady', until: c.round }; c.phase = 'turn_end'; });
+    const r = reduce(s, { type: 'END_TURN', playerId: 'p0' });
+    const turn = r.events.find((e) => e.type === 'ECONOMY');
+    expect(turn && turn.type === 'ECONOMY' && turn.phase).not.toBe('steady');
+    expect(r.state.economy!.until).toBeGreaterThan(r.state.round);
+
+    const bust = edit(started(9, 3, { mode: 'boom' }), (c) => { c.economy = { phase: 'bust', until: 99 }; });
+    const boom = edit(bust, (c) => { c.economy = { phase: 'boom', until: 99 }; });
+    expect(spaceCost(bust, FAST_BOARD[COFFEE])).toBe(90_000);
+    expect(spaceCost(boom, FAST_BOARD[COFFEE])).toBe(150_000);
+    const day = roll(fastAt(bust, 10, (_c, p) => { p.fastIncome = 100_000; }));
+    for (const d of day.events) if (d.type === 'CASHFLOW_DAY') expect(d.amount).toBe(50_000);
+
+    const twenty = SMALL_DEALS.find((c) => c.kind === 'stock' && c.symbol === 'MEDX' && c.price === 20)!;
+    for (let seed = 1; seed <= 30; seed++) {
+      const at = edit(aboutToDraw(seed, twenty.id), (c) => {
+        c.settings.mode = 'boom';
+        c.economy = { phase: 'bust', until: 99 };
+      });
+      const q = reduce(at, { type: 'DRAW_DEAL', playerId: 'p0', deck: 'small' }).state.card!.price!;
+      expect(q).toBeLessThanOrEqual(19);
+    }
+  });
+
+  it('sharks: a rival’s business charges a toll, and can be taken over', () => {
+    const rival = (cash: number) => fastAt(started(6, 3, { mode: 'sharks' }), COFFEE, (c, p) => {
+      p.cash = cash;
+      Object.assign(c.players.p1, { track: 'fast', fastIncome: 54_000, fastGoal: 1_000_000, cash: 0 });
+      c.fastOwners[COFFEE] = 'p1';
+    });
+
+    const paid = roll(rival(100_000)).state;
+    expect(paid.players.p0.cash).toBe(60_000);
+    expect(paid.players.p1.cash).toBe(40_000);
+    expect(legalActions(paid, 'p0').some((a) => a.type === 'TAKEOVER')).toBe(false);
+
+    let rich = roll(rival(300_000)).state;
+    expect(legalActions(rich, 'p0').some((a) => a.type === 'TAKEOVER')).toBe(true);
+    rich = reduce(rich, { type: 'TAKEOVER', playerId: 'p0' }).state;
+    expect(rich.fastOwners[COFFEE]).toBe('p0');
+    expect(rich.players.p0.cash).toBe(20_000);
+    expect(rich.players.p1.cash).toBe(280_000);
+    expect(rich.players.p1.fastIncome).toBe(50_000);
+    expect(rich.players.p0.fastIncome).toBe(4000);
+
+    const broke = roll(rival(10_000));
+    expect(broke.events.some((e) => e.type === 'FELL')).toBe(true);
+    expect(broke.state.players.p1.cash).toBe(10_000);
+    expect(broke.state.players.p0.track).toBe('rat');
+
+    const classic = roll(edit(rival(100_000), (c) => { c.settings.mode = 'classic'; })).state;
+    expect(classic.players.p0.cash).toBe(100_000);
+  });
+
+  it('plays random games in every mode without breaking an invariant', () => {
+    for (const mode of ['lifestyle', 'boom', 'sharks'] as CFMode[]) {
+      for (let g = 0; g < 12; g++) {
+        let s = createCashflow(settings(2000 + g, { mode }), seats(2 + (g % 4), false));
+        s = reduce(s, { type: 'START_GAME', playerId: 'p0' }).state;
+        for (let step = 0; step < 1500 && s.phase !== 'game_over'; step++) {
+          const all = s.seats.flatMap((id) => legalActions(s, id));
+          expect(all.length, `${mode} game ${g} step ${step}`).toBeGreaterThan(0);
+          const a = all[Math.floor(rand(g, step) * all.length)];
+          const r = reduce(s, a);
+          expect(r.state.version, `${mode} game ${g}: ${JSON.stringify(a)}`).toBe(s.version + 1);
+          s = r.state;
+          expect(invariants(s), `${mode} game ${g} step ${step}`).toBeNull();
+        }
+      }
+    }
+  });
+
+  it('bots play every mode to the end', () => {
+    for (const mode of ['lifestyle', 'boom', 'sharks'] as CFMode[]) {
+      for (const seed of [3, 17, 99]) {
+        const g = playBots(seed, 4, 60000, { mode });
+        expect(g.stuck, `${mode} seed ${seed}`).toBeNull();
+        expect(g.s.phase, `${mode} seed ${seed}`).toBe('game_over');
       }
     }
   });

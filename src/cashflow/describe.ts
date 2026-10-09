@@ -56,6 +56,12 @@ export function cfLogLine(e: CFEvent, seq: number): CFLogLine | null {
     case 'DREAM_BOUGHT': return line(e.playerId, 'big');
     case 'TIMED_OUT': return line(e.playerId, 'bad');
     case 'SEAT_TAKEN': return line(e.playerId, 'big');
+    case 'FELL': return line(e.playerId, 'big');
+    case 'BUSINESS_LOST': return line(e.playerId, 'bad');
+    case 'INCOME_CUT': return line(e.playerId, 'bad');
+    case 'ECONOMY': return line(null, e.phase === 'bust' ? 'bad' : e.phase === 'boom' ? 'good' : 'info');
+    case 'TOLL': return line(e.playerId, 'bad');
+    case 'TAKEOVER': return line(e.playerId, 'big');
     case 'GAME_OVER': return line(e.winnerId, 'big');
   }
 }
@@ -69,8 +75,9 @@ export function fastName(t: Dict, spaceId: number): string {
 
 const noStop = (x: string): string => x.replace(/\.$/, '');
 
-/** A card, short enough for one log line. `price` is a stock's quote
- *  when it was drawn, in place of the anchor printed on the card. */
+/** A card, short enough for one log line. `price` is the price it was drawn
+ *  at - a stock's quote, or an offer the economy moved - in place of the
+ *  one printed on the card. */
 export function cardTitle(t: Dict, cardId: string, price?: number): string {
   const c = cfCard(cardId);
   if (!c) return cardId;
@@ -80,7 +87,7 @@ export function cardTitle(t: Dict, cardId: string, price?: number): string {
       return t.cf.doodads[c.id] ?? c.id;
     case 'market':
       switch (c.kind) {
-        case 'offer': return `${noStop(C.offer(t.cf.tags[c.tag]))} — ${C.offerPrice(money(c.price), c.perUnit)}`;
+        case 'offer': return `${noStop(C.offer(t.cf.tags[c.tag]))} — ${C.offerPrice(money(price ?? c.price), c.perUnit)}`;
         case 'boost': return noStop(C.boost(t.cf.tags[c.tag], money(c.delta)));
         case 'repair': return noStop(C.repair(money(c.cost)));
         case 'foreclose': return noStop(C.foreclose(t.cf.tags[c.tag]));
@@ -113,7 +120,10 @@ export function cfDescribe(s: CFState, e: CFEvent, t: Dict): string {
       return e.amount >= 0
         ? L.payday(name(e.playerId), money(e.amount))
         : L.paydayNegative(name(e.playerId), money(-e.amount));
-    case 'CASHFLOW_DAY': return L.cashflowDay(name(e.playerId), money(e.amount));
+    case 'CASHFLOW_DAY':
+      return e.upkeep
+        ? L.cashflowDayUpkeep(name(e.playerId), money(e.amount), money(e.upkeep))
+        : L.cashflowDay(name(e.playerId), money(e.amount));
     case 'CARD': {
       const c = cfCard(e.cardId);
       const deck = c ? t.cf.decks[c.deck] : '';
@@ -159,6 +169,12 @@ export function cfDescribe(s: CFState, e: CFEvent, t: Dict): string {
     case 'DREAM_BOUGHT': return L.dreamBought(name(e.playerId), fastName(t, e.spaceId), money(e.cost));
     case 'TIMED_OUT': return t.log.timedOut(name(e.playerId));
     case 'SEAT_TAKEN': return t.account.log.seatTaken(e.name, e.previous);
+    case 'FELL': return L.fell(name(e.playerId), e.seized);
+    case 'BUSINESS_LOST': return L.businessLost(name(e.playerId), fastName(t, e.spaceId), money(e.cashflow));
+    case 'INCOME_CUT': return L.incomeCut(name(e.playerId), money(e.amount));
+    case 'ECONOMY': return L.economy(t.cf.economy.names[e.phase], e.rounds);
+    case 'TOLL': return L.toll(name(e.playerId), name(e.owner), fastName(t, e.spaceId), money(e.amount));
+    case 'TAKEOVER': return L.takeover(name(e.playerId), fastName(t, e.spaceId), name(e.from), money(e.price));
     case 'GAME_OVER':
       return e.reason === 'none' || !e.winnerId ? L.over.none : L.over[e.reason](name(e.winnerId));
   }

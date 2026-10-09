@@ -78,6 +78,7 @@ export const CF_RULES_DEFAULT: CFRules = {
   turnLimit: CF_DEFAULTS.turnLimit,
   fastGoal: CF_DEFAULTS.fastGoal,
   pace: CF_DEFAULTS.pace,
+  mode: CF_DEFAULTS.mode,
 };
 
 /** Seats a room can hold, which depends on the game it plays. */
@@ -448,7 +449,12 @@ export const useStore = create<Store>((set, get) => {
       case 'DOODAD':
       case 'LOSS':
       case 'DOWNSIZED':
-      case 'REPAIR': return mine ? 'pay' : null;
+      case 'REPAIR':
+      case 'BUSINESS_LOST':
+      case 'INCOME_CUT': return mine ? 'pay' : null;
+      case 'TOLL': return mine ? 'pay' : e.owner === myId ? 'cash' : null;
+      case 'TAKEOVER': return mine ? 'buy' : e.from === myId ? 'error' : null;
+      case 'FELL': return 'jail';
       case 'BANKRUPT': return mine ? 'error' : null;
       default: return null;
     }

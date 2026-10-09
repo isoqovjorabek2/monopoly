@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { cfDreamArt, cfSpaceArt, type CFSpaceArt } from '../../art/art';
 import { FAST_BOARD, FAST_SIZE, RAT_BOARD, RAT_SIZE } from '../../cashflow/data';
 import { fastName } from '../../cashflow/describe';
-import { currentId } from '../../cashflow/rules';
+import { currentId, modeOf, spaceCost, tollOf } from '../../cashflow/rules';
 import type { CFState, CFTrack, FastKind, FastSpace, RatKind } from '../../cashflow/types';
 import type { TokenId } from '../../game/types';
 import { useT, type Dict } from '../../i18n';
@@ -108,7 +108,7 @@ export function CFBoard({ s, myId, rolling }: { s: CFState; myId: string; rollin
             const mineDream = s.players[myId]?.dream === sp.id;
             const art = sp.kind === 'dream' && sp.key ? cfDreamArt(sp.key) : cfSpaceArt(FAST_ART[sp.kind]);
             const name = fastName(t, sp.id);
-            const sub = fastSub(sp);
+            const sub = fastSub(s, sp);
             const size = sp.kind === 'dream' ? 44 : 36;
             return (
               <g
@@ -191,6 +191,13 @@ export function CFBoard({ s, myId, rolling }: { s: CFState; myId: string; rollin
 
         {/* --------------------------- the centre -------------------------- */}
         <div className="cfCenter">
+          {modeOf(s) === 'boom' && s.economy && s.phase !== 'game_over' && (
+            <p className="cfEconomy" data-phase={s.economy.phase} title={t.cf.economy.about[s.economy.phase]}>
+              <span className="cfEconomy__label">{t.cf.economy.title}</span>
+              <strong>{t.cf.economy.names[s.economy.phase]}</strong>
+              <span className="num">{t.cf.economy.left(Math.max(1, s.economy.until - s.round))}</span>
+            </p>
+          )}
           {s.dice && (
             <div className="cfDice" data-rolling={rolling || undefined} aria-label={t.cf.board.rolled(s.dice.join(' + '))}>
               {s.dice.map((d, i) => <span key={i} className="cfDie">{'⚀⚁⚂⚃⚄⚅'[d - 1]}</span>)}
@@ -213,10 +220,10 @@ export function CFBoard({ s, myId, rolling }: { s: CFState; myId: string; rollin
   );
 }
 
-function fastSub(sp: FastSpace): string {
+function fastSub(s: CFState, sp: FastSpace): string {
   switch (sp.kind) {
-    case 'business': return `${short(sp.cost ?? 0)} · +${short(sp.cashflow ?? 0)}`;
-    case 'venture': return `${short(sp.cost ?? 0)} · ⚄${(sp.win ?? []).join('/')}`;
+    case 'business': return `${short(spaceCost(s, sp))} · +${short(sp.cashflow ?? 0)}`;
+    case 'venture': return `${short(spaceCost(s, sp))} · ⚄${(sp.win ?? []).join('/')}`;
     case 'dream': return short(sp.cost ?? 0);
     default: return '';
   }
@@ -237,14 +244,22 @@ function TilePeek({ s, t, peek }: { s: CFState; t: Dict; peek: Peek }) {
   }
   const sp = FAST_BOARD[peek.id];
   const owner = s.fastOwners[sp.id] ? s.players[s.fastOwners[sp.id]] : null;
-  const hint = sp.kind === 'charity' ? t.cf.hints.fastCharity : t.cf.hints[sp.kind];
+  const mode = modeOf(s);
+  const hint = sp.kind === 'charity' ? t.cf.hints.fastCharity
+    : mode === 'lifestyle' && sp.kind === 'lawsuit' ? t.cf.hints.lifestyleLawsuit
+      : mode === 'lifestyle' && sp.kind === 'divorce' ? t.cf.hints.lifestyleDivorce
+        : mode === 'sharks' && sp.kind === 'business' ? t.cf.hints.sharksBusiness
+          : t.cf.hints[sp.kind];
   const dreamers = s.seats.filter((id) => s.players[id].dream === sp.id).map((id) => s.players[id].name);
   return (
     <p className="cfPeek" data-kind={sp.kind}>
       <strong>{fastName(t, sp.id)}</strong>
       <span>{hint}</span>
-      {sp.cost != null && <span className="num">{fmt(sp.cost)}</span>}
+      {sp.cost != null && <span className="num">{fmt(spaceCost(s, sp))}</span>}
       {sp.cashflow != null && <span className="num">+{fmt(sp.cashflow)}/mo</span>}
+      {owner && mode === 'sharks' && sp.kind === 'business' && (
+        <span className="num">{t.cf.board.toll(fmt(tollOf(sp)))}</span>
+      )}
       {owner && (
         <span style={{ color: owner.color }}>
           {sp.kind === 'venture' ? t.cf.board.cracked(owner.name) : t.cf.board.owner(owner.name)}

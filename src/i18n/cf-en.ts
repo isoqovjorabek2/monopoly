@@ -1,4 +1,4 @@
-import type { DebtKey, HoldingTag } from '../cashflow/types';
+import type { CFEconomy, CFMode, DebtKey, HoldingTag } from '../cashflow/types';
 
 /* ------------------------------------------------------------------ *
  * Nest Egg's words, English. Every other language fills in this exact
@@ -83,6 +83,9 @@ export const cfEn = {
     audit: 'Lose half your cash.',
     lawsuit: 'Lose half your cash.',
     divorce: 'Lose all your cash.',
+    lifestyleLawsuit: 'Lose your best-earning business, or half your cash if you own none.',
+    lifestyleDivorce: 'Lose all your cash and a quarter of your Dividend Day income.',
+    sharksBusiness: 'Buy it and it pays you every Dividend Day - and rivals who land here pay you a toll.',
   } as Record<string, string>,
 
   /** Free Lane businesses, ventures and dreams, by key. */
@@ -271,6 +274,9 @@ export const cfEn = {
     buyBusiness: (x: string) => `Buy for ${x}`,
     businessNote: (x: string) => `Adds ${x} to every Dividend Day.`,
     businessTaken: (name: string) => `${name} already owns this.`,
+    takeover: (x: string) => `Take it over for ${x}`,
+    takeoverNote: (name: string) => `${name} owns it. The price goes to them, and what it earns comes to you.`,
+    toll: (name: string, x: string) => `${name} owns it: you paid a ${x} toll.`,
     tryVenture: (x: string) => `Stake ${x}`,
     ventureNote: (faces: string, x: string) => `Roll ${faces} and it pays ${x}.`,
     ventureClosed: 'Somebody has already cracked this one.',
@@ -326,6 +332,9 @@ export const cfEn = {
     marks: (n: number) => `${n} rival${s(n)} landed on it`,
     businesses: 'Businesses',
     cash: 'Cash',
+    upkeep: 'Upkeep',
+    net: 'Kept each Dividend Day',
+    fallNote: 'A Free Lane bill you cannot pay sends you back to the Grind.',
   },
 
   rail: {
@@ -355,6 +364,18 @@ export const cfEn = {
     owner: (name: string) => `Owned by ${name}`,
     cracked: (name: string) => `Cracked by ${name}`,
     dreamOf: (names: string) => `Dream of ${names}`,
+    toll: (x: string) => `Landing here costs a ${x} toll.`,
+  },
+
+  economy: {
+    title: 'Economy',
+    names: { boom: 'Boom', steady: 'Steady', bust: 'Bust' } as Record<CFEconomy, string>,
+    left: (n: number) => `${n} round${s(n)} to go`,
+    about: {
+      boom: 'Dividend Days pay half as much again; shares, buyers and businesses are dearer.',
+      steady: 'Prices and Dividend Days as printed.',
+      bust: 'Dividend Days pay half; shares, buyers and businesses are cheap. A time to buy.',
+    } as Record<CFEconomy, string>,
   },
 
   log: {
@@ -400,6 +421,13 @@ export const cfEn = {
     audit: (p: string, x: string) => `${p} was audited and lost ${x}.`,
     lawsuit: (p: string, x: string) => `${p} was sued and lost ${x}.`,
     divorce: (p: string, x: string) => `${p} divorced and lost ${x}.`,
+    cashflowDayUpkeep: (p: string, x: string, u: string) => `${p} collected ${x} on Dividend Day, against ${u} of upkeep.`,
+    fell: (p: string, n: number) => `${p} could not pay and fell back into the Grind.${n > 0 ? ` Creditors took ${n} asset${s(n)}.` : ''}`,
+    businessLost: (p: string, what: string, x: string) => `${p} was sued and lost ${what} (${x} a day).`,
+    incomeCut: (p: string, x: string) => `${p}'s Dividend Day income fell by ${x}.`,
+    economy: (phase: string, n: number) => `The economy turns: ${phase} for ${n} round${s(n)}.`,
+    toll: (p: string, owner: string, what: string, x: string) => `${p} paid ${owner} a ${x} toll at ${what}.`,
+    takeover: (p: string, what: string, from: string, x: string) => `${p} bought ${what} out from under ${from} for ${x}.`,
     dreamBought: (p: string, d: string, x: string) => `${p} bought ${d} for ${x}!`,
     over: {
       dream: (p: string) => `${p} bought their dream and wins.`,
@@ -424,6 +452,13 @@ export const cfEn = {
     pace: ['Brisk pace', 'Two dice in the Grind and a double Pay Check. Games run about a third shorter.'] as [string, string],
     chipBrisk: 'Brisk',
     chipClassic: 'Classic pace',
+    mode: 'Mode',
+    modes: {
+      classic: ['Classic', 'Once you are out of the Grind, nothing sends you back.'],
+      lifestyle: ['Lifestyle', 'Your bills follow you onto the Free Lane as upkeep every Dividend Day. Lawsuits take businesses, divorce cuts your income. Miss a bill and you fall back into the Grind.'],
+      boom: ['Boom & Bust', 'The economy turns every few rounds, moving Dividend Days, share prices, Market offers and business prices. A long bust can send you back to the Grind.'],
+      sharks: ['Sharks', 'Landing on a rival’s Free Lane business costs a toll, and businesses can be bought out from under their owners at double the price. A toll you cannot pay sends you back to the Grind.'],
+    } as Record<CFMode, [string, string]>,
   },
 
   gameOver: {
@@ -455,6 +490,13 @@ export const cfEn = {
         'Buy your dream and you win. Or build enough new monthly income from businesses.',
         'Audits and lawsuits take half your cash; divorce takes all of it.',
         'Deals passed on from the Grind are open to you too: what one earns a month is added to your Dividend Day.',
+      ]],
+      ['Modes', [
+        'Classic: once out of the Grind, nothing sends you back.',
+        'Every other mode charges upkeep on the Free Lane each Dividend Day. A Free Lane bill you cannot pay drops you back into the Grind: your businesses go, and creditors take your best assets until passive income no longer beats expenses.',
+        'Lifestyle: upkeep is a hundred times the expenses you left with. A lawsuit takes your best business; a divorce takes your cash and a quarter of your income.',
+        'Boom & Bust: every few rounds the economy turns. A boom pays more and costs more; a bust pays half and puts everything on sale.',
+        'Sharks: landing on a rival’s business costs ten months of what it earns, and it can be taken over at double its price.',
       ]],
     ] as [string, string[]][],
     keys: 'Space ends the turn or rolls. Buying and selling stay on the mouse.',

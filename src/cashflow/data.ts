@@ -1,5 +1,5 @@
 import type {
-  CFCard, CFDeck, DealCard, DebtKey, DoodadCard, FastSpace, HoldingTag,
+  CFCard, CFDeck, CFEconomy, CFMode, DealCard, DebtKey, DoodadCard, FastSpace, HoldingTag,
   MarketCard, Profession, RatKind, RatSpace,
 } from './types';
 
@@ -72,6 +72,33 @@ export const FEE_STEP = 100;
 
 /** Dividend Day income on leaving the Grind: this times passive income. */
 export const BUYOUT_MULTIPLE = 100;
+
+/** Free Lane upkeep, paid every Dividend Day: this share of a hundred times
+ *  the expenses you left the Grind with. At 1 a player keeps exactly a
+ *  hundred times the margin they escaped on, so a thin escape stays thin. */
+export const UPKEEP_SHARE: Record<CFMode, number> = { classic: 0, lifestyle: 1, boom: 0.8, sharks: 0.7 };
+
+/** Lifestyle: the share of Dividend Day income a divorce takes for good. */
+export const DIVORCE_CUT = 0.25;
+
+/** Boom & Bust: what each turn of the economy does to Dividend Day income,
+ *  share prices, Market offers and Free Lane business and venture prices.
+ *  A bust is the time to buy. */
+export const ECONOMY: Record<CFEconomy, { day: number; shares: number; market: number; business: number }> = {
+  boom: { day: 1.5, shares: 1.5, market: 1.25, business: 1.25 },
+  steady: { day: 1, shares: 1, market: 1, business: 1 },
+  bust: { day: 0.5, shares: 0.6, market: 0.75, business: 0.75 },
+};
+
+/** Rounds the economy holds before it turns again, inclusive. */
+export const ECONOMY_SPAN: [number, number] = [3, 5];
+
+/** Sharks: landing on a rival's business costs this many months of what it earns. */
+export const TOLL_MONTHS = 10;
+
+/** Sharks: a rival's business can be bought out from under them at this
+ *  times its price, paid to them. */
+export const TAKEOVER_MULTIPLE = 2;
 
 /* ----------------------------- the Grind --------------------------- */
 

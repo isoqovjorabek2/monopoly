@@ -87,6 +87,9 @@ export const cfUz: CFDict = {
     audit: 'Naqd pulingizning yarmini yo‘qotasiz.',
     lawsuit: 'Naqd pulingizning yarmini yo‘qotasiz.',
     divorce: 'Barcha naqd pulingizni yo‘qotasiz.',
+    lifestyleLawsuit: 'Eng daromadli biznesingizni, u bo‘lmasa naqd pulning yarmini yo‘qotasiz.',
+    lifestyleDivorce: 'Barcha naqd pulni va Dividend kuni daromadining choragini yo‘qotasiz.',
+    sharksBusiness: 'Sotib oling — u har Dividend kuni sizga to‘laydi, bu yerga tushgan raqiblar esa sizga boj to‘laydi.',
   },
 
   fast: {
@@ -272,6 +275,9 @@ export const cfUz: CFDict = {
     buyBusiness: (x) => `${x}ga sotib olish`,
     businessNote: (x) => `Har Dividend kuniga ${x} qo‘shadi.`,
     businessTaken: (name) => `Bu allaqachon ${name}niki.`,
+    takeover: (x) => `${x}ga egallab olish`,
+    takeoverNote: (name) => `Egasi — ${name}. Pul unga tushadi, daromad esa sizga o‘tadi.`,
+    toll: (name, x) => `Egasi — ${name}: siz ${x} boj to‘ladingiz.`,
     tryVenture: (x) => `${x} tikish`,
     ventureNote: (faces, x) => `${faces} tushsa, ${x} to‘laydi.`,
     ventureClosed: 'Bu imkoniyatni allaqachon kimdir qo‘lga kiritgan.',
@@ -327,6 +333,9 @@ export const cfUz: CFDict = {
     marks: (n) => `${n} ta raqib unga tushgan`,
     businesses: 'Bizneslar',
     cash: 'Naqd pul',
+    upkeep: 'Ta’minot',
+    net: 'Har Dividend kunidan qoladi',
+    fallNote: 'Erkin yo‘lda to‘lanmagan hisob sizni olmaxon g‘ildiragiga qaytaradi.',
   },
 
   rail: {
@@ -356,6 +365,18 @@ export const cfUz: CFDict = {
     owner: (name) => `Egasi: ${name}`,
     cracked: (name) => `Qo‘lga kiritdi: ${name}`,
     dreamOf: (names) => `Orzu: ${names}`,
+    toll: (x) => `Bu yerga tushgan ${x} boj to‘laydi.`,
+  },
+
+  economy: {
+    title: 'Iqtisod',
+    names: { boom: 'Yuksalish', steady: 'Barqaror', bust: 'Tanazzul' },
+    left: (n) => `yana ${n} aylana`,
+    about: {
+      boom: 'Dividend kunlari bir yarim baravar ko‘p to‘laydi; aksiyalar, xaridorlar va bizneslar qimmatroq.',
+      steady: 'Narxlar va Dividend kunlari — yozilganidek.',
+      bust: 'Dividend kunlari yarmini to‘laydi; aksiyalar, xaridorlar va bizneslar arzon. Sotib olish payti.',
+    },
   },
 
   log: {
@@ -401,6 +422,13 @@ export const cfUz: CFDict = {
     audit: (p, x) => `${p} soliq tekshiruvida ${x} yo‘qotdi.`,
     lawsuit: (p, x) => `${p} sudda ${x} yo‘qotdi.`,
     divorce: (p, x) => `${p} ajrashdi va ${x} yo‘qotdi.`,
+    cashflowDayUpkeep: (p, x, u) => `${p} Dividend kunida ${x} oldi; ta’minot — ${u}.`,
+    fell: (p, n) => `${p} to‘lay olmadi va olmaxon g‘ildiragiga qaytdi.${n > 0 ? ` Kreditorlar ${n} ta aktivni oldi.` : ''}`,
+    businessLost: (p, what, x) => `${p} sudda yutqazdi va «${what}»ni yo‘qotdi (kuniga ${x}).`,
+    incomeCut: (p, x) => `${p}ning Dividend kuni daromadi ${x}ga kamaydi.`,
+    economy: (phase, n) => `Iqtisod o‘zgardi: ${phase}, ${n} aylana.`,
+    toll: (p, owner, what, x) => `${p} «${what}» uchun ${dat(owner)} ${x} boj to‘ladi.`,
+    takeover: (p, what, from, x) => `${p} «${what}»ni ${from}dan ${x}ga sotib oldi.`,
     dreamBought: (p, d, x) => `${p} «${d}» orzusini ${x}ga sotib oldi!`,
     over: {
       dream: (p) => `${p} o‘z orzusini sotib oldi va g‘olib bo‘ldi.`,
@@ -425,6 +453,13 @@ export const cfUz: CFDict = {
     pace: ['Tez sur’at', 'G‘ildirakda ikki zar va ikki barobar maosh. O‘yin taxminan uchdan bir qisqa.'],
     chipBrisk: 'Tez sur’at',
     chipClassic: 'Klassik sur’at',
+    mode: 'Rejim',
+    modes: {
+      classic: ['Klassik', 'G‘ildirakdan chiqqaningizdan keyin sizni hech narsa orqaga qaytarmaydi.'],
+      lifestyle: ['Turmush tarzi', 'Xarajatlaringiz Erkin yo‘lga ham ergashadi: har Dividend kuni ta’minot to‘lovi. Sud biznesni oladi, ajrashish daromadni kesadi. To‘lay olmasangiz — olmaxon g‘ildiragiga qaytasiz.'],
+      boom: ['Yuksalish va tanazzul', 'Har bir necha aylanada iqtisod o‘zgaradi: Dividend kunlari, aksiya narxlari, Bozor takliflari va biznes narxlari. Uzoq tanazzul sizni g‘ildirakka qaytarishi mumkin.'],
+      sharks: ['Akulalar', 'Erkin yo‘lda raqibning biznesiga tushsangiz, boj to‘laysiz, biznesni esa egasidan ikki baravar narxga sotib olish mumkin. Bojni to‘lay olmasangiz — g‘ildirakka qaytasiz.'],
+    },
   },
 
   gameOver: {
@@ -456,6 +491,13 @@ export const cfUz: CFDict = {
         'Orzuingizni sotib olsangiz — g‘alaba. Yoki bizneslardan yetarli yangi oylik daromad yarating.',
         'Tekshiruv va sud naqd pulning yarmini, ajrashish esa hammasini oladi.',
         'G‘ildirakdan berilgan bitimlar sizga ham ochiq: ularning oylik daromadi Dividend kuniga qo‘shiladi.',
+      ]],
+      ['Rejimlar', [
+        'Klassik: g‘ildirakdan chiqqaningizdan keyin sizni hech narsa orqaga qaytarmaydi.',
+        'Boshqa rejimlarda Erkin yo‘l har Dividend kuni ta’minot to‘lovini oladi. To‘lay olmagan hisobingiz sizni olmaxon g‘ildiragiga qaytaradi: bizneslar ketadi, kreditorlar esa passiv daromad xarajatlardan oshmay qolguncha eng yaxshi aktivlaringizni oladi.',
+        'Turmush tarzi: ta’minot siz chiqqan paytdagi xarajatlardan yuz baravar ko‘p. Sud eng yaxshi biznesni, ajrashish esa naqd pul va daromadning choragini oladi.',
+        'Yuksalish va tanazzul: har bir necha aylanada iqtisod o‘zgaradi. Yuksalish ko‘proq to‘laydi va qimmatroq; tanazzul yarmini to‘laydi va hamma narsa arzonlashadi.',
+        'Akulalar: raqib biznesiga tushish uning o‘n oylik daromadiga tushadi, biznesni esa ikki baravar narxga egallab olish mumkin.',
       ]],
     ],
     keys: 'Probel zar tashlaydi yoki navbatni tugatadi. Sotib olish va sotish — faqat sichqoncha bilan.',

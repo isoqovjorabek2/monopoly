@@ -164,6 +164,23 @@
 }
 .cfCenter__hud { margin: 0; color: var(--ivory-100); font-size: 1.15em; line-height: 1.4; }
 .cfCenter__card { width: 100%; }
+.cfEconomy {
+  margin: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5em;
+  padding: 0.25em 0.8em;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--ivory-100) 30%, transparent);
+  background: rgb(0 0 0 / 0.35);
+  color: var(--ivory-100);
+  cursor: help;
+}
+.cfEconomy__label { opacity: 0.7; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.06em; }
+.cfEconomy[data-phase='boom'] { border-color: color-mix(in oklab, var(--success-400) 60%, transparent); }
+.cfEconomy[data-phase='boom'] strong { color: var(--success-400); }
+.cfEconomy[data-phase='bust'] { border-color: color-mix(in oklab, var(--danger-400) 60%, transparent); }
+.cfEconomy[data-phase='bust'] strong { color: var(--danger-400); }
 .cfDice { display: flex; gap: 0.3em; }
 .cfDie {
   font-size: 2.6em;

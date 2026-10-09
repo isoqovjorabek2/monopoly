@@ -3,7 +3,7 @@ import { TakeSeatPanel } from '../Account';
 import { FAST_BOARD, FEE_STEP, HOLD_SECONDS, LOAN_UNIT, RAT_BOARD } from '../../cashflow/data';
 import {
   charityCost, clockKey, clockSeconds, currentId, dealImpact, dreamPrice, holdKey, holdingCard, legalActions,
-  maxFee, maxLoan, settlement, tableCard,
+  maxFee, maxLoan, modeOf, settlement, spaceCost, tableCard, takeoverPrice, tollOf,
 } from '../../cashflow/rules';
 import type { CFAction, CFPlayer, CFState } from '../../cashflow/types';
 import { money } from '../../game/describe';
@@ -415,12 +415,24 @@ function LandingControls({ s, me, legal, dispatch }: Part) {
 
   switch (sp.kind) {
     case 'business':
+      if (holder && holder.id !== me.id && modeOf(s) === 'sharks') {
+        return (
+          <div className="cfActions__stack">
+            <p className="muted small">{A.toll(holder.name, fmt(tollOf(sp)))}</p>
+            <button type="button" className="btn btn--block" disabled={!can('TAKEOVER')}
+              onClick={() => dispatch({ type: 'TAKEOVER', playerId: me.id })}>
+              {A.takeover(fmt(takeoverPrice(s, sp)))}
+            </button>
+            <p className="muted small">{can('TAKEOVER') ? A.takeoverNote(holder.name) : t.common.notEnoughCash}</p>
+          </div>
+        );
+      }
       if (holder) return <p className="muted small">{A.businessTaken(holder.name)}</p>;
       return (
         <div className="cfActions__stack">
           <button type="button" className="btn btn--block" disabled={!can('BUY_BUSINESS')}
             onClick={() => dispatch({ type: 'BUY_BUSINESS', playerId: me.id })}>
-            {A.buyBusiness(fmt(sp.cost ?? 0))}
+            {A.buyBusiness(fmt(spaceCost(s, sp)))}
           </button>
           <p className="muted small">{can('BUY_BUSINESS') ? A.businessNote(fmt(sp.cashflow ?? 0)) : t.common.notEnoughCash}</p>
         </div>
@@ -432,7 +444,7 @@ function LandingControls({ s, me, legal, dispatch }: Part) {
         <div className="cfActions__stack">
           <button type="button" className="btn btn--block" disabled={!can('TRY_VENTURE')}
             onClick={() => dispatch({ type: 'TRY_VENTURE', playerId: me.id })}>
-            {A.tryVenture(fmt(sp.cost ?? 0))}
+            {A.tryVenture(fmt(spaceCost(s, sp)))}
           </button>
           <p className="muted small">{A.ventureNote((sp.win ?? []).join('/'), pays)}</p>
         </div>

@@ -180,6 +180,9 @@ export interface CFPlayer {
   dreamMarks: number;
   /** Charity on the Fast Track: choose 1, 2 or 3 dice from then on. */
   fastCharity: boolean;
+  /** Paid every Dividend Day on the Free Lane, in every mode but classic.
+   *  Absent in games saved before modes existed. */
+  upkeep?: number;
 }
 
 export type CFPhase =
@@ -193,6 +196,17 @@ export type CFPhase =
 /** Classic is the full-length game. Brisk shortens the Grind - see
  *  PACE in data.ts for exactly what it changes. */
 export type CFPace = 'classic' | 'brisk';
+
+/** What can go wrong once you are out of the Grind. Classic: nothing that
+ *  sends you back. The rest charge upkeep on the Free Lane, and a bill you
+ *  cannot pay there drops you back into the Grind - see `fall` in engine.ts.
+ *  - lifestyle: the heaviest upkeep; a lawsuit takes a business and a
+ *    divorce cuts Dividend Day income.
+ *  - boom: the economy turns every few rounds (ECONOMY in data.ts).
+ *  - sharks: rivals' businesses charge a toll, and can be taken over. */
+export type CFMode = 'classic' | 'lifestyle' | 'boom' | 'sharks';
+
+export type CFEconomy = 'boom' | 'steady' | 'bust';
 
 export interface CFSettings {
   seed: number;
@@ -211,6 +225,8 @@ export interface CFSettings {
   turnTimer: number;
   /** Absent in games saved before it existed, which were all classic. */
   pace?: CFPace;
+  /** Absent in games saved before modes existed, which were all classic. */
+  mode?: CFMode;
 }
 
 /** Where everyone stood at the start of a round, for the closing chart. */
@@ -221,7 +237,7 @@ export interface CFHistoryPoint {
 }
 
 /** The part of the settings the lobby shows as Cashflow's own rules. */
-export type CFRules = Pick<CFSettings, 'strictLoans' | 'turnLimit' | 'fastGoal' | 'pace'>;
+export type CFRules = Pick<CFSettings, 'strictLoans' | 'turnLimit' | 'fastGoal' | 'pace' | 'mode'>;
 
 export interface CFTableCard {
   id: string;
@@ -234,7 +250,8 @@ export interface CFTableCard {
    *  Absent while the deal is still only theirs. */
   fee?: number;
   /** What a share costs today, rolled when a stock card is drawn. The
-   *  printed price is only where the roll centres - see `stockQuote`. */
+   *  printed price is only where the roll centres - see `stockQuote`. A
+   *  Market offer carries one too when the economy has moved its price. */
   price?: number;
 }
 
@@ -263,6 +280,8 @@ export interface CFState {
 
   /** Fast Track business -> owner; venture -> whoever cracked it. */
   fastOwners: Record<number, string>;
+  /** Boom & Bust only: how the economy stands, and the round it turns. */
+  economy?: { phase: CFEconomy; until: number };
 
   turnNumber: number;
   /** Times round the table, from 1. A turn limit counts these, so every
@@ -296,6 +315,8 @@ export type CFAction =
   | { type: 'BUY_BUSINESS'; playerId: string }
   | { type: 'TRY_VENTURE'; playerId: string }
   | { type: 'BUY_DREAM'; playerId: string }
+  /** Sharks: buy the rival's business you landed on, at TAKEOVER_MULTIPLE. */
+  | { type: 'TAKEOVER'; playerId: string }
   | { type: 'END_TURN'; playerId: string }
   /** Sent by the host when a player's clock runs out or they have left the
    *  table: the engine makes their pending decision for them. */
@@ -310,7 +331,8 @@ export type CFEvent =
   | { type: 'ROLLED'; playerId: string; dice: number[] }
   | { type: 'MOVED'; playerId: string; track: CFTrack; from: number; to: number; steps: number }
   | { type: 'PAYDAY'; playerId: string; amount: number }
-  | { type: 'CASHFLOW_DAY'; playerId: string; amount: number }
+  /** `upkeep` is what came straight back out, where the mode charges it. */
+  | { type: 'CASHFLOW_DAY'; playerId: string; amount: number; upkeep?: number }
   | { type: 'CARD'; playerId: string; cardId: string; price?: number }
   | { type: 'BOUGHT_STOCK'; playerId: string; symbol: string; shares: number; price: number }
   | { type: 'SOLD_STOCK'; playerId: string; symbol: string; shares: number; price: number }
@@ -336,6 +358,15 @@ export type CFEvent =
   | { type: 'DREAM_MARKED'; playerId: string; owner: string; spaceId: number }
   | { type: 'LOSS'; playerId: string; kind: 'audit' | 'lawsuit' | 'divorce'; amount: number }
   | { type: 'DREAM_BOUGHT'; playerId: string; spaceId: number; cost: number }
+  /** A Free Lane bill went unpaid: back to the Grind, `seized` assets fewer. */
+  | { type: 'FELL'; playerId: string; seized: number }
+  /** Lifestyle: a lawsuit took a business. */
+  | { type: 'BUSINESS_LOST'; playerId: string; spaceId: number; cashflow: number }
+  /** Lifestyle: a divorce took part of Dividend Day income. */
+  | { type: 'INCOME_CUT'; playerId: string; amount: number }
+  | { type: 'ECONOMY'; phase: CFEconomy; rounds: number }
+  | { type: 'TOLL'; playerId: string; owner: string; spaceId: number; amount: number }
+  | { type: 'TAKEOVER'; playerId: string; from: string; spaceId: number; price: number; cashflow: number }
   | { type: 'TIMED_OUT'; playerId: string }
   /** A signed-in player took over a bot's seat mid-game. */
   | { type: 'SEAT_TAKEN'; playerId: string; name: string; previous: string }

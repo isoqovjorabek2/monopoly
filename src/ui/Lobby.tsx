@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CLASSIC, PRESETS, TOKENS } from '../game/settings';
 import type { BotLevel, GameSettings, TakeoverPolicy } from '../game/types';
-import type { CFRules } from '../cashflow/types';
+import type { CFMode, CFRules } from '../cashflow/types';
 import { MAF_MIN_PLAYERS } from '../mafia/data';
 import { useT, useBoardTheme } from '../i18n';
 import { hasDirectory } from '../net/directory';
@@ -19,6 +19,8 @@ import { AdBanner, RewardedBoards } from './Ads';
 import { LonelyTable } from './LonelyTable';
 
 type Tab = 'seats' | 'rules' | 'economy' | 'pace';
+
+const CF_MODES: CFMode[] = ['classic', 'lifestyle', 'boom', 'sharks'];
 
 export function Lobby() {
   const t = useT();
@@ -254,6 +256,9 @@ export function Lobby() {
             <>
               <span className="chip num">{t.cf.lobby.chipGoal(fmt(room.cfRules.fastGoal))}</span>
               <span className="chip">{room.cfRules.strictLoans ? t.cf.lobby.strict : t.cf.lobby.open}</span>
+              {(room.cfRules.mode ?? 'classic') !== 'classic' && (
+                <span className="chip" data-tone="bad">{t.cf.lobby.modes[room.cfRules.mode ?? 'classic'][0]}</span>
+              )}
               <span className="chip">{room.cfRules.pace === 'brisk' ? t.cf.lobby.chipBrisk : t.cf.lobby.chipClassic}</span>
               <span className="chip">
                 {room.cfRules.turnLimit > 0 ? t.cf.lobby.chipRounds(room.cfRules.turnLimit) : t.cf.lobby.noLimit}
@@ -503,6 +508,16 @@ function CashflowSettings({
       <fieldset className="settings" disabled={!canEdit}>
         {!canEdit && <p className="muted small settings__lock">{L.hostOnly}</p>}
         <p className="muted small">{C.about}</p>
+        <div className="labelled">
+          <span className="switch__label">{C.mode}</span>
+          <Segmented
+            label={C.mode}
+            value={r.mode ?? 'classic'}
+            onChange={(v) => setRules({ mode: v })}
+            options={CF_MODES.map((m) => ({ value: m, label: C.modes[m][0] }))}
+          />
+          <p className="muted small">{C.modes[r.mode ?? 'classic'][1]}</p>
+        </div>
         <div className="settings__cols">
           <Toggle
             label={C.strictLoans[0]}
