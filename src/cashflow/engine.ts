@@ -7,7 +7,7 @@ import {
 import {
   autopilotAction, canEscape, charityCost, currentId, currentPlayer, defaultDice, dreamPrice,
   holdingCard, isBrisk, isLegal, monthlyCashflow, ownsRental, passiveIncome, progress, settlement,
-  tableCard, totalExpenses, waitingOn, type HoldingCard,
+  stockQuote, tableCard, totalExpenses, waitingOn, type HoldingCard,
 } from './rules';
 import type {
   CFAction, CFDeck, CFEvent, CFPlayer, CFReduction, CFSettings, CFState, DebtKey,
@@ -474,10 +474,14 @@ function drawDeal(s: CFState, events: CFEvent[], me: CFPlayer, deck: 'small' | '
   const id = draw(s, deck);
   s.phase = 'turn_end';
   if (!id) return;
-  s.card = { id, by: me.id, used: false };
-  events.push({ type: 'CARD', playerId: me.id, cardId: id });
-
   const card = cfCard(id);
+  s.card = { id, by: me.id, used: false };
+  if (card && card.deck !== 'market' && card.deck !== 'doodad' && card.kind === 'stock') {
+    s.card.price = stockQuote(card, s.settings.seed, s.rngCursor);
+    s.rngCursor += 1;
+  }
+  events.push({ type: 'CARD', playerId: me.id, cardId: id, price: s.card.price });
+
   if (card && card.deck !== 'market' && card.deck !== 'doodad' && card.kind === 'split') {
     // A split happens to everyone who holds the stock, the moment it is read.
     for (const pid of s.seats) {

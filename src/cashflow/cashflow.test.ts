@@ -222,6 +222,65 @@ describe('the Rat Race', () => {
   });
 });
 
+/** p0 about to draw `cardId` off the top of the Small Deals. */
+function aboutToDraw(seed: number, cardId: string): CFState {
+  return edit(started(seed), (c) => {
+    c.phase = 'choose_deal';
+    c.decks.small[c.cursors.small % c.decks.small.length] = cardId;
+  });
+}
+
+describe('share prices', () => {
+  const card = (symbol: string, price: number) =>
+    SMALL_DEALS.find((c) => c.kind === 'stock' && c.symbol === symbol && c.price === price)!;
+
+  it('quotes a share card at a different price from game to game', () => {
+    const twenty = card('MEDX', 20);
+    const quotes = new Set<number>();
+    for (let seed = 1; seed <= 60; seed++) {
+      const r = reduce(aboutToDraw(seed, twenty.id), { type: 'DRAW_DEAL', playerId: 'p0', deck: 'small' });
+      const q = r.state.card?.price;
+      expect(q).toBeDefined();
+      expect(q!).toBeGreaterThanOrEqual(10);
+      expect(q!).toBeLessThanOrEqual(30);
+      quotes.add(q!);
+      const drawn = r.events.find((e) => e.type === 'CARD');
+      expect(drawn && drawn.type === 'CARD' && drawn.price).toBe(q);
+    }
+    expect(quotes.size).toBeGreaterThan(10);
+  });
+
+  it('moves the $1 card too, and never below $1', () => {
+    const one = card('VOLT', 1);
+    const quotes = new Set<number>();
+    for (let seed = 1; seed <= 60; seed++) {
+      quotes.add(reduce(aboutToDraw(seed, one.id), { type: 'DRAW_DEAL', playerId: 'p0', deck: 'small' }).state.card!.price!);
+    }
+    expect(Math.min(...quotes)).toBe(1);
+    expect(quotes.size).toBeGreaterThan(1);
+  });
+
+  it('buys and sells at the quote, not the printed price', () => {
+    const twenty = card('BYTE', 20);
+    let s = reduce(aboutToDraw(4, twenty.id), { type: 'DRAW_DEAL', playerId: 'p0', deck: 'small' }).state;
+    const q = s.card!.price!;
+    const cash = s.players.p0.cash;
+    const most = legalActions(s, 'p0').find((a) => a.type === 'BUY_STOCK');
+    expect(most && most.type === 'BUY_STOCK' && most.shares).toBe(Math.floor(cash / q));
+    s = reduce(s, { type: 'BUY_STOCK', playerId: 'p0', shares: 10 }).state;
+    expect(s.players.p0.cash).toBe(cash - 10 * q);
+    expect(s.players.p0.stocks[0]).toMatchObject({ symbol: 'BYTE', shares: 10, cost: q });
+    const sold = reduce(s, { type: 'SELL_STOCK', playerId: 'p0', shares: 10 });
+    expect(sold.state.players.p0.cash).toBe(cash);
+  });
+
+  it('leaves a bond at its one price', () => {
+    const cd = SMALL_DEALS.find((c) => c.kind === 'stock' && c.symbol === 'CD')!;
+    const r = reduce(aboutToDraw(4, cd.id), { type: 'DRAW_DEAL', playerId: 'p0', deck: 'small' });
+    expect(r.state.card?.price).toBe(1000);
+  });
+});
+
 describe('the Fast Track', () => {
   const onTrack = (patch: (c: CFState) => void) => edit(started(12), (c) => {
     const p = c.players.p0;

@@ -233,6 +233,9 @@ export interface CFTableCard {
    *  finder's fee anyone else in the Grind pays them to take it over.
    *  Absent while the deal is still only theirs. */
   fee?: number;
+  /** What a share costs today, rolled when a stock card is drawn. The
+   *  printed price is only where the roll centres - see `stockQuote`. */
+  price?: number;
 }
 
 export interface CFState {
@@ -308,7 +311,7 @@ export type CFEvent =
   | { type: 'MOVED'; playerId: string; track: CFTrack; from: number; to: number; steps: number }
   | { type: 'PAYDAY'; playerId: string; amount: number }
   | { type: 'CASHFLOW_DAY'; playerId: string; amount: number }
-  | { type: 'CARD'; playerId: string; cardId: string }
+  | { type: 'CARD'; playerId: string; cardId: string; price?: number }
   | { type: 'BOUGHT_STOCK'; playerId: string; symbol: string; shares: number; price: number }
   | { type: 'SOLD_STOCK'; playerId: string; symbol: string; shares: number; price: number }
   | { type: 'SPLIT'; symbol: string; factor: number }

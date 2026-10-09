@@ -69,8 +69,9 @@ export function fastName(t: Dict, spaceId: number): string {
 
 const noStop = (x: string): string => x.replace(/\.$/, '');
 
-/** A card, short enough for one log line. */
-export function cardTitle(t: Dict, cardId: string): string {
+/** A card, short enough for one log line. `price` is a stock's quote
+ *  when it was drawn, in place of the anchor printed on the card. */
+export function cardTitle(t: Dict, cardId: string, price?: number): string {
   const c = cfCard(cardId);
   if (!c) return cardId;
   const C = t.cf.card;
@@ -87,7 +88,7 @@ export function cardTitle(t: Dict, cardId: string): string {
       return cardId;
     default:
       switch (c.kind) {
-        case 'stock': return `${c.symbol} ${money(c.price)}`;
+        case 'stock': return `${c.symbol} ${money(price ?? c.price)}`;
         case 'split': return noStop(c.factor === 2 ? t.cf.log.split(c.symbol) : t.cf.log.reverse(c.symbol));
         case 'holding': return `${t.cf.tags[c.tag]}, ${money(c.cost)}`;
       }
@@ -116,7 +117,7 @@ export function cfDescribe(s: CFState, e: CFEvent, t: Dict): string {
     case 'CARD': {
       const c = cfCard(e.cardId);
       const deck = c ? t.cf.decks[c.deck] : '';
-      return L.card(name(e.playerId), deck, cardTitle(t, e.cardId));
+      return L.card(name(e.playerId), deck, cardTitle(t, e.cardId, e.price));
     }
     case 'BOUGHT_STOCK': return L.boughtStock(name(e.playerId), e.shares, e.symbol, money(e.price));
     case 'SOLD_STOCK': return L.soldStock(name(e.playerId), e.shares, e.symbol, money(e.price));

@@ -1,6 +1,7 @@
 import {
   DEBT_KEYS, DREAM_IDS, FAST_BOARD, FEE_STEP, LOAN_UNIT, RAT_BOARD, RENTAL_TAGS, cfCard,
 } from './data';
+import { randInt } from '../game/rng';
 import type {
   CFAction, CFCard, CFHolding, CFPlayer, CFState, DealCard, MarketCard,
 } from './types';
@@ -108,8 +109,29 @@ export function dealImpact(p: CFPlayer, cashflow: number, loan = 0): DealImpact 
 
 export type OfferCard = Extract<MarketCard, { kind: 'offer' }>;
 
-export const tableCard = (s: CFState): CFCard | undefined =>
-  (s.card ? cfCard(s.card.id) : undefined);
+export type StockCard = Extract<DealCard, { kind: 'stock' }>;
+
+/** The card on the table, with a stock at the price it was drawn at. */
+export function tableCard(s: CFState): CFCard | undefined {
+  const c = s.card ? cfCard(s.card.id) : undefined;
+  if (c && c.deck !== 'market' && c.deck !== 'doodad' && c.kind === 'stock' && s.card?.price != null) {
+    return { ...c, price: s.card.price };
+  }
+  return c;
+}
+
+/**
+ * Today's price for a share card. The printed price is only an anchor: the
+ * quote lands anywhere within 40% of it, give or take $2 more, so a $20
+ * card can open at $11 or $29 and the deck no longer reads as a fixed
+ * ladder from $1 to $40. Bonds (one fixed price) are not quoted.
+ */
+export function stockQuote(c: StockCard, seed: number, cursor: number): number {
+  if (c.range[0] === c.range[1]) return c.price;
+  const lo = Math.max(1, Math.round(c.price * 0.6) - 2);
+  const hi = Math.round(c.price * 1.4) + 2;
+  return randInt(seed, cursor, lo, hi);
+}
 
 export const offerValue = (c: OfferCard, h: CFHolding): number =>
   (c.perUnit ? c.price * h.units : c.price);

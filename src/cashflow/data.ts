@@ -167,8 +167,9 @@ const hold = (deck: 'small' | 'big', tag: HoldingTag, units: number,
   ({ deck, kind: 'holding', tag, units, cost, down, cashflow });
 
 /** Small Deals: nothing here needs more than $5,000 down. Mostly shares,
- *  which swing from $1 to $40 and pay nothing - the money is in buying low
- *  and waiting for a card that lets you sell high. */
+ *  which pay nothing - the money is in buying low and waiting for a card
+ *  that lets you sell high. The price printed on a share card is only an
+ *  anchor: the real quote is rolled when it is drawn (`stockQuote`). */
 export const SMALL_DEALS: readonly DealCard[] = number<DealCard>('s', [
   ...[1, 5, 10, 20, 30, 40].map((p) => stock('small', 'MEDX', p)),
   ...[1, 5, 10, 20, 30, 40].map((p) => stock('small', 'VOLT', p)),

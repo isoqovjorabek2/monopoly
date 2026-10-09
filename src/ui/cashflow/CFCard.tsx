@@ -1,5 +1,5 @@
 import { cfSpaceArt, type CFSpaceArt } from '../../art/art';
-import { cfCard } from '../../cashflow/data';
+import { tableCard } from '../../cashflow/rules';
 import type { CFDeck, CFState } from '../../cashflow/types';
 import { cap, useT } from '../../i18n';
 import { fmt } from '../bits';
@@ -19,7 +19,7 @@ export function CFTableCardView({ s }: { s: CFState }) {
   const t = useT();
   const C = t.cf.card;
   if (!s.card) return null;
-  const card = cfCard(s.card.id);
+  const card = tableCard(s);
   if (!card) return null;
   const by = s.players[s.card.by];
 
